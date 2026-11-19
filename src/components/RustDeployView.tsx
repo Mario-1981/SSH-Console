@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, Copy, Check, FileCode2 } from 'lucide-react';
+import { Download, Copy, Check, FileCode2, Package, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../api';
 import type { RustProjectFile } from '../types';
 
@@ -8,6 +8,9 @@ export function RustDeployView() {
   const [selectedPath, setSelectedPath] = useState<string>('Cargo.toml');
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [downloadingDeb, setDownloadingDeb] = useState(false);
+  const [downloadingTar, setDownloadingTar] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -30,63 +33,109 @@ export function RustDeployView() {
     setTimeout(() => setCopied(false), 1800);
   }
 
+  async function handleDownloadDeb() {
+    setDownloadError(null);
+    setDownloadingDeb(true);
+    try {
+      await api.downloadDebPackage();
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Download des Debian-Pakets fehlgeschlagen.');
+    } finally {
+      setDownloadingDeb(false);
+    }
+  }
+
+  async function handleDownloadTar() {
+    setDownloadError(null);
+    setDownloadingTar(true);
+    try {
+      await api.downloadRustArchive();
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Download des Archivs fehlgeschlagen.');
+    } finally {
+      setDownloadingTar(false);
+    }
+  }
+
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
-            Rust-Quellcode &amp; Debian Trixie Bereitstellung
+            Debian-Paket (.deb) &amp; Rust-Quellcode
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Vollständiges Rust-Projekt (Axum, Tokio, SQLite, Argon2, AES-256-GCM) inklusive systemd-Unit, Installationsskript und Debian-13-Dockerfile.
+            Installationsfertiges Debian-13-(Trixie)-Paket inkl. Web-Oberfläche, Rust-Server (Axum, Tokio, SQLite, Argon2, AES-256-GCM) und gehärtetem systemd-Dienst.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            void api.downloadRustArchive();
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-        >
-          <Download className="w-4 h-4" />
-          Rust-Projekt herunterladen (.tar.gz)
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            disabled={downloadingDeb}
+            onClick={handleDownloadDeb}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+          >
+            {downloadingDeb ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+            {downloadingDeb ? 'Erzeuge .deb-Paket...' : 'Debian-Paket herunterladen (.deb)'}
+          </button>
+
+          <button
+            type="button"
+            disabled={downloadingTar}
+            onClick={handleDownloadTar}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-60 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+          >
+            {downloadingTar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Quellcode (.tar.gz)
+          </button>
+        </div>
       </div>
 
-      {/* Quick Debian Trixie Deployment Guide */}
+      {downloadError && (
+        <div className="flex items-start gap-2.5 px-4 py-3 text-sm text-rose-800 bg-rose-50 border border-rose-200 rounded-md">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>{downloadError}</span>
+        </div>
+      )}
+
+      {/* Debian .deb Deployment Guide */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-3">
           <h2 className="font-display text-base font-semibold text-slate-900">
-            01. Installation auf Debian 13 (Trixie)
+            01. Installation per Debian-Paket (.deb)
           </h2>
-          <p className="text-xs text-slate-600">
-            Entpacken Sie das Archiv auf Ihrem Debian-Trixie-Host und führen Sie das Installationsskript aus. Es installiert <code className="font-mono">openssh-client</code>, kompiliert das Rust-Binary und richtet den gehärteten <code className="font-mono">systemd</code>-Dienst ein.
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Kopieren Sie <code className="font-mono">trixiessh_1.0.0_all.deb</code> auf Ihren Debian-13-Server und installieren Sie es mit <code className="font-mono">apt</code>. Alle Abhängigkeiten (<code className="font-mono">openssh-client</code>, <code className="font-mono">iputils-ping</code>, <code className="font-mono">curl</code>, Rust-Toolchain) werden automatisch aufgelöst, das native Binary für <code className="font-mono">amd64</code>/<code className="font-mono">arm64</code> kompiliert und der <code className="font-mono">systemd</code>-Dienst direkt gestartet.
           </p>
           <pre className="p-3.5 rounded-md bg-[#0B1120] text-slate-200 font-mono text-xs overflow-x-auto leading-relaxed">
-{`tar -xzf trixiessh-debian-trixie-rust.tar.gz
-cd trixiessh-rust
-chmod +x debian/install-trixie.sh
-./debian/install-trixie.sh`}
+{`sudo apt update
+sudo apt install ./trixiessh_1.0.0_all.deb
+
+# Dienststatus & Logs prüfen
+sudo systemctl status trixiessh
+sudo journalctl -u trixiessh -f`}
           </pre>
+          <p className="text-xs text-slate-500">
+            Port oder Bind-Adresse lassen sich jederzeit in <code className="font-mono">/etc/default/trixiessh</code> anpassen (danach <code className="font-mono">sudo systemctl restart trixiessh</code>). Deinstallation: <code className="font-mono">sudo apt remove trixiessh</code> (oder <code className="font-mono">purge</code> inkl. Datenbank).
+          </p>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-3">
           <h2 className="font-display text-base font-semibold text-slate-900">
-            02. OpenSSH-Zertifikat auf Zielservern einrichten
+            02. OpenSSH-Zertifikat oder Schlüsselpaar einrichten
           </h2>
-          <p className="text-xs text-slate-600">
-            Erzeugen Sie das 3-Dateien-Bündel (<code className="font-mono">zertifikat</code>,{' '}
-            <code className="font-mono">zertifikat.pub</code>,{' '}
-            <code className="font-mono">zertifikat-cert.pub</code>) mit Ihrer SSH-CA und tragen Sie{' '}
-            <code className="font-mono">TrustedUserCAKeys</code> auf den Zielservern ein.
+          <p className="text-xs text-slate-600 leading-relaxed">
+            TrixieSSH unterstützt sowohl klassische 2-Dateien-SSH-Schlüsselpaare (<code className="font-mono">zertifikat</code> + <code className="font-mono">zertifikat.pub</code> via <code className="font-mono">authorized_keys</code>) als auch CA-signierte 3-Dateien-Zertifikate inkl. <code className="font-mono">zertifikat-cert.pub</code>.
           </p>
           <pre className="p-3.5 rounded-md bg-[#0B1120] text-slate-200 font-mono text-xs overflow-x-auto leading-relaxed">
-{`# Benutzerschlüssel + CA-signiertes Zertifikat erstellen
+{`# Variante A: Klassisches Schlüsselpaar (ohne cert.pub)
 ssh-keygen -t ed25519 -f zertifikat -N ""
-ssh-keygen -s ssh_user_ca -I "benutzer-01" -n root,deploy -V +90d zertifikat.pub
+ssh-copy-id -i zertifikat.pub root@<ziel-ip>
 
-# Auf jedem Zielserver in /etc/ssh/sshd_config:
+# Variante B: Zusätzlich mit SSH-CA signieren
+ssh-keygen -s ssh_user_ca -I "benutzer-01" -n root,deploy -V +90d zertifikat.pub
+# Auf Zielservern in /etc/ssh/sshd_config:
 TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub`}
           </pre>
         </div>

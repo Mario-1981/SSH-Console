@@ -32,7 +32,7 @@ const TAB_BREADCRUMBS: Record<ActiveTab, { group: string; title: string }> = {
   account: { group: 'Konto', title: 'Passwort ändern' },
   'admin-commands': { group: 'Arbeitsbereich', title: 'SSH-Befehle' },
   'admin-users': { group: 'Administration', title: 'Benutzerverwaltung' },
-  'rust-deploy': { group: 'Bereitstellung', title: 'Rust & Debian Trixie' },
+  'rust-deploy': { group: 'Bereitstellung', title: 'Debian-Paket (.deb) & Rust' },
 };
 
 export default function App() {

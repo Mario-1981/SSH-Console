@@ -59,7 +59,8 @@ impl Database {
                 created_by TEXT NOT NULL,
                 shared_with_all INTEGER NOT NULL DEFAULT 0,
                 shared_with_user_ids TEXT NOT NULL DEFAULT '[]',
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS user_servers (
@@ -99,12 +100,17 @@ impl Database {
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
                 username TEXT NOT NULL,
+                command_id TEXT NOT NULL DEFAULT '',
                 command_name TEXT NOT NULL,
                 command_text TEXT NOT NULL,
                 target_ip TEXT NOT NULL,
                 target_port INTEGER NOT NULL,
                 ssh_user TEXT NOT NULL,
+                server_label TEXT NOT NULL DEFAULT '',
+                certificate_id TEXT NOT NULL DEFAULT '',
                 certificate_key_id TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'openssh-live',
+                ssh_invocation TEXT NOT NULL DEFAULT '',
                 exit_code INTEGER NOT NULL,
                 stdout TEXT NOT NULL,
                 stderr TEXT NOT NULL,
@@ -115,9 +121,33 @@ impl Database {
         )
         .map_err(|e| format!("Schema-Initialisierung fehlgeschlagen: {e}"))?;
 
-        // Migration für bestehende Datenbanken ohne bmc_ip_address-Spalte
+        // Migrationen für bestehende Datenbanken
         let _ = conn.execute(
             "ALTER TABLE user_servers ADD COLUMN bmc_ip_address TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE ssh_commands ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE execution_logs ADD COLUMN command_id TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE execution_logs ADD COLUMN server_label TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE execution_logs ADD COLUMN certificate_id TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE execution_logs ADD COLUMN mode TEXT NOT NULL DEFAULT 'openssh-live'",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE execution_logs ADD COLUMN ssh_invocation TEXT NOT NULL DEFAULT ''",
             [],
         );
 
@@ -146,11 +176,34 @@ impl Database {
         .unwrap_or_else(|_| "TrixieSSH".into())
     }
 
+    pub fn get_initialized_at(&self) -> Option<String> {
+        let Ok(conn) = self.conn.lock() else {
+            return None;
+        };
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = 'initialized_at'",
+            [],
+            |r| r.get(0),
+        )
+        .ok()
+    }
+
     pub fn set_instance_name(&self, name: &str) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let clean = if name.trim().is_empty() { "TrixieSSH" } else { name.trim() };
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('instance_name', ?1)",
-            params![name],
+            params![clean],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn set_initialized_at(&self, iso: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('initialized_at', ?1)",
+            params![iso],
         )
         .map_err(|e| e.to_string())?;
         Ok(())
@@ -184,6 +237,75 @@ impl Database {
             created_at: now,
             last_login_at: None,
         })
+    }
+
+    pub fn get_user_by_id(&self, id: &str) -> Result<Option<UserPublic>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT id, username, display_name, role, default_ssh_user, active, created_at, last_login_at
+             FROM users WHERE id = ?1",
+            params![id],
+            |r| {
+                Ok(UserPublic {
+                    id: r.get(0)?,
+                    username: r.get(1)?,
+                    display_name: r.get(2)?,
+                    role: r.get(3)?,
+                    default_ssh_user: r.get(4)?,
+                    active: r.get::<_, i64>(5)? == 1,
+                    created_at: r.get(6)?,
+                    last_login_at: r.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn update_user(
+        &self,
+        id: &str,
+        display_name: Option<&str>,
+        role: Option<&str>,
+        default_ssh_user: Option<&str>,
+        active: Option<bool>,
+        new_password_hash: Option<&str>,
+    ) -> Result<Option<UserPublic>, String> {
+        let Some(existing) = self.get_user_by_id(id)? else {
+            return Ok(None);
+        };
+        let next_display = display_name.unwrap_or(&existing.display_name).trim();
+        let next_role = role.unwrap_or(&existing.role);
+        let next_ssh_user = default_ssh_user.unwrap_or(&existing.default_ssh_user).trim();
+        let next_active = active.unwrap_or(existing.active);
+
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            conn.execute(
+                "UPDATE users SET display_name = ?1, role = ?2, default_ssh_user = ?3, active = ?4 WHERE id = ?5",
+                params![
+                    if next_display.is_empty() { &existing.username } else { next_display },
+                    next_role,
+                    if next_ssh_user.is_empty() { "root" } else { next_ssh_user },
+                    if next_active { 1i64 } else { 0i64 },
+                    id
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+
+            if let Some(hash) = new_password_hash {
+                conn.execute(
+                    "UPDATE users SET password_hash = ?1 WHERE id = ?2",
+                    params![hash, id],
+                )
+                .map_err(|e| e.to_string())?;
+                let _ = conn.execute("DELETE FROM sessions WHERE user_id = ?1", params![id]);
+            }
+            if !next_active {
+                let _ = conn.execute("DELETE FROM sessions WHERE user_id = ?1", params![id]);
+            }
+        }
+        self.get_user_by_id(id)
     }
 
     pub fn find_user_for_login(&self, username: &str) -> Result<Option<(UserPublic, String)>, String> {
@@ -316,6 +438,39 @@ impl Database {
         Ok(())
     }
 
+    fn map_command_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SshCommand> {
+        let steps_json: String = r.get(6)?;
+        let steps: Vec<CommandStep> = serde_json::from_str(&steps_json).unwrap_or_default();
+        let shared_json: String = r.get(13)?;
+        let shared_with_user_ids: Vec<String> =
+            serde_json::from_str(&shared_json).unwrap_or_default();
+        let created_at: String = r.get(14)?;
+        let updated_raw: String = r.get(15)?;
+        let updated_at = if updated_raw.is_empty() {
+            created_at.clone()
+        } else {
+            updated_raw
+        };
+        Ok(SshCommand {
+            id: r.get(0)?,
+            user_id: r.get(1)?,
+            name: r.get(2)?,
+            category: r.get(3)?,
+            kind: r.get(4)?,
+            command: r.get(5)?,
+            steps,
+            stop_on_error: r.get::<_, i64>(7)? == 1,
+            description: r.get(8)?,
+            timeout_sec: r.get::<_, i64>(9)? as u64,
+            enabled: r.get::<_, i64>(10)? == 1,
+            created_by: r.get(11)?,
+            shared_with_all: r.get::<_, i64>(12)? == 1,
+            shared_with_user_ids,
+            created_at,
+            updated_at,
+        })
+    }
+
     pub fn list_accessible_commands(
         &self,
         user_id: &str,
@@ -324,35 +479,12 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at
+                "SELECT id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
                  FROM ssh_commands ORDER BY category ASC, name ASC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([], |r| {
-                let steps_json: String = r.get(6)?;
-                let steps: Vec<CommandStep> = serde_json::from_str(&steps_json).unwrap_or_default();
-                let shared_json: String = r.get(13)?;
-                let shared_with_user_ids: Vec<String> =
-                    serde_json::from_str(&shared_json).unwrap_or_default();
-                Ok(SshCommand {
-                    id: r.get(0)?,
-                    user_id: r.get(1)?,
-                    name: r.get(2)?,
-                    category: r.get(3)?,
-                    kind: r.get(4)?,
-                    command: r.get(5)?,
-                    steps,
-                    stop_on_error: r.get::<_, i64>(7)? == 1,
-                    description: r.get(8)?,
-                    timeout_sec: r.get::<_, i64>(9)? as u64,
-                    enabled: r.get::<_, i64>(10)? == 1,
-                    created_by: r.get(11)?,
-                    shared_with_all: r.get::<_, i64>(12)? == 1,
-                    shared_with_user_ids,
-                    created_at: r.get(14)?,
-                })
-            })
+            .query_map([], Self::map_command_row)
             .map_err(|e| e.to_string())?;
         let all = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
         Ok(all
@@ -368,36 +500,27 @@ impl Database {
             .collect())
     }
 
+    pub fn list_own_commands(&self, user_id: &str) -> Result<Vec<SshCommand>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
+                 FROM ssh_commands WHERE user_id = ?1 ORDER BY category ASC, name ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![user_id], Self::map_command_row)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
     pub fn get_command(&self, id: &str) -> Result<Option<SshCommand>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         conn.query_row(
-            "SELECT id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at
+            "SELECT id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
              FROM ssh_commands WHERE id = ?1",
             params![id],
-            |r| {
-                let steps_json: String = r.get(6)?;
-                let steps: Vec<CommandStep> = serde_json::from_str(&steps_json).unwrap_or_default();
-                let shared_json: String = r.get(13)?;
-                let shared_with_user_ids: Vec<String> =
-                    serde_json::from_str(&shared_json).unwrap_or_default();
-                Ok(SshCommand {
-                    id: r.get(0)?,
-                    user_id: r.get(1)?,
-                    name: r.get(2)?,
-                    category: r.get(3)?,
-                    kind: r.get(4)?,
-                    command: r.get(5)?,
-                    steps,
-                    stop_on_error: r.get::<_, i64>(7)? == 1,
-                    description: r.get(8)?,
-                    timeout_sec: r.get::<_, i64>(9)? as u64,
-                    enabled: r.get::<_, i64>(10)? == 1,
-                    created_by: r.get(11)?,
-                    shared_with_all: r.get::<_, i64>(12)? == 1,
-                    shared_with_user_ids,
-                    created_at: r.get(14)?,
-                })
-            },
+            Self::map_command_row,
         )
         .optional()
         .map_err(|e| e.to_string())
@@ -432,6 +555,7 @@ impl Database {
         stop_on_error: bool,
         description: &str,
         timeout_sec: u64,
+        enabled: bool,
         created_by: &str,
         shared_with_all: bool,
         shared_with_user_ids: &[String],
@@ -447,8 +571,8 @@ impl Database {
         };
         let shared_json = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
         conn.execute(
-            "INSERT INTO ssh_commands (id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12, ?13, ?14)",
+            "INSERT INTO ssh_commands (id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 id,
                 user_id,
@@ -460,9 +584,11 @@ impl Database {
                 if stop_on_error { 1i64 } else { 0i64 },
                 description,
                 timeout_sec as i64,
+                if enabled { 1i64 } else { 0i64 },
                 created_by,
                 if shared_with_all { 1i64 } else { 0i64 },
                 shared_json,
+                now,
                 now
             ],
         )
@@ -478,12 +604,61 @@ impl Database {
             stop_on_error,
             description: description.to_string(),
             timeout_sec,
-            enabled: true,
+            enabled,
             created_by: created_by.to_string(),
             shared_with_all,
             shared_with_user_ids: clean_shared,
-            created_at: now,
+            created_at: now.clone(),
+            updated_at: now,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_command(
+        &self,
+        id: &str,
+        owner_user_id: &str,
+        name: &str,
+        category: &str,
+        kind: &str,
+        command: &str,
+        steps: &[CommandStep],
+        stop_on_error: bool,
+        description: &str,
+        timeout_sec: u64,
+        enabled: bool,
+    ) -> Result<Option<SshCommand>, String> {
+        let now = Utc::now().to_rfc3339();
+        let steps_json = serde_json::to_string(steps).map_err(|e| e.to_string())?;
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            let changed = conn
+                .execute(
+                    "UPDATE ssh_commands
+                     SET name = ?1, category = ?2, kind = ?3, command = ?4, steps_json = ?5,
+                         stop_on_error = ?6, description = ?7, timeout_sec = ?8, enabled = ?9, updated_at = ?10
+                     WHERE id = ?11 AND user_id = ?12",
+                    params![
+                        name,
+                        category,
+                        kind,
+                        command,
+                        steps_json,
+                        if stop_on_error { 1i64 } else { 0i64 },
+                        description,
+                        timeout_sec as i64,
+                        if enabled { 1i64 } else { 0i64 },
+                        now,
+                        id,
+                        owner_user_id
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+            if changed == 0 {
+                return Ok(None);
+            }
+        }
+        self.get_command(id)
     }
 
     pub fn update_command_sharing(
@@ -503,14 +678,16 @@ impl Database {
                 .collect()
         };
         let shared_json = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
+        let now = Utc::now().to_rfc3339();
         {
             let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
             let changed = conn
                 .execute(
-                    "UPDATE ssh_commands SET shared_with_all = ?1, shared_with_user_ids = ?2 WHERE id = ?3 AND user_id = ?4",
+                    "UPDATE ssh_commands SET shared_with_all = ?1, shared_with_user_ids = ?2, updated_at = ?3 WHERE id = ?4 AND user_id = ?5",
                     params![
                         if shared_with_all { 1i64 } else { 0i64 },
                         shared_json,
+                        now,
                         id,
                         owner_user_id
                     ],
@@ -826,10 +1003,10 @@ impl Database {
                     user_id: user_id.to_string(),
                     owner_username: owner_username.to_string(),
                     name: effective_name.to_string(),
-                    private_key_file: priv_file.to_string(),
-                    public_key_file: pub_file.to_string(),
-                    cert_file: cert_file.to_string(),
-                    inspection: inspection.clone(),
+                    private_key_file_name: priv_file.to_string(),
+                    public_key_file_name: pub_file.to_string(),
+                    cert_file_name: cert_file.to_string(),
+                    metadata: inspection.clone(),
                     shared_with_all: next_all,
                     shared_with_user_ids: next_ids,
                     uploaded_at: now,
@@ -869,10 +1046,10 @@ impl Database {
                 user_id: user_id.to_string(),
                 owner_username: owner_username.to_string(),
                 name: effective_name.to_string(),
-                private_key_file: priv_file.to_string(),
-                public_key_file: pub_file.to_string(),
-                cert_file: cert_file.to_string(),
-                inspection: inspection.clone(),
+                private_key_file_name: priv_file.to_string(),
+                public_key_file_name: pub_file.to_string(),
+                cert_file_name: cert_file.to_string(),
+                metadata: inspection.clone(),
                 shared_with_all,
                 shared_with_user_ids: explicit_shared_ids,
                 uploaded_at: now,
@@ -892,17 +1069,7 @@ impl Database {
         let rows = stmt
             .query_map([], |r| {
                 let json: String = r.get(7)?;
-                let inspection: CertInspection =
-                    serde_json::from_str(&json).unwrap_or(CertInspection {
-                        has_certificate: false,
-                        key_id: String::new(),
-                        serial: "0".into(),
-                        cert_type: "user".into(),
-                        principals: vec![],
-                        valid_range: String::new(),
-                        ca_fingerprint: String::new(),
-                        raw_summary: String::new(),
-                    });
+                let metadata: CertInspection = serde_json::from_str(&json).unwrap_or_default();
                 let shared_json: String = r.get(9)?;
                 let shared_with_user_ids: Vec<String> =
                     serde_json::from_str(&shared_json).unwrap_or_default();
@@ -911,10 +1078,10 @@ impl Database {
                     user_id: r.get(1)?,
                     owner_username: r.get(2)?,
                     name: r.get(3)?,
-                    private_key_file: r.get(4)?,
-                    public_key_file: r.get(5)?,
-                    cert_file: r.get(6)?,
-                    inspection,
+                    private_key_file_name: r.get(4)?,
+                    public_key_file_name: r.get(5)?,
+                    cert_file_name: r.get(6)?,
+                    metadata,
                     shared_with_all: r.get::<_, i64>(8)? == 1,
                     shared_with_user_ids,
                     uploaded_at: r.get(10)?,
@@ -1029,12 +1196,28 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         conn.execute(
             "INSERT INTO execution_logs
-             (id, user_id, username, command_name, command_text, target_ip, target_port, ssh_user, certificate_key_id, exit_code, stdout, stderr, duration_ms, executed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             (id, user_id, username, command_id, command_name, command_text, target_ip, target_port, ssh_user, server_label, certificate_id, certificate_key_id, mode, ssh_invocation, exit_code, stdout, stderr, duration_ms, executed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
-                log.id, log.user_id, log.username, log.command_name, log.command_text,
-                log.target_ip, log.target_port as i64, log.ssh_user, log.certificate_key_id,
-                log.exit_code, log.stdout, log.stderr, log.duration_ms as i64, log.executed_at
+                log.id,
+                log.user_id,
+                log.username,
+                log.command_id,
+                log.command_name,
+                log.command_text,
+                log.target_ip,
+                log.target_port as i64,
+                log.ssh_user,
+                log.server_label,
+                log.certificate_id,
+                log.certificate_key_id,
+                log.mode,
+                log.ssh_invocation,
+                log.exit_code,
+                log.stdout,
+                log.stderr,
+                log.duration_ms as i64,
+                log.executed_at
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -1045,34 +1228,46 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = if user.role == "admin" {
             conn.prepare(
-                "SELECT id, user_id, username, command_name, command_text, target_ip, target_port, ssh_user, certificate_key_id, exit_code, stdout, stderr, duration_ms, executed_at
+                "SELECT id, user_id, username, command_id, command_name, command_text, target_ip, target_port, ssh_user, server_label, certificate_id, certificate_key_id, mode, ssh_invocation, exit_code, stdout, stderr, duration_ms, executed_at
                  FROM execution_logs ORDER BY executed_at DESC LIMIT 250",
             )
             .map_err(|e| e.to_string())?
         } else {
             conn.prepare(
-                "SELECT id, user_id, username, command_name, command_text, target_ip, target_port, ssh_user, certificate_key_id, exit_code, stdout, stderr, duration_ms, executed_at
+                "SELECT id, user_id, username, command_id, command_name, command_text, target_ip, target_port, ssh_user, server_label, certificate_id, certificate_key_id, mode, ssh_invocation, exit_code, stdout, stderr, duration_ms, executed_at
                  FROM execution_logs WHERE user_id = ?1 ORDER BY executed_at DESC LIMIT 250",
             )
             .map_err(|e| e.to_string())?
         };
 
         let mapper = |r: &rusqlite::Row<'_>| {
+            let target_ip: String = r.get(6)?;
+            let label_raw: String = r.get(9)?;
+            let server_label = if label_raw.is_empty() {
+                target_ip.clone()
+            } else {
+                label_raw
+            };
             Ok(ExecutionLog {
                 id: r.get(0)?,
                 user_id: r.get(1)?,
                 username: r.get(2)?,
-                command_name: r.get(3)?,
-                command_text: r.get(4)?,
-                target_ip: r.get(5)?,
-                target_port: r.get::<_, i64>(6)? as u16,
-                ssh_user: r.get(7)?,
-                certificate_key_id: r.get(8)?,
-                exit_code: r.get(9)?,
-                stdout: r.get(10)?,
-                stderr: r.get(11)?,
-                duration_ms: r.get::<_, i64>(12)? as u64,
-                executed_at: r.get(13)?,
+                command_id: r.get(3)?,
+                command_name: r.get(4)?,
+                command_text: r.get(5)?,
+                target_ip,
+                target_port: r.get::<_, i64>(7)? as u16,
+                ssh_user: r.get(8)?,
+                server_label,
+                certificate_id: r.get(10)?,
+                certificate_key_id: r.get(11)?,
+                mode: r.get(12)?,
+                ssh_invocation: r.get(13)?,
+                exit_code: r.get(14)?,
+                stdout: r.get(15)?,
+                stderr: r.get(16)?,
+                duration_ms: r.get::<_, i64>(17)? as u64,
+                executed_at: r.get(18)?,
             })
         };
 

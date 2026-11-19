@@ -146,7 +146,7 @@ export function Sidebar({
                     activeTab === 'rust-deploy' ? 'text-blue-700' : 'text-slate-500'
                   }`}
                 />
-                <span className="truncate">Rust &amp; Debian Trixie</span>
+                <span className="truncate">Debian-Paket (.deb)</span>
               </button>
             </li>
           </ul>

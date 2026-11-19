@@ -12,7 +12,9 @@ ExecStart=/usr/local/bin/trixiessh
 Environment=TRIXIESSH_BIND=0.0.0.0:3000
 Environment=TRIXIESSH_DATA_DIR=/var/lib/trixiessh
 Environment=TRIXIESSH_STATIC_DIR=/opt/trixiessh/dist
+Environment=TRIXIESSH_SRC_DIR=/opt/trixiessh/rust-src
 Environment=RUST_LOG=info
+EnvironmentFile=-/etc/default/trixiessh
 Restart=on-failure
 RestartSec=3
 

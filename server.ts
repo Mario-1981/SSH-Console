@@ -12,6 +12,7 @@ import {
 } from './server/sshRunner.ts';
 import { store, verifyPassword, type StoredUser, type UserRole } from './server/store.ts';
 import { buildRustProjectTarGz } from './server/tarBuilder.ts';
+import { buildDebianPackage } from './server/debBuilder.ts';
 import { pingMonitor } from './server/pingMonitor.ts';
 import { checkBmcHttps } from './server/bmcCheck.ts';
 
@@ -975,6 +976,22 @@ async function startServer() {
     res.setHeader('Content-Type', 'application/gzip');
     res.setHeader('Content-Disposition', 'attachment; filename="trixiessh-debian-trixie-rust.tar.gz"');
     res.send(tarGz);
+  });
+
+  app.get('/api/rust-project/download-deb', requireAuth, (_req, res) => {
+    try {
+      const pkg = buildDebianPackage(process.cwd(), RUST_APP_DIR);
+      res.setHeader('Content-Type', 'application/vnd.debian.binary-package');
+      res.setHeader('Content-Disposition', `attachment; filename="${pkg.fileName}"`);
+      res.send(pkg.buffer);
+    } catch (err) {
+      res.status(500).json({
+        error:
+          err instanceof Error
+            ? `Debian-Paket konnte nicht erzeugt werden: ${err.message}`
+            : 'Debian-Paket konnte nicht erzeugt werden.',
+      });
+    }
   });
 
   // Vite middleware in development, static dist in production
