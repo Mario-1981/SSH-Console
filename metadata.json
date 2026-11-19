@@ -1,0 +1,6 @@
+{
+  "name": "TrixieSSH",
+  "description": "Rust-basiertes SSH-Webinterface für Debian Trixie mit Ersteinrichtung, Benutzerverwaltung ohne Registrierung, Admin-Befehlskatalog und passwortloser Anmeldung über OpenSSH-Zertifikate (zertifikat, zertifikat.pub, zertifikat-cert.pub).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

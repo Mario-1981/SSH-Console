@@ -1,0 +1,33 @@
+# Multi-Stage Build für Debian 13 (Trixie)
+FROM debian:trixie-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cargo rustc build-essential pkg-config libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY Cargo.toml ./
+COPY src ./src
+RUN cargo build --release
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-client iputils-ping ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --home-dir /var/lib/trixiessh --shell /usr/sbin/nologin trixiessh \
+    && mkdir -p /var/lib/trixiessh /opt/trixiessh/dist \
+    && chown -R trixiessh:trixiessh /var/lib/trixiessh /opt/trixiessh \
+    && chmod 0700 /var/lib/trixiessh
+
+COPY --from=builder /build/target/release/trixiessh /usr/local/bin/trixiessh
+
+USER trixiessh
+ENV TRIXIESSH_BIND=0.0.0.0:3000
+ENV TRIXIESSH_DATA_DIR=/var/lib/trixiessh
+ENV TRIXIESSH_STATIC_DIR=/opt/trixiessh/dist
+
+EXPOSE 3000
+VOLUME ["/var/lib/trixiessh"]
+
+ENTRYPOINT ["/usr/local/bin/trixiessh"]

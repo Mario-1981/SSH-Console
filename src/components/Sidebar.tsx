@@ -1,0 +1,206 @@
+import React from 'react';
+import {
+  LayoutDashboard,
+  Terminal,
+  Server,
+  KeyRound,
+  History,
+  SlidersHorizontal,
+  Users,
+  FileCode2,
+  LogOut,
+  Lock,
+  X,
+} from 'lucide-react';
+import type { ActiveTab, User } from '../types';
+
+interface SidebarProps {
+  instanceName: string;
+  user: User;
+  activeTab: ActiveTab;
+  onSelectTab: (tab: ActiveTab) => void;
+  onLogout: () => void;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
+}
+
+interface NavItem {
+  id: ActiveTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const WORKSPACE_ITEMS: NavItem[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'execute', label: 'Befehle ausführen', icon: Terminal },
+  { id: 'admin-commands', label: 'SSH-Befehle', icon: SlidersHorizontal },
+  { id: 'servers', label: 'Meine Server (IPs)', icon: Server },
+  { id: 'certificates', label: 'SSH-Zertifikate', icon: KeyRound },
+  { id: 'logs', label: 'Ausführungsprotokoll', icon: History },
+];
+
+const ADMIN_ITEMS: NavItem[] = [
+  { id: 'admin-users', label: 'Benutzerverwaltung', icon: Users },
+];
+
+export function Sidebar({
+  instanceName,
+  user,
+  activeTab,
+  onSelectTab,
+  onLogout,
+  mobileOpen,
+  onCloseMobile,
+}: SidebarProps) {
+  function handleNav(tab: ActiveTab) {
+    onSelectTab(tab);
+    onCloseMobile();
+  }
+
+  const content = (
+    <div className="flex flex-col h-full bg-white border-r border-slate-200 w-[256px]">
+      <div className="h-14 px-5 flex items-center justify-between border-b border-slate-200 shrink-0">
+        <span className="font-display text-base font-bold tracking-tight text-slate-900 truncate">
+          {instanceName}
+        </span>
+        <button
+          type="button"
+          onClick={onCloseMobile}
+          className="lg:hidden p-1.5 text-slate-500 hover:text-slate-900 rounded-md"
+          aria-label="Navigation schließen"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+        <div>
+          <p className="px-2.5 mb-2 text-xs font-medium text-slate-500">Arbeitsbereich</p>
+          <ul className="space-y-0.5">
+            {WORKSPACE_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => handleNav(item.id)}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                      isActive
+                        ? 'bg-blue-50 text-blue-800 font-medium'
+                        : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-blue-700' : 'text-slate-500'}`} />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {user.role === 'admin' && (
+          <div>
+            <p className="px-2.5 mb-2 text-xs font-medium text-slate-500">Administration</p>
+            <ul className="space-y-0.5">
+              {ADMIN_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleNav(item.id)}
+                      className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                        isActive
+                          ? 'bg-blue-50 text-blue-800 font-medium'
+                          : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-blue-700' : 'text-slate-500'}`} />
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        <div>
+          <p className="px-2.5 mb-2 text-xs font-medium text-slate-500">Bereitstellung</p>
+          <ul className="space-y-0.5">
+            <li>
+              <button
+                type="button"
+                onClick={() => handleNav('rust-deploy')}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  activeTab === 'rust-deploy'
+                    ? 'bg-blue-50 text-blue-800 font-medium'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <FileCode2
+                  className={`w-4 h-4 shrink-0 ${
+                    activeTab === 'rust-deploy' ? 'text-blue-700' : 'text-slate-500'
+                  }`}
+                />
+                <span className="truncate">Rust &amp; Debian Trixie</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </nav>
+
+      <div className="p-4 border-t border-slate-200 shrink-0 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-900 truncate">{user.displayName}</p>
+            <p className="text-xs text-slate-500 truncate">
+              <span className="font-mono">{user.username}</span> ·{' '}
+              {user.role === 'admin' ? 'Administrator' : 'Benutzer'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            title="Abmelden"
+            aria-label="Abmelden"
+            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer shrink-0"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => handleNav('account')}
+          className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer whitespace-nowrap ${
+            activeTab === 'account'
+              ? 'bg-blue-50 border-blue-200 text-blue-800'
+              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+          }`}
+        >
+          <Lock className="w-3.5 h-3.5 shrink-0" />
+          Passwort ändern
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <aside className="hidden lg:block shrink-0">{content}</aside>
+      {mobileOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden flex">
+          <div
+            className="fixed inset-0 bg-slate-900/40"
+            onClick={onCloseMobile}
+            aria-hidden="true"
+          />
+          <aside className="relative z-50 h-full">{content}</aside>
+        </div>
+      )}
+    </>
+  );
+}
