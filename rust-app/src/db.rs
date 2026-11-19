@@ -894,6 +894,7 @@ impl Database {
                 let json: String = r.get(7)?;
                 let inspection: CertInspection =
                     serde_json::from_str(&json).unwrap_or(CertInspection {
+                        has_certificate: false,
                         key_id: String::new(),
                         serial: "0".into(),
                         cert_type: "user".into(),

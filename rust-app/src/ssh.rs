@@ -62,19 +62,21 @@ pub fn validate_ssh_user(user: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-/// Validiert die 3 hochgeladenen Dateien (zertifikat, zertifikat.pub, zertifikat-cert.pub)
-/// mithilfe von `/usr/bin/ssh-keygen -L -f` unter Debian Trixie und liest Key-ID, Serial,
-/// Principals, Gültigkeitszeitraum und CA-Fingerabdruck aus.
+/// Validiert die hochgeladenen SSH-Dateien (`zertifikat`, `zertifikat.pub` sowie optional
+/// `zertifikat-cert.pub`) mithilfe von `/usr/bin/ssh-keygen` unter Debian Trixie.
 pub async fn inspect_certificate_bundle(
     private_key: &str,
     public_key: &str,
-    cert_content: &str,
+    cert_content: Option<&str>,
 ) -> Result<CertInspection, String> {
     if !private_key.contains("BEGIN OPENSSH PRIVATE KEY") && !private_key.contains("PRIVATE KEY") {
         return Err("Privater Schlüssel (zertifikat) besitzt keinen gültigen OpenSSH/PEM-Header.".into());
     }
-    if !cert_content.contains("-cert-v01@openssh.com") {
-        return Err("zertifikat-cert.pub ist kein gültiges OpenSSH-Zertifikat (*-cert-v01@openssh.com).".into());
+    let clean_cert = cert_content.map(str::trim).filter(|c| !c.is_empty());
+    if let Some(c) = clean_cert {
+        if !c.contains("-cert-v01@openssh.com") {
+            return Err("zertifikat-cert.pub ist kein gültiges OpenSSH-Zertifikat (*-cert-v01@openssh.com).".into());
+        }
     }
 
     let tmp_dir = TempDir::new().map_err(|e| format!("Temp-Verzeichnis fehlgeschlagen: {e}"))?;
@@ -88,7 +90,6 @@ pub async fn inspect_certificate_bundle(
     fs::write(&priv_path, private_key).map_err(|e| e.to_string())?;
     fs::set_permissions(&priv_path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     fs::write(&pub_path, public_key).map_err(|e| e.to_string())?;
-    fs::write(&cert_path, cert_content).map_err(|e| e.to_string())?;
 
     // 1. Prüfe öffentlichen Schlüssel mit ssh-keygen -lf
     let pub_check = Command::new("/usr/bin/ssh-keygen")
@@ -103,6 +104,37 @@ pub async fn inspect_certificate_bundle(
             String::from_utf8_lossy(&pub_check.stderr)
         ));
     }
+    let pub_summary = String::from_utf8_lossy(&pub_check.stdout).trim().to_string();
+
+    // Ohne zertifikat-cert.pub: Klassisches 2-Dateien-SSH-Schlüsselpaar
+    let Some(cert_text) = clean_cert else {
+        let comment = public_key
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty() && !l.starts_with('#'))
+            .and_then(|l| {
+                let parts: Vec<&str> = l.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    Some(parts[2..].join(" "))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        return Ok(CertInspection {
+            has_certificate: false,
+            key_id: comment,
+            serial: "—".into(),
+            cert_type: "keypair".into(),
+            principals: vec![],
+            valid_range: "Unbegrenzt (SSH-Schlüsselpaar)".into(),
+            ca_fingerprint: String::new(),
+            raw_summary: pub_summary,
+        });
+    };
+
+    fs::write(&cert_path, cert_text).map_err(|e| e.to_string())?;
 
     // 2. Prüfe OpenSSH-Zertifikat mit ssh-keygen -L -f
     let cert_check = Command::new("/usr/bin/ssh-keygen")
@@ -165,6 +197,7 @@ pub async fn inspect_certificate_bundle(
     }
 
     Ok(CertInspection {
+        has_certificate: true,
         key_id,
         serial,
         cert_type,
@@ -201,6 +234,7 @@ pub async fn run_ssh_command(
     let key_path = tmp_dir.path().join("zertifikat");
     let pub_path = tmp_dir.path().join("zertifikat.pub");
     let cert_path = tmp_dir.path().join("zertifikat-cert.pub");
+    let has_cert = !cert.certificate.trim().is_empty();
 
     fs::write(&key_path, private_key_plain.as_slice())
         .map_err(|e| format!("Schreiben von zertifikat fehlgeschlagen: {e}"))?;
@@ -208,18 +242,24 @@ pub async fn run_ssh_command(
         .map_err(|e| format!("chmod 0600 fehlgeschlagen: {e}"))?;
     fs::write(&pub_path, cert.public_key.as_bytes())
         .map_err(|e| format!("Schreiben von zertifikat.pub fehlgeschlagen: {e}"))?;
-    fs::write(&cert_path, cert.certificate.as_bytes())
-        .map_err(|e| format!("Schreiben von zertifikat-cert.pub fehlgeschlagen: {e}"))?;
+    if has_cert {
+        fs::write(&cert_path, cert.certificate.as_bytes())
+            .map_err(|e| format!("Schreiben von zertifikat-cert.pub fehlgeschlagen: {e}"))?;
+    }
 
     let mut cmd = Command::new("/usr/bin/ssh");
     cmd.env_clear()
         .env("PATH", "/usr/bin:/bin")
         .env("HOME", tmp_dir.path())
         .arg("-i")
-        .arg(&key_path)
-        .arg("-o")
-        .arg(format!("CertificateFile={}", cert_path.display()))
-        .arg("-o")
+        .arg(&key_path);
+
+    if has_cert {
+        cmd.arg("-o")
+            .arg(format!("CertificateFile={}", cert_path.display()));
+    }
+
+    cmd.arg("-o")
         .arg("IdentitiesOnly=yes")
         .arg("-o")
         .arg("BatchMode=yes")

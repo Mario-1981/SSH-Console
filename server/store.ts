@@ -271,6 +271,15 @@ class Store {
       const migratedCertificates: UserCertificateBundle[] = (parsed.certificates ?? []).map((cert) => ({
         ...cert,
         ownerUsername: cert.ownerUsername || idToUsername.get(cert.userId) || '',
+        certContent: typeof cert.certContent === 'string' ? cert.certContent : '',
+        certFileName: typeof cert.certFileName === 'string' ? cert.certFileName : '',
+        metadata: {
+          ...cert.metadata,
+          hasCertificate:
+            typeof cert.metadata?.hasCertificate === 'boolean'
+              ? cert.metadata.hasCertificate
+              : Boolean(cert.certContent && cert.certContent.trim()),
+        },
         sharedWithAll: Boolean(cert.sharedWithAll),
         sharedWithUserIds: Array.isArray(cert.sharedWithUserIds) ? cert.sharedWithUserIds : [],
       }));
@@ -820,10 +829,10 @@ class Store {
     name: string;
     privateKeyFileName: string;
     publicKeyFileName: string;
-    certFileName: string;
+    certFileName?: string;
     privateKeyContent: string;
     publicKeyContent: string;
-    certContent: string;
+    certContent?: string;
     metadata: ParsedCertMetadata;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
@@ -831,6 +840,9 @@ class Store {
     const cleanName = params.name.trim() || params.metadata.keyId || 'SSH-Zertifikat';
     const normalizedKey = cleanName.toLowerCase();
     const now = new Date().toISOString();
+    const trimmedCert = (params.certContent ?? '').trim();
+    const formattedCertContent = trimmedCert ? trimmedCert + '\n' : '';
+    const effectiveCertFileName = trimmedCert ? params.certFileName || 'zertifikat-cert.pub' : '';
 
     const matchingIndices: number[] = [];
     this.db.certificates.forEach((c, idx) => {
@@ -861,10 +873,10 @@ class Store {
         name: cleanName,
         privateKeyFileName: params.privateKeyFileName || 'zertifikat',
         publicKeyFileName: params.publicKeyFileName || 'zertifikat.pub',
-        certFileName: params.certFileName || 'zertifikat-cert.pub',
+        certFileName: effectiveCertFileName,
         privateKeyEncrypted: encryptSecret(params.privateKeyContent),
         publicKeyContent: params.publicKeyContent.trim() + '\n',
-        certContent: params.certContent.trim() + '\n',
+        certContent: formattedCertContent,
         metadata: params.metadata,
         sharedWithAll: nextSharedWithAll,
         sharedWithUserIds: nextSharedWithUserIds,
@@ -890,10 +902,10 @@ class Store {
       name: cleanName,
       privateKeyFileName: params.privateKeyFileName || 'zertifikat',
       publicKeyFileName: params.publicKeyFileName || 'zertifikat.pub',
-      certFileName: params.certFileName || 'zertifikat-cert.pub',
+      certFileName: effectiveCertFileName,
       privateKeyEncrypted: encryptSecret(params.privateKeyContent),
       publicKeyContent: params.publicKeyContent.trim() + '\n',
-      certContent: params.certContent.trim() + '\n',
+      certContent: formattedCertContent,
       metadata: params.metadata,
       sharedWithAll,
       sharedWithUserIds,

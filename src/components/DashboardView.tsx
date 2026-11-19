@@ -404,7 +404,7 @@ export function DashboardView({
           {/* Certificate Selector */}
           <div className="lg:col-span-4">
             <label htmlFor="dash-cert" className="block text-xs font-medium text-slate-700 mb-1.5">
-              OpenSSH-Zertifikatspaket (3 Dateien)
+              SSH-Schlüssel / Zertifikatspaket
             </label>
             {certificates.length === 0 ? (
               <button
@@ -413,7 +413,7 @@ export function DashboardView({
                 className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 <KeyRound className="w-3.5 h-3.5" />
-                Zertifikatspaket hochladen
+                Schlüssel / Zertifikat hochladen
               </button>
             ) : (
               <select
@@ -422,12 +422,19 @@ export function DashboardView({
                 onChange={(e) => setSelectedCertId(e.target.value)}
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
-                {certificates.map((cert) => (
-                  <option key={cert.id} value={cert.id}>
-                    {cert.name} ({cert.metadata.keyId || cert.certFileName})
-                    {cert.userId !== currentUser.id ? ' · Geteilt' : ''}
-                  </option>
-                ))}
+                {certificates.map((cert) => {
+                  const hasCert = cert.metadata.hasCertificate !== false && Boolean(cert.certFileName);
+                  return (
+                    <option key={cert.id} value={cert.id}>
+                      {cert.name} (
+                      {hasCert
+                        ? cert.metadata.keyId || cert.certFileName
+                        : 'Schlüsselpaar'}
+                      )
+                      {cert.userId !== currentUser.id ? ' · Geteilt' : ''}
+                    </option>
+                  );
+                })}
               </select>
             )}
           </div>

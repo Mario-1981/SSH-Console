@@ -101,12 +101,13 @@ export async function executeSshCommand(params: {
 }): Promise<SshExecutionResult> {
   const started = Date.now();
   const sshBinary = findOpenSshBinary();
+  const hasCert = Boolean(params.certificate.certContent && params.certificate.certContent.trim());
+
   const displayInvocation = [
     'ssh',
     '-i',
     '/tmp/trixiessh-XXXXXX/zertifikat',
-    '-o',
-    'CertificateFile=/tmp/trixiessh-XXXXXX/zertifikat-cert.pub',
+    ...(hasCert ? ['-o', 'CertificateFile=/tmp/trixiessh-XXXXXX/zertifikat-cert.pub'] : []),
     '-o',
     'IdentitiesOnly=yes',
     '-o',
@@ -140,13 +141,14 @@ export async function executeSshCommand(params: {
         mode: 0o600,
       });
       fs.writeFileSync(pubKeyPath, params.certificate.publicKeyContent, { mode: 0o644 });
-      fs.writeFileSync(certPath, params.certificate.certContent, { mode: 0o644 });
+      if (hasCert) {
+        fs.writeFileSync(certPath, params.certificate.certContent, { mode: 0o644 });
+      }
 
       const args = [
         '-i',
         privKeyPath,
-        '-o',
-        `CertificateFile=${certPath}`,
+        ...(hasCert ? ['-o', `CertificateFile=${certPath}`] : []),
         '-o',
         'IdentitiesOnly=yes',
         '-o',
@@ -209,18 +211,26 @@ export async function executeSshCommand(params: {
   // Sandbox / Dry-Run verification when /usr/bin/ssh is not present in preview container
   const meta = params.certificate.metadata;
   const principalAllowed =
-    meta.principals.length === 0 || meta.principals.includes(params.sshUser);
+    !hasCert || meta.principals.length === 0 || meta.principals.includes(params.sshUser);
   const probe = await probeTcpPort(params.ipAddress, params.port, 1800);
 
   const checks: string[] = [
-    `[Prüfung] OpenSSH-Zertifikatspaket: ${params.certificate.name}`,
+    hasCert
+      ? `[Prüfung] OpenSSH-Zertifikatspaket (3 Dateien): ${params.certificate.name}`
+      : `[Prüfung] OpenSSH-Schlüsselpaar (2 Dateien, ohne CA-Zertifikat): ${params.certificate.name}`,
     `  · Privatschlüssel (0600): ${params.certificate.privateKeyFileName} (${meta.privateKeyFormat})`,
     `  · Öffentlicher Schlüssel (0644): ${params.certificate.publicKeyFileName} (${meta.pubKeyFingerprint})`,
-    `  · Signiertes Zertifikat (0644): ${params.certificate.certFileName} (Key-ID: ${meta.keyId}, Serial: ${meta.serial})`,
-    `  · Signierende CA: ${meta.caFingerprint}`,
-    `  · Zertifizierte Principals: ${meta.principals.length ? meta.principals.join(', ') : '(alle)'}`,
-    `  · Ziel-Benutzer "${params.sshUser}": ${principalAllowed ? 'OK (in Principals enthalten)' : 'FEHLER (nicht in Principals zugelassen)'}`,
-    `  · Gültigkeit: ${meta.isExpired ? 'ABGELAUFEN' : meta.isNotYetValid ? 'NOCH NICHT GÜLTIG' : 'Gültig'}`,
+    ...(hasCert
+      ? [
+          `  · Signiertes Zertifikat (0644): ${params.certificate.certFileName} (Key-ID: ${meta.keyId}, Serial: ${meta.serial})`,
+          `  · Signierende CA: ${meta.caFingerprint}`,
+          `  · Zertifizierte Principals: ${meta.principals.length ? meta.principals.join(', ') : '(alle)'}`,
+          `  · Ziel-Benutzer "${params.sshUser}": ${principalAllowed ? 'OK (in Principals enthalten)' : 'FEHLER (nicht in Principals zugelassen)'}`,
+          `  · Gültigkeit: ${meta.isExpired ? 'ABGELAUFEN' : meta.isNotYetValid ? 'NOCH NICHT GÜLTIG' : 'Gültig'}`,
+        ]
+      : [
+          `  · Anmeldemodus: Klassische Public-Key-Authentifizierung (authorized_keys, ohne zertifikat-cert.pub)`,
+        ]),
     `  · TCP-Verbindungstest ${params.ipAddress}:${params.port}: ${
       probe.reachable
         ? `Erreichbar${probe.banner ? ` (${probe.banner})` : ''}`
@@ -252,16 +262,16 @@ export async function executeSshCommand(params: {
       'Hinweis: In dieser Vorschau-Sandbox ist kein /usr/bin/ssh-Binary installiert. Die produktive Ausführung erfolgt über das Rust-Binary unter Debian Trixie (mit openssh-client).'
     );
   }
-  if (meta.isExpired) {
+  if (hasCert && meta.isExpired) {
     errLines.push('Zertifikatsprüfung fehlgeschlagen: zertifikat-cert.pub ist abgelaufen.');
   }
-  if (!principalAllowed) {
+  if (hasCert && !principalAllowed) {
     errLines.push(
       `Zertifikatsprüfung fehlgeschlagen: SSH-Benutzer "${params.sshUser}" ist nicht in den erlaubten Principals (${meta.principals.join(', ')}) enthalten.`
     );
   }
 
-  const failedValidation = meta.isExpired || meta.isNotYetValid || !principalAllowed;
+  const failedValidation = hasCert && (meta.isExpired || meta.isNotYetValid || !principalAllowed);
 
   return {
     mode: 'sandbox-dry-run',

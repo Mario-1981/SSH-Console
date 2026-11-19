@@ -685,22 +685,24 @@ async function startServer() {
 
     if (
       typeof privateKeyContent !== 'string' ||
+      !privateKeyContent.trim() ||
       typeof publicKeyContent !== 'string' ||
-      typeof certContent !== 'string'
+      !publicKeyContent.trim()
     ) {
       res.status(400).json({
         error:
-          'Alle drei Dateien sind erforderlich: Privater Schlüssel (zertifikat), öffentlicher Schlüssel (zertifikat.pub) und signiertes Zertifikat (zertifikat-cert.pub).',
+          'Privater Schlüssel (zertifikat) und öffentlicher Schlüssel (zertifikat.pub) sind erforderlich. Das signierte Zertifikat (zertifikat-cert.pub) ist optional.',
       });
       return;
     }
 
+    const cleanCertContent = typeof certContent === 'string' ? certContent : '';
     const isAdmin = req.user!.role === 'admin';
     try {
       const metadata = validateAndParseCertificateBundle(
         privateKeyContent,
         publicKeyContent,
-        certContent
+        cleanCertContent
       );
       const { certificate: saved, replaced } = store.createCertificate({
         userId: req.user!.id,
@@ -708,10 +710,10 @@ async function startServer() {
         name: typeof name === 'string' ? name : metadata.keyId || 'SSH-Zertifikat',
         privateKeyFileName: String(privateKeyFileName || 'zertifikat'),
         publicKeyFileName: String(publicKeyFileName || 'zertifikat.pub'),
-        certFileName: String(certFileName || 'zertifikat-cert.pub'),
+        certFileName: cleanCertContent.trim() ? String(certFileName || 'zertifikat-cert.pub') : '',
         privateKeyContent,
         publicKeyContent,
-        certContent,
+        certContent: cleanCertContent,
         metadata,
         sharedWithAll: isAdmin ? Boolean(sharedWithAll) : false,
         sharedWithUserIds: isAdmin && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],

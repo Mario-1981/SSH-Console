@@ -284,10 +284,10 @@ export const api = {
     name: string;
     privateKeyFileName: string;
     publicKeyFileName: string;
-    certFileName: string;
+    certFileName?: string;
     privateKeyContent: string;
     publicKeyContent: string;
-    certContent: string;
+    certContent?: string;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
   }) =>

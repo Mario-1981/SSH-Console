@@ -371,11 +371,11 @@ export function ExecuteView({
             )}
           </div>
 
-          {/* Step 3: 3-File Certificate Bundle */}
+          {/* Step 3: SSH Key / Certificate Bundle */}
           <div className="space-y-2.5 pt-4 border-t border-slate-200">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor="exec-cert" className="text-sm font-semibold text-slate-900">
-                3. OpenSSH-Zertifikatspaket
+                3. SSH-Schlüssel / Zertifikat
               </label>
               <button
                 type="button"
@@ -390,9 +390,9 @@ export function ExecuteView({
               <div className="border border-slate-200 rounded-md p-4 bg-slate-50 text-xs text-slate-600 space-y-2">
                 <p>
                   Für die passwortlose Anmeldung werden{' '}
-                  <code className="font-mono">zertifikat</code>,{' '}
-                  <code className="font-mono">zertifikat.pub</code> und{' '}
-                  <code className="font-mono">zertifikat-cert.pub</code> benötigt.
+                  <code className="font-mono">zertifikat</code> und{' '}
+                  <code className="font-mono">zertifikat.pub</code> (optional mit{' '}
+                  <code className="font-mono">zertifikat-cert.pub</code>) benötigt.
                 </p>
                 <button
                   type="button"
@@ -400,7 +400,7 @@ export function ExecuteView({
                   className="inline-flex items-center gap-1.5 text-blue-700 hover:text-blue-900 font-medium cursor-pointer"
                 >
                   <KeyRound className="w-3.5 h-3.5" />
-                  Zertifikatspaket hochladen
+                  Schlüssel / Zertifikat hochladen
                 </button>
               </div>
             ) : (
@@ -411,34 +411,54 @@ export function ExecuteView({
                   onChange={(e) => setSelectedCertId(e.target.value)}
                   className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
-                  {certificates.map((cert) => (
-                    <option key={cert.id} value={cert.id}>
-                      {cert.name} ({cert.metadata.keyId || cert.certFileName})
-                      {cert.userId !== user.id ? ' · Geteilt' : ''}
-                    </option>
-                  ))}
+                  {certificates.map((cert) => {
+                    const hasCert = cert.metadata.hasCertificate !== false && Boolean(cert.certFileName);
+                    return (
+                      <option key={cert.id} value={cert.id}>
+                        {cert.name} (
+                        {hasCert
+                          ? cert.metadata.keyId || cert.certFileName
+                          : 'Schlüsselpaar ohne CA-Cert'}
+                        )
+                        {cert.userId !== user.id ? ' · Geteilt' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
-                {selectedCert && (
-                  <div className="text-xs text-slate-600 space-y-1 px-1">
-                    <p>
-                      Principals:{' '}
-                      <span className="font-mono text-slate-800">
-                        {selectedCert.metadata.principals.length > 0
-                          ? selectedCert.metadata.principals.join(', ')
-                          : '(alle)'}
-                      </span>
-                    </p>
-                    <p className="font-mono text-slate-500">
-                      {selectedCert.privateKeyFileName} · {selectedCert.publicKeyFileName} ·{' '}
-                      {selectedCert.certFileName}
-                    </p>
-                    {selectedCert.metadata.isExpired && (
-                      <p className="text-red-700 font-medium">
-                        Warnung: Dieses Zertifikat ist abgelaufen.
+                {selectedCert && (() => {
+                  const hasCert =
+                    selectedCert.metadata.hasCertificate !== false && Boolean(selectedCert.certFileName);
+                  return (
+                    <div className="text-xs text-slate-600 space-y-1 px-1">
+                      {hasCert ? (
+                        <p>
+                          Principals:{' '}
+                          <span className="font-mono text-slate-800">
+                            {selectedCert.metadata.principals.length > 0
+                              ? selectedCert.metadata.principals.join(', ')
+                              : '(alle)'}
+                          </span>
+                        </p>
+                      ) : (
+                        <p>
+                          Modus:{' '}
+                          <span className="font-mono text-slate-800">
+                            SSH-Schlüsselpaar (authorized_keys)
+                          </span>
+                        </p>
+                      )}
+                      <p className="font-mono text-slate-500">
+                        {selectedCert.privateKeyFileName} · {selectedCert.publicKeyFileName}
+                        {hasCert ? ` · ${selectedCert.certFileName}` : ''}
                       </p>
-                    )}
-                  </div>
-                )}
+                      {hasCert && selectedCert.metadata.isExpired && (
+                        <p className="text-red-700 font-medium">
+                          Warnung: Dieses Zertifikat ist abgelaufen.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </>
             )}
           </div>

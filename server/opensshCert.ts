@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 
 export interface ParsedCertMetadata {
+  hasCertificate: boolean;
   certAlgorithm: string;
   pubKeyAlgorithm: string;
   serial: string;
-  certType: 'user' | 'host' | 'unknown';
+  certType: 'user' | 'host' | 'keypair' | 'unknown';
   keyId: string;
   principals: string[];
   validAfter: string;
@@ -196,7 +197,7 @@ function inspectPrivateKey(privateKeyPem: string): {
 export function validateAndParseCertificateBundle(
   privateKeyContent: string,
   publicKeyContent: string,
-  certContent: string
+  certContent?: string
 ): ParsedCertMetadata {
   const warnings: string[] = [];
 
@@ -233,8 +234,37 @@ export function validateAndParseCertificateBundle(
     }
   }
 
+  // Optional 3rd file: if certContent is omitted, treat as standard 2-file OpenSSH keypair
+  const trimmedCert = typeof certContent === 'string' ? certContent.trim() : '';
+  if (!trimmedCert) {
+    return {
+      hasCertificate: false,
+      certAlgorithm: '',
+      pubKeyAlgorithm: pubParsed.type,
+      serial: '—',
+      certType: 'keypair',
+      keyId: pubParsed.comment || '',
+      principals: [],
+      validAfter: 'Unbegrenzt (SSH-Schlüsselpaar)',
+      validBefore: 'Unbegrenzt (kein Ablauf)',
+      validAfterUnix: 0,
+      validBeforeUnix: 0,
+      isExpired: false,
+      isNotYetValid: false,
+      criticalOptions: [],
+      extensions: [],
+      pubKeyFingerprint,
+      caFingerprint: '',
+      privateKeyFormat: privInfo.format,
+      privateKeyEncrypted: privInfo.encrypted,
+      pubKeyMatchesCert: false,
+      privateKeyMatchesPub,
+      warnings,
+    };
+  }
+
   // 3. Validate & Parse OpenSSH Certificate (zertifikat-cert.pub)
-  const certParsed = parseSshTextLine(certContent, 'OpenSSH-Zertifikat (zertifikat-cert.pub)');
+  const certParsed = parseSshTextLine(trimmedCert, 'OpenSSH-Zertifikat (zertifikat-cert.pub)');
   if (!certParsed.type.endsWith('-cert-v01@openssh.com')) {
     throw new Error(
       `zertifikat-cert.pub ist kein gültiges OpenSSH-Zertifikat (Typ "${certParsed.type}", erwartet "*-cert-v01@openssh.com").`
@@ -344,6 +374,7 @@ export function validateAndParseCertificateBundle(
   }
 
   return {
+    hasCertificate: true,
     certAlgorithm: certAlgo,
     pubKeyAlgorithm: pubParsed.type,
     serial,

@@ -530,10 +530,11 @@ async fn api_upload_cert(
     Json(req): Json<UploadCertBundleRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user = current_user(&state, &jar)?;
+    let clean_cert = req.cert_content.as_deref().unwrap_or("").trim();
     let inspection = ssh::inspect_certificate_bundle(
         &req.private_key_content,
         &req.public_key_content,
-        &req.cert_content,
+        if clean_cert.is_empty() { None } else { Some(clean_cert) },
     )
     .await
     .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
@@ -551,6 +552,12 @@ async fn api_upload_cert(
         Vec::new()
     };
 
+    let cert_file_name = if clean_cert.is_empty() {
+        ""
+    } else {
+        req.cert_file.as_deref().unwrap_or("zertifikat-cert.pub")
+    };
+
     let (saved, replaced) = state
         .db
         .save_certificate(
@@ -559,11 +566,11 @@ async fn api_upload_cert(
             req.name.as_deref().unwrap_or(&inspection.key_id),
             req.private_key_file.as_deref().unwrap_or("zertifikat"),
             req.public_key_file.as_deref().unwrap_or("zertifikat.pub"),
-            req.cert_file.as_deref().unwrap_or("zertifikat-cert.pub"),
+            cert_file_name,
             &enc,
             &nonce,
             &req.public_key_content,
-            &req.cert_content,
+            clean_cert,
             &inspection,
             shared_all,
             &shared_ids,

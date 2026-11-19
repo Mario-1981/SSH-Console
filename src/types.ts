@@ -78,10 +78,11 @@ export interface BmcCheckResult {
 }
 
 export interface ParsedCertMetadata {
+  hasCertificate?: boolean;
   certAlgorithm: string;
   pubKeyAlgorithm: string;
   serial: string;
-  certType: 'user' | 'host' | 'unknown';
+  certType: 'user' | 'host' | 'keypair' | 'unknown';
   keyId: string;
   principals: string[];
   validAfter: string;

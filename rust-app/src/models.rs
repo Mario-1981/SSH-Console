@@ -70,6 +70,8 @@ pub struct BmcCheckResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CertInspection {
+    #[serde(default)]
+    pub has_certificate: bool,
     pub key_id: String,
     pub serial: String,
     pub cert_type: String,
@@ -204,7 +206,8 @@ pub struct UploadCertBundleRequest {
     pub cert_file: Option<String>,
     pub private_key_content: String,
     pub public_key_content: String,
-    pub cert_content: String,
+    #[serde(default)]
+    pub cert_content: Option<String>,
     pub shared_with_all: Option<bool>,
     pub shared_with_user_ids: Option<Vec<String>>,
 }
