@@ -48,9 +48,9 @@ jobs:
       - name: Frontend-Abhaengigkeiten installieren & kompilieren
         run: |
           if [ -f package-lock.json ]; then
-            npm ci
+            npm ci --legacy-peer-deps
           else
-            npm install --no-audit --no-fund
+            npm install --legacy-peer-deps --no-audit --no-fund
           fi
           npm run build
 
@@ -77,7 +77,7 @@ jobs:
         env:
           DEB_VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          npx tsx -e "
+          npx --no-install tsx -e "
             import { buildDebianPackage } from './server/debBuilder.ts';
             import fs from 'node:fs';
             const pkg = buildDebianPackage(process.cwd(), process.cwd() + '/rust-app');
