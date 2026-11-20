@@ -14,6 +14,7 @@ import {
   Share2,
 } from 'lucide-react';
 import { api } from '../api';
+import { translateCategory, useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
 import type { CommandKind, CommandStep, SshCommand, User } from '../types';
 
@@ -52,6 +53,7 @@ function getTotalSleepSec(steps: CommandStep[]): number {
 }
 
 export function CommandsAdminView({ currentUser, users, commands, onRefresh }: CommandsAdminViewProps) {
+  const { locale, tr } = useI18n();
   const isAdmin = currentUser.role === 'admin';
   const [kind, setKind] = useState<CommandKind>('single');
   const [name, setName] = useState('');
@@ -83,10 +85,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         c.name.toLowerCase().includes(q) ||
         c.command.toLowerCase().includes(q) ||
         c.category.toLowerCase().includes(q) ||
+        translateCategory(c.category, locale).toLowerCase().includes(q) ||
         c.description.toLowerCase().includes(q)
       );
     });
-  }, [commands, search, filterKind]);
+  }, [commands, search, filterKind, locale]);
 
   const chainPreview = useMemo(() => buildPreviewCommand(steps, stopOnError), [steps, stopOnError]);
   const totalChainSleep = useMemo(() => getTotalSleepSec(steps), [steps]);
@@ -170,7 +173,12 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
     if (kind === 'chain') {
       const validSteps = steps.filter((s) => s.command.trim().length > 0);
       if (validSteps.length === 0) {
-        setError('Bitte tragen Sie mindestens einen Befehlsschritt für die Befehlskette ein.');
+        setError(
+          tr(
+            'Bitte tragen Sie mindestens einen Befehlsschritt für die Befehlskette ein.',
+            'Please enter at least one command step for the command chain.'
+          )
+        );
         return;
       }
     }
@@ -203,7 +211,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       await onRefresh();
       resetForm();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Befehl konnte nicht gespeichert werden.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Befehl konnte nicht gespeichert werden.', 'Could not save command.')
+      );
     } finally {
       setSaving(false);
     }
@@ -215,7 +227,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       await api.updateCommand(cmd.id, { enabled: !cmd.enabled });
       await onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Status konnte nicht geändert werden.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Status konnte nicht geändert werden.', 'Could not update status.')
+      );
     }
   }
 
@@ -226,7 +242,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       if (editingId === id) resetForm();
       await onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Befehl konnte nicht gelöscht werden.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Befehl konnte nicht gelöscht werden.', 'Could not delete command.')
+      );
     }
   }
 
@@ -237,7 +257,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       await api.loadPresetCommands();
       await onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Standardbefehle konnten nicht geladen werden.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Standardbefehle konnten nicht geladen werden.', 'Could not load preset commands.')
+      );
     } finally {
       setLoadingPresets(false);
     }
@@ -248,12 +272,18 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
-            SSH-Befehle &amp; Befehlsketten
+            {tr('SSH-Befehle & Befehlsketten', 'SSH Commands & Command Chains')}
           </h1>
           <p className="text-sm text-slate-600 mt-1">
             {isAdmin
-              ? 'Ihre Befehle und Befehlsketten sind standardmäßig privat. Als Administrator können Sie Einträge gezielt oder für alle Benutzer teilen.'
-              : 'Legen Sie Ihre eigenen Einzelbefehle oder Befehlsketten mit Sleep an. Ihre Einträge sind nur für Sie sichtbar; vom Administrator geteilte Befehle erscheinen zusätzlich in Ihrer Liste.'}
+              ? tr(
+                  'Ihre Befehle und Befehlsketten sind standardmäßig privat. Als Administrator können Sie Einträge gezielt oder für alle Benutzer teilen.',
+                  'Your commands and chains are private by default. As an administrator, you can share entries with specific users or everyone.'
+                )
+              : tr(
+                  'Legen Sie Ihre eigenen Einzelbefehle oder Befehlsketten mit Sleep an. Ihre Einträge sind nur für Sie sichtbar; vom Administrator geteilte Befehle erscheinen zusätzlich in Ihrer Liste.',
+                  'Create your own single commands or command chains with sleep intervals. Your entries are visible only to you; commands shared by an administrator also appear in your list.'
+                )}
           </p>
         </div>
 
@@ -264,7 +294,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
         >
           <Sparkles className="w-3.5 h-3.5" />
-          {loadingPresets ? 'Lädt...' : 'Debian-Standardbefehle & Ketten laden'}
+          {loadingPresets
+            ? tr('Lädt...', 'Loading...')
+            : tr('Debian-Standardbefehle & Ketten laden', 'Load Debian Preset Commands & Chains')}
         </button>
       </div>
 
@@ -279,7 +311,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
           <div className="flex items-center gap-3">
             <h2 className="font-display text-base font-semibold text-slate-900">
-              {editingId ? 'Eintrag bearbeiten' : 'Neuen SSH-Befehl anlegen'}
+              {editingId
+                ? tr('Eintrag bearbeiten', 'Edit Entry')
+                : tr('Neuen SSH-Befehl anlegen', 'Create New SSH Command')}
             </h2>
             {editingId && (
               <button
@@ -288,7 +322,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
-                Abbrechen
+                {tr('Abbrechen', 'Cancel')}
               </button>
             )}
           </div>
@@ -303,7 +337,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Einzelbefehl
+              {tr('Einzelbefehl', 'Single Command')}
             </button>
             <button
               type="button"
@@ -322,7 +356,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Befehlskette (mit Sleep)
+              {tr('Befehlskette (mit Sleep)', 'Command Chain (with sleep)')}
             </button>
           </div>
         </div>
@@ -330,7 +364,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-5">
             <label htmlFor="cmd-name" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Bezeichnung
+              {tr('Bezeichnung', 'Name')}
             </label>
             <input
               id="cmd-name"
@@ -339,8 +373,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               onChange={(e) => setName(e.target.value)}
               placeholder={
                 kind === 'chain'
-                  ? 'z. B. Dienst stoppen, warten & neu starten'
-                  : 'z. B. Nginx-Konfiguration prüfen'
+                  ? tr('z. B. Dienst stoppen, warten & neu starten', 'e.g. Stop service, wait & restart')
+                  : tr('z. B. Nginx-Konfiguration prüfen', 'e.g. Validate Nginx configuration')
               }
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
@@ -349,7 +383,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
           <div className="lg:col-span-4">
             <label htmlFor="cmd-cat" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Kategorie
+              {tr('Kategorie', 'Category')}
             </label>
             <select
               id="cmd-cat"
@@ -359,7 +393,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             >
               {CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
-                  {cat}
+                  {translateCategory(cat, locale)}
                 </option>
               ))}
             </select>
@@ -367,7 +401,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
           <div className="lg:col-span-3">
             <label htmlFor="cmd-timeout" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Timeout (Sekunden{kind === 'chain' ? `, min. ${recommendedMinTimeout}s` : ''})
+              {tr(
+                `Timeout (Sekunden${kind === 'chain' ? `, min. ${recommendedMinTimeout}s` : ''})`,
+                `Timeout (seconds${kind === 'chain' ? `, min. ${recommendedMinTimeout}s` : ''})`
+              )}
             </label>
             <input
               id="cmd-timeout"
@@ -385,7 +422,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         {kind === 'single' ? (
           <div>
             <label htmlFor="cmd-shell" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Exakter SSH-Befehl (wird per OpenSSH an den Zielserver gesendet)
+              {tr(
+                'Exakter SSH-Befehl (wird per OpenSSH an den Zielserver gesendet)',
+                'Exact SSH Command (sent to the target server via OpenSSH)'
+              )}
             </label>
             <input
               id="cmd-shell"
@@ -401,7 +441,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <p className="text-xs font-medium text-slate-700">
-                Schritte der Befehlskette &amp; Pausen dazwischen
+                {tr('Schritte der Befehlskette & Pausen dazwischen', 'Chain Steps & Wait Intervals')}
               </p>
               <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
                 <input
@@ -410,7 +450,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   onChange={(e) => setStopOnError(e.target.checked)}
                   className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
                 />
-                <span>Bei Fehler sofort abbrechen (verknüpft mit <code className="font-mono">&amp;&amp;</code>)</span>
+                <span>
+                  {tr('Bei Fehler sofort abbrechen (verknüpft mit ', 'Abort immediately on error (joined with ')}
+                  <code className="font-mono">&amp;&amp;</code>)
+                </span>
               </label>
             </div>
 
@@ -429,10 +472,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                         onChange={(e) => updateStep(idx, { command: e.target.value })}
                         placeholder={
                           idx === 0
-                            ? 'z. B. systemctl stop myapp'
+                            ? tr('z. B. systemctl stop myapp', 'e.g. systemctl stop myapp')
                             : idx === 1
-                            ? 'z. B. systemctl start myapp'
-                            : 'z. B. systemctl is-active myapp'
+                            ? tr('z. B. systemctl start myapp', 'e.g. systemctl start myapp')
+                            : tr('z. B. systemctl is-active myapp', 'e.g. systemctl is-active myapp')
                         }
                         className="flex-1 px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                         required
@@ -442,8 +485,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                           type="button"
                           onClick={() => moveStep(idx, -1)}
                           disabled={idx === 0}
-                          title="Nach oben"
-                          aria-label="Schritt nach oben"
+                          title={tr('Nach oben', 'Move up')}
+                          aria-label={tr('Schritt nach oben', 'Move step up')}
                           className="p-2 text-slate-500 hover:text-slate-900 disabled:opacity-30 rounded-md hover:bg-slate-100 cursor-pointer"
                         >
                           <ArrowUp className="w-3.5 h-3.5" />
@@ -452,8 +495,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                           type="button"
                           onClick={() => moveStep(idx, 1)}
                           disabled={isLast}
-                          title="Nach unten"
-                          aria-label="Schritt nach unten"
+                          title={tr('Nach unten', 'Move down')}
+                          aria-label={tr('Schritt nach unten', 'Move step down')}
                           className="p-2 text-slate-500 hover:text-slate-900 disabled:opacity-30 rounded-md hover:bg-slate-100 cursor-pointer"
                         >
                           <ArrowDown className="w-3.5 h-3.5" />
@@ -462,8 +505,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                           type="button"
                           onClick={() => removeStep(idx)}
                           disabled={steps.length <= 1}
-                          title="Schritt entfernen"
-                          aria-label="Schritt entfernen"
+                          title={tr('Schritt entfernen', 'Remove step')}
+                          aria-label={tr('Schritt entfernen', 'Remove step')}
                           className="p-2 text-red-600 hover:text-red-800 disabled:opacity-30 rounded-md hover:bg-red-50 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -474,7 +517,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                     {!isLast && (
                       <div className="pl-9 flex items-center gap-2.5 text-xs text-slate-600">
                         <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>Pause vor Schritt {idx + 2} (<code className="font-mono">sleep</code>):</span>
+                        <span>
+                          {tr(`Pause vor Schritt ${idx + 2} (`, `Wait before step ${idx + 2} (`)}
+                          <code className="font-mono">sleep</code>):
+                        </span>
                         <input
                           type="number"
                           min={0}
@@ -487,7 +533,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                           }
                           className="w-20 px-2.5 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                         />
-                        <span className="text-slate-500">Sekunden (0 = ohne Pause)</span>
+                        <span className="text-slate-500">
+                          {tr('Sekunden (0 = ohne Pause)', 'seconds (0 = no pause)')}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -502,7 +550,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
-                Weiteren Schritt hinzufügen
+                {tr('Weiteren Schritt hinzufügen', 'Add Another Step')}
               </button>
             </div>
 
@@ -510,14 +558,22 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             <div className="rounded-md bg-slate-50 border border-slate-200 p-3.5 space-y-1.5">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                 <span className="font-medium text-slate-700">
-                  Resultierender einzelner SSH-Befehl (eine SSH-Sitzung)
+                  {tr(
+                    'Resultierender einzelner SSH-Befehl (eine SSH-Sitzung)',
+                    'Compiled Single SSH Command (one SSH session)'
+                  )}
                 </span>
                 <span className="font-mono tabular-nums">
-                  {steps.filter((s) => s.command.trim()).length} Schritte · Gesamt-Sleep: {totalChainSleep}s
+                  {steps.filter((s) => s.command.trim()).length} {tr('Schritte', 'steps')} ·{' '}
+                  {tr('Gesamt-Sleep', 'Total sleep')}: {totalChainSleep}s
                 </span>
               </div>
               <code className="block font-mono text-xs text-slate-900 break-all">
-                {chainPreview || '— Bitte mindestens einen Befehlsschritt eingeben —'}
+                {chainPreview ||
+                  tr(
+                    '— Bitte mindestens einen Befehlsschritt eingeben —',
+                    '— Enter at least one command step —'
+                  )}
               </code>
             </div>
           </div>
@@ -527,14 +583,17 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           <div className="flex flex-col sm:flex-row sm:items-end gap-4">
             <div className="flex-1">
               <label htmlFor="cmd-desc" className="block text-xs font-medium text-slate-700 mb-1.5">
-                Beschreibung
+                {tr('Beschreibung', 'Description')}
               </label>
               <input
                 id="cmd-desc"
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Erklärt den Zweck und Ablauf des Befehls."
+                placeholder={tr(
+                  'Erklärt den Zweck und Ablauf des Befehls.',
+                  'Explains the purpose and behavior of this command.'
+                )}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
@@ -545,12 +604,12 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             >
               {editingId ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
               {saving
-                ? 'Speichert...'
+                ? tr('Speichert...', 'Saving...')
                 : editingId
-                ? 'Änderungen speichern'
+                ? tr('Änderungen speichern', 'Save Changes')
                 : kind === 'chain'
-                ? 'Befehlskette speichern'
-                : 'Befehl speichern'}
+                ? tr('Befehlskette speichern', 'Save Command Chain')
+                : tr('Befehl speichern', 'Save Command')}
             </button>
           </div>
 
@@ -562,7 +621,12 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 onChange={(e) => setShareOnCreate(e.target.checked)}
                 className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
               />
-              <span>Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)</span>
+              <span>
+                {tr(
+                  'Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)',
+                  'Share immediately with all users (otherwise visible only to me)'
+                )}
+              </span>
             </label>
           )}
         </div>
@@ -573,14 +637,14 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         <div className="px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-4 flex-wrap">
             <h2 className="font-display text-base font-semibold text-slate-900">
-              Sichtbare Befehle ({filtered.length})
+              {tr(`Sichtbare Befehle (${filtered.length})`, `Visible Commands (${filtered.length})`)}
             </h2>
             <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-md">
               {(
                 [
-                  { id: 'all', label: 'Alle' },
-                  { id: 'single', label: 'Einzelbefehle' },
-                  { id: 'chain', label: 'Befehlsketten' },
+                  { id: 'all', label: tr('Alle', 'All') },
+                  { id: 'single', label: tr('Einzelbefehle', 'Single Commands') },
+                  { id: 'chain', label: tr('Befehlsketten', 'Command Chains') },
                 ] as const
               ).map((tab) => (
                 <button
@@ -605,7 +669,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Befehle durchsuchen..."
+              placeholder={tr('Befehle durchsuchen...', 'Search commands...')}
               className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
@@ -614,9 +678,14 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         {filtered.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <SlidersHorizontal className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <p className="text-sm font-medium text-slate-900">Keine SSH-Befehle vorhanden</p>
+            <p className="text-sm font-medium text-slate-900">
+              {tr('Keine SSH-Befehle vorhanden', 'No SSH commands available')}
+            </p>
             <p className="text-xs text-slate-500 mt-1">
-              Legen Sie oben einen Einzelbefehl oder eine Befehlskette an oder laden Sie die Debian-Standardbefehle.
+              {tr(
+                'Legen Sie oben einen Einzelbefehl oder eine Befehlskette an oder laden Sie die Debian-Standardbefehle.',
+                'Create a single command or chain above, or load the Debian preset commands.'
+              )}
             </p>
           </div>
         ) : (
@@ -624,13 +693,13 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 px-6">Bezeichnung</th>
-                  <th className="py-2.5 px-4">Typ · Kategorie</th>
-                  <th className="py-2.5 px-4">SSH-Befehl</th>
-                  <th className="py-2.5 px-4">Sichtbarkeit</th>
+                  <th className="py-2.5 px-6">{tr('Bezeichnung', 'Name')}</th>
+                  <th className="py-2.5 px-4">{tr('Typ · Kategorie', 'Type · Category')}</th>
+                  <th className="py-2.5 px-4">{tr('SSH-Befehl', 'SSH Command')}</th>
+                  <th className="py-2.5 px-4">{tr('Sichtbarkeit', 'Visibility')}</th>
                   <th className="py-2.5 px-4 text-right">Timeout</th>
                   <th className="py-2.5 px-4">Status</th>
-                  <th className="py-2.5 px-6 text-right">Aktionen</th>
+                  <th className="py-2.5 px-6 text-right">{tr('Aktionen', 'Actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-sm">
@@ -638,9 +707,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   const isChain = cmd.kind === 'chain';
                   const sleepSum = isChain ? getTotalSleepSec(cmd.steps) : 0;
                   const isOwner = cmd.userId === currentUser.id;
+                  const catLabel = translateCategory(cmd.category, locale);
                   const shareLabel = isOwner
-                    ? formatShareSummary(cmd.sharedWithAll, cmd.sharedWithUserIds)
-                    : `Geteilt von ${cmd.createdBy}`;
+                    ? formatShareSummary(cmd.sharedWithAll, cmd.sharedWithUserIds, locale)
+                    : tr(`Geteilt von ${cmd.createdBy}`, `Shared by ${cmd.createdBy}`);
                   return (
                     <tr key={cmd.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-6">
@@ -655,12 +725,17 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                         {isChain ? (
                           <span>
                             <span className="font-medium text-blue-800">
-                              Kette ({cmd.steps.length} Schritte{sleepSum > 0 ? `, ${sleepSum}s Sleep` : ''})
+                              {tr(
+                                `Kette (${cmd.steps.length} Schritte${sleepSum > 0 ? `, ${sleepSum}s Sleep` : ''})`,
+                                `Chain (${cmd.steps.length} steps${sleepSum > 0 ? `, ${sleepSum}s sleep` : ''})`
+                              )}
                             </span>{' '}
-                            · {cmd.category}
+                            · {catLabel}
                           </span>
                         ) : (
-                          <span>Einzelbefehl · {cmd.category}</span>
+                          <span>
+                            {tr('Einzelbefehl', 'Single')} · {catLabel}
+                          </span>
                         )}
                       </td>
                       <td className="py-3 px-4">
@@ -696,11 +771,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                                 : 'text-slate-500 hover:text-slate-800'
                             }`}
                           >
-                            {cmd.enabled ? 'Aktiv' : 'Deaktiviert'}
+                            {cmd.enabled ? tr('Aktiv', 'Active') : tr('Deaktiviert', 'Disabled')}
                           </button>
                         ) : (
                           <span className="text-xs font-medium text-emerald-700">
-                            {cmd.enabled ? 'Aktiv' : 'Deaktiviert'}
+                            {cmd.enabled ? tr('Aktiv', 'Active') : tr('Deaktiviert', 'Disabled')}
                           </span>
                         )}
                       </td>
@@ -714,7 +789,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                                 className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
                               >
                                 <Share2 className="w-3.5 h-3.5" />
-                                Teilen
+                                {tr('Teilen', 'Share')}
                               </button>
                             )}
                             <button
@@ -723,7 +798,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                               className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-700 cursor-pointer"
                             >
                               <Pencil className="w-3.5 h-3.5" />
-                              Bearbeiten
+                              {tr('Bearbeiten', 'Edit')}
                             </button>
                             <button
                               type="button"
@@ -731,11 +806,13 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                               className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                              Löschen
+                              {tr('Löschen', 'Delete')}
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400">Nur ausführen</span>
+                          <span className="text-xs text-slate-400">
+                            {tr('Nur ausführen', 'Execute only')}
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -749,8 +826,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
       {sharingCmd && isAdmin && (
         <ShareDialog
-          title="SSH-Befehl teilen"
-          itemName={`${sharingCmd.name} (${sharingCmd.category})`}
+          title={tr('SSH-Befehl teilen', 'Share SSH Command')}
+          itemName={`${sharingCmd.name} (${translateCategory(sharingCmd.category, locale)})`}
           currentUserId={currentUser.id}
           users={users}
           initialSharedWithAll={sharingCmd.sharedWithAll}

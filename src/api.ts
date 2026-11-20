@@ -7,6 +7,7 @@ import type {
   RustProjectFile,
   SshCommand,
   User,
+  UserApiKey,
   UserCertificate,
   UserRole,
   UserServer,
@@ -128,6 +129,20 @@ export const api = {
     request<{ ok: boolean }>('/api/auth/change-password', {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
+  // Personal API Keys (curl certificate upload)
+  listApiKeys: () => request<{ apiKeys: UserApiKey[] }>('/api/auth/api-keys'),
+
+  createApiKey: (name: string) =>
+    request<{ apiKey: UserApiKey; plainKey: string }>('/api/auth/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteApiKey: (id: string) =>
+    request<{ ok: boolean }>(`/api/auth/api-keys/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     }),
 
   // Admin Users

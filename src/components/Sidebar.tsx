@@ -11,6 +11,7 @@ import {
   Lock,
   X,
 } from 'lucide-react';
+import { useI18n } from '../i18n';
 import type { ActiveTab, User } from '../types';
 
 interface SidebarProps {
@@ -29,19 +30,6 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const WORKSPACE_ITEMS: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'execute', label: 'Befehle ausführen', icon: Terminal },
-  { id: 'admin-commands', label: 'SSH-Befehle', icon: SlidersHorizontal },
-  { id: 'servers', label: 'Meine Server (IPs)', icon: Server },
-  { id: 'certificates', label: 'SSH-Zertifikate', icon: KeyRound },
-  { id: 'logs', label: 'Ausführungsprotokoll', icon: History },
-];
-
-const ADMIN_ITEMS: NavItem[] = [
-  { id: 'admin-users', label: 'Benutzerverwaltung', icon: Users },
-];
-
 export function Sidebar({
   instanceName,
   user,
@@ -51,6 +39,21 @@ export function Sidebar({
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) {
+  const { tr } = useI18n();
+
+  const workspaceItems: NavItem[] = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'execute', label: tr('Befehle ausführen', 'Run Commands'), icon: Terminal },
+    { id: 'admin-commands', label: tr('SSH-Befehle', 'SSH Commands'), icon: SlidersHorizontal },
+    { id: 'servers', label: tr('Meine Server (IPs)', 'My Servers (IPs)'), icon: Server },
+    { id: 'certificates', label: tr('SSH-Zertifikate', 'SSH Certificates'), icon: KeyRound },
+    { id: 'logs', label: tr('Ausführungsprotokoll', 'Execution Log'), icon: History },
+  ];
+
+  const adminItems: NavItem[] = [
+    { id: 'admin-users', label: tr('Benutzerverwaltung', 'User Management'), icon: Users },
+  ];
+
   function handleNav(tab: ActiveTab) {
     onSelectTab(tab);
     onCloseMobile();
@@ -66,7 +69,7 @@ export function Sidebar({
           type="button"
           onClick={onCloseMobile}
           className="lg:hidden p-1.5 text-slate-500 hover:text-slate-900 rounded-md"
-          aria-label="Navigation schließen"
+          aria-label={tr('Navigation schließen', 'Close navigation')}
         >
           <X className="w-4 h-4" />
         </button>
@@ -74,9 +77,11 @@ export function Sidebar({
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
         <div>
-          <p className="px-2.5 mb-2 text-xs font-medium text-slate-500">Arbeitsbereich</p>
+          <p className="px-2.5 mb-2 text-xs font-medium text-slate-500">
+            {tr('Arbeitsbereich', 'Workspace')}
+          </p>
           <ul className="space-y-0.5">
-            {WORKSPACE_ITEMS.map((item) => {
+            {workspaceItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (
@@ -103,7 +108,7 @@ export function Sidebar({
           <div>
             <p className="px-2.5 mb-2 text-xs font-medium text-slate-500">Administration</p>
             <ul className="space-y-0.5">
-              {ADMIN_ITEMS.map((item) => {
+              {adminItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
                 return (
@@ -126,7 +131,6 @@ export function Sidebar({
             </ul>
           </div>
         )}
-
       </nav>
 
       <div className="p-4 border-t border-slate-200 shrink-0 space-y-3">
@@ -135,14 +139,14 @@ export function Sidebar({
             <p className="text-sm font-medium text-slate-900 truncate">{user.displayName}</p>
             <p className="text-xs text-slate-500 truncate">
               <span className="font-mono">{user.username}</span> ·{' '}
-              {user.role === 'admin' ? 'Administrator' : 'Benutzer'}
+              {user.role === 'admin' ? 'Administrator' : tr('Benutzer', 'User')}
             </p>
           </div>
           <button
             type="button"
             onClick={onLogout}
-            title="Abmelden"
-            aria-label="Abmelden"
+            title={tr('Abmelden', 'Sign out')}
+            aria-label={tr('Abmelden', 'Sign out')}
             className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer shrink-0"
           >
             <LogOut className="w-4 h-4" />
@@ -158,7 +162,7 @@ export function Sidebar({
           }`}
         >
           <Lock className="w-3.5 h-3.5 shrink-0" />
-          Passwort ändern
+          {tr('Konto & API-Schlüssel', 'Account & API Keys')}
         </button>
       </div>
     </div>

@@ -15,6 +15,22 @@ pub struct UserPublic {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UserApiKeyPublic {
+    pub id: String,
+    pub name: String,
+    pub key_prefix: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApiKeyRequest {
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandStep {
     pub command: String,
     #[serde(default, alias = "sleep_after_sec")]
@@ -335,6 +351,7 @@ pub struct UpdateServerRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadCertBundleRequest {
+    #[serde(alias = "label")]
     pub name: Option<String>,
     #[serde(alias = "private_key_file")]
     pub private_key_file_name: Option<String>,
@@ -342,11 +359,11 @@ pub struct UploadCertBundleRequest {
     pub public_key_file_name: Option<String>,
     #[serde(alias = "cert_file")]
     pub cert_file_name: Option<String>,
-    #[serde(alias = "private_key_content")]
+    #[serde(alias = "private_key_content", alias = "private_key", alias = "privateKey", alias = "zertifikat")]
     pub private_key_content: String,
-    #[serde(alias = "public_key_content")]
+    #[serde(alias = "public_key_content", alias = "public_key", alias = "publicKey", alias = "zertifikat_pub")]
     pub public_key_content: String,
-    #[serde(default, alias = "cert_content")]
+    #[serde(default, alias = "cert_content", alias = "cert", alias = "certificate", alias = "cert_pub", alias = "zertifikat_cert")]
     pub cert_content: Option<String>,
     #[serde(alias = "shared_with_all")]
     pub shared_with_all: Option<bool>,

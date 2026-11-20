@@ -10,7 +10,14 @@ import {
   validateSshUsername,
   validateTargetIp,
 } from './server/sshRunner.ts';
-import { store, verifyPassword, type StoredUser, type UserRole } from './server/store.ts';
+import {
+  store,
+  verifyPassword,
+  type StoredApiKey,
+  type StoredUser,
+  type UserRole,
+} from './server/store.ts';
+import { parseMultipartFormData } from './server/multipart.ts';
 import { buildRustProjectTarGz } from './server/tarBuilder.ts';
 import { buildDebianPackage } from './server/debBuilder.ts';
 import { pingMonitor } from './server/pingMonitor.ts';
@@ -83,6 +90,29 @@ function extractSessionToken(req: Request): string | undefined {
   }
   const cookies = parseCookies(req.headers.cookie);
   return cookies[COOKIE_NAME];
+}
+
+function extractApiKey(req: Request): string | undefined {
+  const headerKey = req.headers['x-api-key'];
+  if (typeof headerKey === 'string' && headerKey.trim()) {
+    return headerKey.trim();
+  }
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader === 'string' && authHeader.toLowerCase().startsWith('bearer ')) {
+    const bearer = authHeader.slice(7).trim();
+    if (bearer.startsWith('sshc_')) return bearer;
+  }
+  return undefined;
+}
+
+function sanitizeApiKey(k: StoredApiKey) {
+  return {
+    id: k.id,
+    name: k.name,
+    keyPrefix: k.keyPrefix,
+    createdAt: k.createdAt,
+    lastUsedAt: k.lastUsedAt,
+  };
 }
 
 function sanitizeUser(u: StoredUser) {
@@ -325,6 +355,25 @@ async function startServer() {
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'Passwort konnte nicht geändert werden.' });
     }
+  });
+
+  // Personal API Keys (for automated curl certificate uploads)
+  app.get('/api/auth/api-keys', requireAuth, (req: AuthedRequest, res: Response) => {
+    res.json({ apiKeys: store.listApiKeys(req.user!.id).map(sanitizeApiKey) });
+  });
+
+  app.post('/api/auth/api-keys', requireAuth, (req: AuthedRequest, res: Response) => {
+    const rawName = typeof req.body?.name === 'string' ? req.body.name : '';
+    const { apiKey, plainKey } = store.createApiKey(req.user!.id, rawName);
+    res.status(201).json({
+      apiKey: sanitizeApiKey(apiKey),
+      plainKey,
+    });
+  });
+
+  app.delete('/api/auth/api-keys/:id', requireAuth, (req: AuthedRequest, res: Response) => {
+    store.deleteApiKey(req.params.id, req.user!.id);
+    res.json({ ok: true });
   });
 
   // Admin: User Management (no self-registration)
@@ -772,6 +821,134 @@ async function startServer() {
     }
     store.deleteCertificate(req.params.id, req.user!.id);
     res.json({ ok: true });
+  });
+
+  // Simple API-Key Upload Endpoint for curl (supports multipart/form-data and JSON)
+  app.post('/api/v1/certificates/upload', async (req: Request, res: Response) => {
+    const apiKey = extractApiKey(req);
+    const user = store.getUserByApiKey(apiKey);
+    if (!user) {
+      res.status(401).json({
+        error:
+          'Ungültiger oder fehlender API-Schlüssel. Senden Sie ihn als Header "X-API-Key: sshc_..." oder "Authorization: Bearer sshc_...".',
+      });
+      return;
+    }
+
+    let bundleName = '';
+    let privateKeyFileName = 'zertifikat';
+    let publicKeyFileName = 'zertifikat.pub';
+    let certFileName = 'zertifikat-cert.pub';
+    let privateKeyContent = '';
+    let publicKeyContent = '';
+    let certContent = '';
+
+    const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
+    try {
+      if (contentType.includes('multipart/form-data')) {
+        const parsed = await parseMultipartFormData(req);
+        const pickPart = (
+          names: string[]
+        ): { content: string; filename?: string } | undefined => {
+          for (const n of names) {
+            if (parsed.files[n] && parsed.files[n].content.trim()) {
+              return { content: parsed.files[n].content, filename: parsed.files[n].filename };
+            }
+            if (parsed.fields[n] && parsed.fields[n].trim()) {
+              return { content: parsed.fields[n] };
+            }
+          }
+          return undefined;
+        };
+
+        const priv = pickPart(['private_key', 'privateKey', 'zertifikat', 'key']);
+        const pub = pickPart(['public_key', 'publicKey', 'zertifikat_pub', 'pub']);
+        const cert = pickPart(['cert', 'certificate', 'cert_pub', 'zertifikat_cert', 'certContent']);
+
+        bundleName = (parsed.fields.name ?? parsed.fields.label ?? '').trim();
+        if (priv) {
+          privateKeyContent = priv.content;
+          if (priv.filename) privateKeyFileName = path.basename(priv.filename);
+        }
+        if (pub) {
+          publicKeyContent = pub.content;
+          if (pub.filename) publicKeyFileName = path.basename(pub.filename);
+        }
+        if (cert) {
+          certContent = cert.content;
+          if (cert.filename) certFileName = path.basename(cert.filename);
+        }
+      } else {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const readStr = (...keys: string[]): string => {
+          for (const k of keys) {
+            if (typeof body[k] === 'string' && (body[k] as string).trim()) {
+              return body[k] as string;
+            }
+          }
+          return '';
+        };
+        bundleName = readStr('name', 'label').trim();
+        privateKeyContent = readStr('private_key', 'privateKey', 'privateKeyContent', 'zertifikat');
+        publicKeyContent = readStr('public_key', 'publicKey', 'publicKeyContent', 'zertifikat_pub');
+        certContent = readStr('cert', 'certificate', 'certContent', 'cert_pub', 'zertifikat_cert');
+        privateKeyFileName =
+          readStr('privateKeyFileName', 'private_key_file') || privateKeyFileName;
+        publicKeyFileName =
+          readStr('publicKeyFileName', 'public_key_file') || publicKeyFileName;
+        certFileName = readStr('certFileName', 'cert_file') || certFileName;
+      }
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Anfrage konnte nicht verarbeitet werden.',
+      });
+      return;
+    }
+
+    if (!privateKeyContent.trim() || !publicKeyContent.trim()) {
+      res.status(400).json({
+        error:
+          'Erforderliche Felder fehlen: "private_key" (zertifikat) und "public_key" (zertifikat.pub). Optional: "cert" (zertifikat-cert.pub) und "name".',
+      });
+      return;
+    }
+
+    const cleanCertContent = certContent.trim();
+    try {
+      const metadata = validateAndParseCertificateBundle(
+        privateKeyContent,
+        publicKeyContent,
+        cleanCertContent
+      );
+      const effectiveName =
+        bundleName ||
+        metadata.keyId ||
+        privateKeyFileName.replace(/\.(pem|key)$/i, '') ||
+        'SSH-Zertifikat';
+
+      const { certificate: saved, replaced } = store.createCertificate({
+        userId: user.id,
+        ownerUsername: user.username,
+        name: effectiveName,
+        privateKeyFileName,
+        publicKeyFileName,
+        certFileName: cleanCertContent ? certFileName : '',
+        privateKeyContent,
+        publicKeyContent,
+        certContent: cleanCertContent,
+        metadata,
+      });
+
+      res.status(replaced ? 200 : 201).json({
+        ok: true,
+        replaced,
+        certificate: serializeCertificate(saved),
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
+      });
+    }
   });
 
   // Execute SSH Command on One or Multiple Target IPs (own or admin-shared)

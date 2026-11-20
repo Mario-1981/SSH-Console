@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Play, Terminal, KeyRound, Server, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../api';
+import { translateCategory, useI18n } from '../i18n';
 import type {
   ActiveTab,
   ExecutionLog,
@@ -29,6 +30,7 @@ export function ExecuteView({
   onNavigate,
   onExecutionComplete,
 }: ExecuteViewProps) {
+  const { locale, tr } = useI18n();
   const activeCommands = commands.filter((c) => c.enabled);
 
   const [selectedCommandId, setSelectedCommandId] = useState<string>('');
@@ -82,11 +84,21 @@ export function ExecuteView({
     setError(null);
 
     if (!selectedCommand) {
-      setError('Bitte wählen Sie einen vom Administrator freigegebenen SSH-Befehl aus.');
+      setError(
+        tr(
+          'Bitte wählen Sie einen SSH-Befehl aus.',
+          'Please select an SSH command.'
+        )
+      );
       return;
     }
     if (!selectedCert) {
-      setError('Bitte laden Sie zuerst ein 3-Dateien-SSH-Zertifikatspaket hoch.');
+      setError(
+        tr(
+          'Bitte laden Sie zuerst ein SSH-Schlüssel- oder Zertifikatspaket hoch.',
+          'Please upload an SSH key or certificate bundle first.'
+        )
+      );
       return;
     }
 
@@ -96,7 +108,7 @@ export function ExecuteView({
 
     if (useDirectIp) {
       if (!directIp.trim()) {
-        setError('Bitte geben Sie eine Ziel-IP-Adresse ein.');
+        setError(tr('Bitte geben Sie eine Ziel-IP-Adresse ein.', 'Please enter a target IP address.'));
         return;
       }
       targets.push({
@@ -106,7 +118,7 @@ export function ExecuteView({
       });
     } else {
       if (selectedServerIds.length === 0) {
-        setError('Bitte wählen Sie mindestens einen Zielserver aus.');
+        setError(tr('Bitte wählen Sie mindestens einen Zielserver aus.', 'Please select at least one target server.'));
         return;
       }
       for (const id of selectedServerIds) {
@@ -124,7 +136,11 @@ export function ExecuteView({
       setResults(res.results);
       await onExecutionComplete();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ausführung fehlgeschlagen.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Ausführung fehlgeschlagen.', 'Execution failed.')
+      );
     } finally {
       setRunning(false);
     }
@@ -135,17 +151,20 @@ export function ExecuteView({
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
-            SSH-Befehle ausführen
+            {tr('SSH-Befehle ausführen', 'Run SSH Commands')}
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Wählen Sie eigene oder vom Administrator geteilte Ziel-IPs, SSH-Befehle und Zertifikatspakete für die Ausführung.
+            {tr(
+              'Wählen Sie eigene oder vom Administrator geteilte Ziel-IPs, SSH-Befehle und Zertifikatspakete für die Ausführung.',
+              'Select your own or administrator-shared target IPs, SSH commands, and key/certificate bundles for execution.'
+            )}
           </p>
         </div>
 
         <div className="text-xs text-slate-500 whitespace-nowrap shrink-0">
           {opensshAvailable
-            ? 'OpenSSH-Client lokal verfügbar · Live-Ausführung'
-            : 'Vorschau-Sandbox ohne /usr/bin/ssh · Zertifikats- & TCP-Prüflauf'}
+            ? tr('OpenSSH-Client lokal verfügbar · Live-Ausführung', 'OpenSSH client available locally · Live execution')
+            : tr('Vorschau-Sandbox ohne /usr/bin/ssh · Zertifikats- & TCP-Prüflauf', 'Preview sandbox without /usr/bin/ssh · Certificate & TCP dry-run')}
         </div>
       </div>
 
@@ -165,7 +184,7 @@ export function ExecuteView({
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <label className="text-sm font-semibold text-slate-900">
-                1. Zielserver / IP-Adresse
+                {tr('1. Zielserver / IP-Adresse', '1. Target Server / IP Address')}
               </label>
               <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-md">
                 <button
@@ -175,7 +194,7 @@ export function ExecuteView({
                     !useDirectIp ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Gespeicherte ({servers.length})
+                  {tr(`Gespeicherte (${servers.length})`, `Saved (${servers.length})`)}
                 </button>
                 <button
                   type="button"
@@ -184,7 +203,7 @@ export function ExecuteView({
                     useDirectIp ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Direkte IP
+                  {tr('Direkte IP', 'Direct IP')}
                 </button>
               </div>
             </div>
@@ -193,7 +212,7 @@ export function ExecuteView({
               <div className="grid grid-cols-12 gap-3">
                 <div className="col-span-6">
                   <label htmlFor="exec-ip" className="block text-xs text-slate-600 mb-1">
-                    IP-Adresse
+                    {tr('IP-Adresse', 'IP Address')}
                   </label>
                   <input
                     id="exec-ip"
@@ -222,7 +241,7 @@ export function ExecuteView({
                 </div>
                 <div className="col-span-4">
                   <label htmlFor="exec-user" className="block text-xs text-slate-600 mb-1">
-                    SSH-Benutzer
+                    {tr('SSH-Benutzer', 'SSH User')}
                   </label>
                   <input
                     id="exec-user"
@@ -237,13 +256,13 @@ export function ExecuteView({
               </div>
             ) : servers.length === 0 ? (
               <div className="border border-slate-200 rounded-md p-4 bg-slate-50 text-xs text-slate-600 flex items-center justify-between gap-3">
-                <span>Noch keine Server gespeichert.</span>
+                <span>{tr('Noch keine Server gespeichert.', 'No servers saved yet.')}</span>
                 <button
                   type="button"
                   onClick={() => onNavigate('servers')}
                   className="text-blue-700 hover:text-blue-900 font-medium whitespace-nowrap cursor-pointer"
                 >
-                  Server anlegen
+                  {tr('Server anlegen', 'Add Server')}
                 </button>
               </div>
             ) : (
@@ -267,7 +286,7 @@ export function ExecuteView({
                             {srv.label}
                             {srv.userId !== user.id && (
                               <span className="ml-1.5 text-xs font-normal text-blue-800">
-                                · Geteilt
+                                · {tr('Geteilt', 'Shared')}
                               </span>
                             )}
                           </p>
@@ -287,26 +306,26 @@ export function ExecuteView({
           <div className="space-y-2.5 pt-4 border-t border-slate-200">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor="exec-cmd" className="text-sm font-semibold text-slate-900">
-                2. SSH-Befehl / Befehlskette
+                {tr('2. SSH-Befehl / Befehlskette', '2. SSH Command / Command Chain')}
               </label>
               <button
                 type="button"
                 onClick={() => onNavigate('admin-commands')}
                 className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
               >
-                Befehle verwalten
+                {tr('Befehle verwalten', 'Manage Commands')}
               </button>
             </div>
 
             {activeCommands.length === 0 ? (
               <div className="border border-slate-200 rounded-md p-4 bg-slate-50 text-xs text-slate-600 space-y-2">
-                <p>Es wurden noch keine SSH-Befehle angelegt.</p>
+                <p>{tr('Es wurden noch keine SSH-Befehle angelegt.', 'No SSH commands have been created yet.')}</p>
                 <button
                   type="button"
                   onClick={() => onNavigate('admin-commands')}
                   className="text-blue-700 hover:text-blue-900 font-medium cursor-pointer"
                 >
-                  Jetzt erste SSH-Befehle anlegen
+                  {tr('Jetzt erste SSH-Befehle anlegen', 'Create your first SSH commands')}
                 </button>
               </div>
             ) : (
@@ -319,9 +338,11 @@ export function ExecuteView({
                 >
                   {activeCommands.map((cmd) => (
                     <option key={cmd.id} value={cmd.id}>
-                      [{cmd.category}] {cmd.name}
-                      {cmd.kind === 'chain' ? ` (Kette · ${cmd.steps.length} Schritte)` : ''}
-                      {cmd.userId !== user.id ? ` · Geteilt` : ''}
+                      [{translateCategory(cmd.category, locale)}] {cmd.name}
+                      {cmd.kind === 'chain'
+                        ? tr(` (Kette · ${cmd.steps.length} Schritte)`, ` (Chain · ${cmd.steps.length} steps)`)
+                        : ''}
+                      {cmd.userId !== user.id ? tr(' · Geteilt', ' · Shared') : ''}
                     </option>
                   ))}
                 </select>
@@ -330,8 +351,14 @@ export function ExecuteView({
                     {selectedCommand.kind === 'chain' && selectedCommand.steps.length > 0 ? (
                       <div className="space-y-1.5">
                         <p className="text-xs font-medium text-slate-700">
-                          Ablauf der Befehlskette (ausgeführt als ein SSH-Befehl ·{' '}
-                          {selectedCommand.stopOnError ? 'Abbruch bei Fehler' : 'Fortfahren bei Fehler'})
+                          {tr(
+                            'Ablauf der Befehlskette (ausgeführt als ein SSH-Befehl · ',
+                            'Command chain sequence (executed as a single SSH command · '
+                          )}
+                          {selectedCommand.stopOnError
+                            ? tr('Abbruch bei Fehler', 'Abort on error')
+                            : tr('Fortfahren bei Fehler', 'Continue on error')}
+                          )
                         </p>
                         <ol className="space-y-1 font-mono text-xs text-slate-800">
                           {selectedCommand.steps.map((step, idx) => (
@@ -363,7 +390,8 @@ export function ExecuteView({
                       <p className="text-xs text-slate-500">{selectedCommand.description}</p>
                     )}
                     <p className="text-xs text-slate-500 tabular-nums">
-                      Kategorie: {selectedCommand.category} · Timeout: {selectedCommand.timeoutSec}s
+                      {tr('Kategorie', 'Category')}: {translateCategory(selectedCommand.category, locale)} · Timeout:{' '}
+                      {selectedCommand.timeoutSec}s
                     </p>
                   </div>
                 )}
@@ -375,24 +403,26 @@ export function ExecuteView({
           <div className="space-y-2.5 pt-4 border-t border-slate-200">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor="exec-cert" className="text-sm font-semibold text-slate-900">
-                3. SSH-Schlüssel / Zertifikat
+                {tr('3. SSH-Schlüssel / Zertifikat', '3. SSH Key / Certificate')}
               </label>
               <button
                 type="button"
                 onClick={() => onNavigate('certificates')}
                 className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
               >
-                Zertifikate verwalten
+                {tr('Zertifikate verwalten', 'Manage Certificates')}
               </button>
             </div>
 
             {certificates.length === 0 ? (
               <div className="border border-slate-200 rounded-md p-4 bg-slate-50 text-xs text-slate-600 space-y-2">
                 <p>
-                  Für die passwortlose Anmeldung werden{' '}
-                  <code className="font-mono">zertifikat</code> und{' '}
-                  <code className="font-mono">zertifikat.pub</code> (optional mit{' '}
-                  <code className="font-mono">zertifikat-cert.pub</code>) benötigt.
+                  {tr('Für die passwortlose Anmeldung werden ', 'Passwordless login requires ')}
+                  <code className="font-mono">zertifikat</code> {tr('und', 'and')}{' '}
+                  <code className="font-mono">zertifikat.pub</code>{' '}
+                  {tr('(optional mit ', '(optionally with ')}
+                  <code className="font-mono">zertifikat-cert.pub</code>
+                  {tr(') benötigt.', ').')}
                 </p>
                 <button
                   type="button"
@@ -400,7 +430,7 @@ export function ExecuteView({
                   className="inline-flex items-center gap-1.5 text-blue-700 hover:text-blue-900 font-medium cursor-pointer"
                 >
                   <KeyRound className="w-3.5 h-3.5" />
-                  Schlüssel / Zertifikat hochladen
+                  {tr('Schlüssel / Zertifikat hochladen', 'Upload Key / Certificate')}
                 </button>
               </div>
             ) : (
@@ -418,9 +448,9 @@ export function ExecuteView({
                         {cert.name} (
                         {hasCert
                           ? cert.metadata.keyId || cert.certFileName
-                          : 'Schlüsselpaar ohne CA-Cert'}
+                          : tr('Schlüsselpaar ohne CA-Cert', 'Keypair without CA cert')}
                         )
-                        {cert.userId !== user.id ? ' · Geteilt' : ''}
+                        {cert.userId !== user.id ? tr(' · Geteilt', ' · Shared') : ''}
                       </option>
                     );
                   })}
@@ -436,14 +466,14 @@ export function ExecuteView({
                           <span className="font-mono text-slate-800">
                             {selectedCert.metadata.principals.length > 0
                               ? selectedCert.metadata.principals.join(', ')
-                              : '(alle)'}
+                              : tr('(alle)', '(all)')}
                           </span>
                         </p>
                       ) : (
                         <p>
-                          Modus:{' '}
+                          {tr('Modus', 'Mode')}:{' '}
                           <span className="font-mono text-slate-800">
-                            SSH-Schlüsselpaar (authorized_keys)
+                            {tr('SSH-Schlüsselpaar (authorized_keys)', 'SSH Keypair (authorized_keys)')}
                           </span>
                         </p>
                       )}
@@ -453,7 +483,10 @@ export function ExecuteView({
                       </p>
                       {hasCert && selectedCert.metadata.isExpired && (
                         <p className="text-red-700 font-medium">
-                          Warnung: Dieses Zertifikat ist abgelaufen.
+                          {tr(
+                            'Warnung: Dieses Zertifikat ist abgelaufen.',
+                            'Warning: This certificate has expired.'
+                          )}
                         </p>
                       )}
                     </div>
@@ -470,7 +503,7 @@ export function ExecuteView({
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
             >
               <Play className="w-4 h-4" />
-              {running ? 'SSH-Ausführung läuft...' : 'Befehl ausführen'}
+              {running ? tr('SSH-Ausführung läuft...', 'Executing SSH command...') : tr('Befehl ausführen', 'Run Command')}
             </button>
           </div>
         </form>
@@ -481,28 +514,38 @@ export function ExecuteView({
             <div className="flex items-center gap-2">
               <Terminal className="w-4 h-4 text-slate-400" />
               <span className="text-xs font-medium text-slate-200 tracking-wide">
-                Konsolenausgabe
+                {tr('Konsolenausgabe', 'Console Output')}
               </span>
             </div>
             <span className="text-xs font-mono text-slate-400 tabular-nums">
               {results.length > 0
-                ? `${results.length} Ziel${results.length === 1 ? '' : 'e'} ausgeführt`
-                : 'Bereit'}
+                ? tr(
+                    `${results.length} Ziel${results.length === 1 ? '' : 'e'} ausgeführt`,
+                    `${results.length} target${results.length === 1 ? '' : 's'} executed`
+                  )
+                : tr('Bereit', 'Ready')}
             </span>
           </div>
 
           <div className="flex-1 p-5 overflow-y-auto space-y-5 font-mono text-xs leading-relaxed">
             {running ? (
               <div className="text-slate-400 py-8 text-center">
-                Verbinde per OpenSSH-Zertifikat und führe Befehl aus...
+                {tr(
+                  'Verbinde per OpenSSH-Schlüssel/Zertifikat und führe Befehl aus...',
+                  'Connecting via OpenSSH key/certificate and executing command...'
+                )}
               </div>
             ) : results.length === 0 ? (
               <div className="py-12 text-center space-y-2 text-slate-400 font-sans">
                 <Server className="w-6 h-6 mx-auto text-slate-500" />
-                <p className="text-sm text-slate-300 font-medium">Noch keine Ausgabe vorhanden</p>
+                <p className="text-sm text-slate-300 font-medium">
+                  {tr('Noch keine Ausgabe vorhanden', 'No output yet')}
+                </p>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Konfigurieren Sie links Ziel-IP, Befehl und OpenSSH-Zertifikat und starten Sie die
-                  passwortlose Ausführung.
+                  {tr(
+                    'Konfigurieren Sie links Ziel-IP, Befehl und OpenSSH-Zertifikat und starten Sie die passwortlose Ausführung.',
+                    'Configure target IP, command, and OpenSSH key/certificate on the left to start passwordless execution.'
+                  )}
                 </p>
               </div>
             ) : (
@@ -548,7 +591,7 @@ export function ExecuteView({
                         ) : (
                           <ChevronRight className="w-3.5 h-3.5" />
                         )}
-                        OpenSSH-Aufrufparameter anzeigen
+                        {tr('OpenSSH-Aufrufparameter anzeigen', 'Show OpenSSH invocation')}
                       </button>
 
                       {showCmd && (

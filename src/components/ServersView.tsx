@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '../api';
+import { useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
 import type { BmcCheckResult, User, UserServer } from '../types';
 
@@ -31,6 +32,7 @@ function formatBmcUrl(ipAddress: string): string {
 }
 
 export function ServersView({ user, users, servers, onRefresh }: ServersViewProps) {
+  const { locale, tr } = useI18n();
   const isAdmin = user.role === 'admin';
   const [editingId, setEditingId] = useState<string | null>(null);
   const [label, setLabel] = useState('');
@@ -118,7 +120,11 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
       await onRefresh();
       resetForm();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Server konnte nicht gespeichert werden.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Server konnte nicht gespeichert werden.', 'Could not save server.')
+      );
     } finally {
       setSaving(false);
     }
@@ -131,7 +137,11 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
       const { result } = await api.checkServerBmc(serverId);
       setBmcResults((prev) => ({ ...prev, [serverId]: result }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'BMC HTTPS-Prüfung fehlgeschlagen.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('BMC HTTPS-Prüfung fehlgeschlagen.', 'BMC HTTPS check failed.')
+      );
     } finally {
       setCheckingBmcId(null);
     }
@@ -145,7 +155,11 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
       if (editingId === id) resetForm();
       await onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Server konnte nicht entfernt werden.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Server konnte nicht entfernt werden.', 'Could not delete server.')
+      );
     } finally {
       setDeletingId(null);
     }
@@ -155,12 +169,18 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
     <div className="space-y-8">
       <div>
         <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
-          Meine Server (Ziel-IPs &amp; BMC)
+          {tr('Meine Server (Ziel-IPs & BMC)', 'My Servers (Target IPs & BMC)')}
         </h1>
         <p className="text-sm text-slate-600 mt-1">
           {isAdmin
-            ? 'Hinterlegen Sie Ziel-IPs und optionale BMC-Adressen (HTTPS Port 443). Einträge sind standardmäßig privat und können als Administrator mit anderen Benutzern geteilt werden.'
-            : 'Hinterlegen Sie die IP-Adressen Ihrer Zielserver sowie optional eine zweite BMC-IP. Eigene Einträge sind nur für Sie sichtbar; vom Administrator geteilte Server stehen zusätzlich bereit.'}
+            ? tr(
+                'Hinterlegen Sie Ziel-IPs und optionale BMC-Adressen (HTTPS Port 443). Einträge sind standardmäßig privat und können als Administrator mit anderen Benutzern geteilt werden.',
+                'Store target server IPs and optional BMC addresses (HTTPS port 443). Entries are private by default and can be shared with other users as an administrator.'
+              )
+            : tr(
+                'Hinterlegen Sie die IP-Adressen Ihrer Zielserver sowie optional eine zweite BMC-IP. Eigene Einträge sind nur für Sie sichtbar; vom Administrator geteilte Server stehen zusätzlich bereit.',
+                'Store your target server IP addresses and an optional secondary BMC IP. Your own entries are visible only to you; servers shared by an administrator are also available.'
+              )}
         </p>
       </div>
 
@@ -173,7 +193,9 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
       <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
         <div className="flex items-center justify-between gap-4">
           <h2 className="font-display text-base font-semibold text-slate-900">
-            {editingId ? 'Zielserver bearbeiten' : 'Zielserver hinzufügen'}
+            {editingId
+              ? tr('Zielserver bearbeiten', 'Edit Target Server')
+              : tr('Zielserver hinzufügen', 'Add Target Server')}
           </h2>
           {editingId && (
             <button
@@ -182,7 +204,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
               className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
-              Abbrechen
+              {tr('Abbrechen', 'Cancel')}
             </button>
           )}
         </div>
@@ -190,7 +212,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-3">
             <label htmlFor="srv-ip" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Server-IP (IPv4 / IPv6)
+              {tr('Server-IP (IPv4 / IPv6)', 'Server IP (IPv4 / IPv6)')}
             </label>
             <input
               id="srv-ip"
@@ -205,7 +227,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
 
           <div className="lg:col-span-3">
             <label htmlFor="srv-bmc-ip" className="block text-xs font-medium text-slate-700 mb-1.5">
-              BMC-IP (optional · HTTPS :443)
+              {tr('BMC-IP (optional · HTTPS :443)', 'BMC IP (optional · HTTPS :443)')}
             </label>
             <input
               id="srv-bmc-ip"
@@ -219,7 +241,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
 
           <div className="lg:col-span-2">
             <label htmlFor="srv-port" className="block text-xs font-medium text-slate-700 mb-1.5">
-              SSH-Port
+              {tr('SSH-Port', 'SSH Port')}
             </label>
             <input
               id="srv-port"
@@ -235,7 +257,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
 
           <div className="lg:col-span-2">
             <label htmlFor="srv-sshuser" className="block text-xs font-medium text-slate-700 mb-1.5">
-              SSH-Benutzer
+              {tr('SSH-Benutzer', 'SSH User')}
             </label>
             <input
               id="srv-sshuser"
@@ -250,7 +272,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
 
           <div className="lg:col-span-2">
             <label htmlFor="srv-label" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Bezeichnung
+              {tr('Bezeichnung', 'Label')}
             </label>
             <input
               id="srv-label"
@@ -266,14 +288,17 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
           <div className="lg:col-span-9">
             <label htmlFor="srv-notes" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Notiz (optional)
+              {tr('Notiz (optional)', 'Notes (optional)')}
             </label>
             <input
               id="srv-notes"
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="z. B. Debian 13 Reverse-Proxy im Rechenzentrum Frankfurt · iDRAC/IPMI"
+              placeholder={tr(
+                'z. B. Debian 13 Reverse-Proxy im Rechenzentrum Frankfurt · iDRAC/IPMI',
+                'e.g. Debian 13 reverse proxy in Frankfurt DC · iDRAC/IPMI'
+              )}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
@@ -285,7 +310,11 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
               className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
-              {saving ? 'Speichert...' : editingId ? 'Änderungen speichern' : 'Hinzufügen'}
+              {saving
+                ? tr('Speichert...', 'Saving...')
+                : editingId
+                ? tr('Änderungen speichern', 'Save Changes')
+                : tr('Hinzufügen', 'Add Server')}
             </button>
           </div>
         </div>
@@ -298,7 +327,12 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
               onChange={(e) => setShareOnCreate(e.target.checked)}
               className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
             />
-            <span>Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)</span>
+            <span>
+              {tr(
+                'Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)',
+                'Share immediately with all users (otherwise visible only to me)'
+              )}
+            </span>
           </label>
         )}
       </form>
@@ -307,7 +341,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h2 className="font-display text-base font-semibold text-slate-900">
-            Gespeicherte Zielserver ({filtered.length})
+            {tr(`Gespeicherte Zielserver (${filtered.length})`, `Saved Target Servers (${filtered.length})`)}
           </h2>
           <div className="relative w-full sm:w-64">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -315,7 +349,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Nach IP, BMC oder Name filtern..."
+              placeholder={tr('Nach IP, BMC oder Name filtern...', 'Filter by IP, BMC, or name...')}
               className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
@@ -325,12 +359,17 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
           <div className="px-6 py-12 text-center">
             <Server className="w-7 h-7 text-slate-400 mx-auto mb-3" />
             <p className="text-sm font-medium text-slate-900">
-              {servers.length === 0 ? 'Noch keine Zielserver angelegt' : 'Keine passenden Server gefunden'}
+              {servers.length === 0
+                ? tr('Noch keine Zielserver angelegt', 'No target servers added yet')
+                : tr('Keine passenden Server gefunden', 'No matching servers found')}
             </p>
             <p className="text-xs text-slate-500 mt-1">
               {servers.length === 0
-                ? 'Fügen Sie oben eine IPv4- oder IPv6-Adresse (sowie optional eine BMC-IP) hinzu.'
-                : 'Passen Sie Ihren Suchbegriff an.'}
+                ? tr(
+                    'Fügen Sie oben eine IPv4- oder IPv6-Adresse (sowie optional eine BMC-IP) hinzu.',
+                    'Add an IPv4 or IPv6 address (and an optional BMC IP) above.'
+                  )
+                : tr('Passen Sie Ihren Suchbegriff an.', 'Try adjusting your search query.')}
             </p>
           </div>
         ) : (
@@ -338,20 +377,23 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 px-6">Bezeichnung</th>
-                  <th className="py-2.5 px-4">Server-IP · SSH</th>
+                  <th className="py-2.5 px-6">{tr('Bezeichnung', 'Label')}</th>
+                  <th className="py-2.5 px-4">{tr('Server-IP · SSH', 'Server IP · SSH')}</th>
                   <th className="py-2.5 px-4">BMC (HTTPS :443)</th>
-                  <th className="py-2.5 px-4">Sichtbarkeit</th>
-                  <th className="py-2.5 px-4">Notiz</th>
-                  <th className="py-2.5 px-6 text-right">Aktionen</th>
+                  <th className="py-2.5 px-4">{tr('Sichtbarkeit', 'Visibility')}</th>
+                  <th className="py-2.5 px-4">{tr('Notiz', 'Notes')}</th>
+                  <th className="py-2.5 px-6 text-right">{tr('Aktionen', 'Actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-sm">
                 {filtered.map((srv) => {
                   const isOwner = srv.userId === user.id;
                   const shareLabel = isOwner
-                    ? formatShareSummary(srv.sharedWithAll, srv.sharedWithUserIds)
-                    : `Geteilt von ${srv.ownerUsername || 'admin'}`;
+                    ? formatShareSummary(srv.sharedWithAll, srv.sharedWithUserIds, locale)
+                    : tr(
+                        `Geteilt von ${srv.ownerUsername || 'admin'}`,
+                        `Shared by ${srv.ownerUsername || 'admin'}`
+                      );
                   const bmcRes = bmcResults[srv.id];
                   const isCheckingBmc = checkingBmcId === srv.id;
 
@@ -374,7 +416,10 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                                 href={formatBmcUrl(srv.bmcIpAddress)}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                title={`${formatBmcUrl(srv.bmcIpAddress)} in neuem Tab öffnen`}
+                                title={tr(
+                                  `${formatBmcUrl(srv.bmcIpAddress)} in neuem Tab öffnen`,
+                                  `Open ${formatBmcUrl(srv.bmcIpAddress)} in a new tab`
+                                )}
                                 className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline tabular-nums"
                               >
                                 <span>{srv.bmcIpAddress}</span>
@@ -384,7 +429,10 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                                 type="button"
                                 onClick={() => handleCheckBmc(srv.id)}
                                 disabled={isCheckingBmc}
-                                title="Erreichbarkeit über https:// Port 443 prüfen"
+                                title={tr(
+                                  'Erreichbarkeit über https:// Port 443 prüfen',
+                                  'Check reachability over https:// port 443'
+                                )}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded transition-colors cursor-pointer"
                               >
                                 {isCheckingBmc ? (
@@ -392,7 +440,11 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                                 ) : (
                                   <ShieldCheck className="w-3 h-3" />
                                 )}
-                                <span>{isCheckingBmc ? 'Prüft...' : 'HTTPS :443 prüfen'}</span>
+                                <span>
+                                  {isCheckingBmc
+                                    ? tr('Prüft...', 'Checking...')
+                                    : tr('HTTPS :443 prüfen', 'Check HTTPS :443')}
+                                </span>
                               </button>
                             </div>
                             {bmcRes && (
@@ -406,7 +458,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                                   <>
                                     <CheckCircle2 className="w-3 h-3 shrink-0" />
                                     <span>
-                                      Erreichbar
+                                      {tr('Erreichbar', 'Reachable')}
                                       {bmcRes.httpStatus ? ` · HTTP ${bmcRes.httpStatus}` : ''}
                                       {bmcRes.latencyMs !== null ? ` · ${bmcRes.latencyMs} ms` : ''}
                                     </span>
@@ -414,7 +466,10 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                                 ) : (
                                   <>
                                     <XCircle className="w-3 h-3 shrink-0" />
-                                    <span>{bmcRes.error || 'Port 443 nicht erreichbar'}</span>
+                                    <span>
+                                      {bmcRes.error ||
+                                        tr('Port 443 nicht erreichbar', 'Port 443 unreachable')}
+                                    </span>
                                   </>
                                 )}
                               </p>
@@ -447,7 +502,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                               className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-950 cursor-pointer"
                             >
                               <Pencil className="w-3.5 h-3.5" />
-                              Bearbeiten
+                              {tr('Bearbeiten', 'Edit')}
                             </button>
                             {isAdmin && (
                               <button
@@ -456,7 +511,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                                 className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
                               >
                                 <Share2 className="w-3.5 h-3.5" />
-                                Teilen
+                                {tr('Teilen', 'Share')}
                               </button>
                             )}
                             <button
@@ -466,11 +521,13 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                               className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                              Entfernen
+                              {tr('Entfernen', 'Delete')}
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400">Nur nutzen</span>
+                          <span className="text-xs text-slate-400">
+                            {tr('Nur nutzen', 'Read-only')}
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -484,7 +541,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
 
       {sharingServer && isAdmin && (
         <ShareDialog
-          title="Zielserver (IP) teilen"
+          title={tr('Zielserver (IP) teilen', 'Share Target Server (IP)')}
           itemName={`${sharingServer.label} (${sharingServer.sshUser}@${sharingServer.ipAddress}:${sharingServer.port})`}
           currentUserId={user.id}
           users={users}

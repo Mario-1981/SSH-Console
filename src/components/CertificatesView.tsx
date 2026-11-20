@@ -9,8 +9,11 @@ import {
   KeyRound,
   FileText,
   Share2,
+  Terminal,
 } from 'lucide-react';
 import { api } from '../api';
+import { useI18n } from '../i18n';
+import { ApiKeyCurlPanel } from './ApiKeyCurlPanel';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
 import type { User, UserCertificate } from '../types';
 
@@ -33,20 +36,8 @@ function downloadTextFile(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-function formatIsoDate(iso: string): string {
-  if (!iso || iso.startsWith('Unbegrenzt')) return iso || '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 export function CertificatesView({ user, users, certificates, onRefresh }: CertificatesViewProps) {
+  const { locale, tr, formatDateTime } = useI18n();
   const isAdmin = user.role === 'admin';
   const [bundleName, setBundleName] = useState('');
   const [privFile, setPrivFile] = useState('zertifikat');
@@ -66,6 +57,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
   } | null>(null);
 
   const [showTextEditors, setShowTextEditors] = useState(false);
+  const [showApiPanel, setShowApiPanel] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -111,7 +103,10 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
 
     if (loaded === 0) {
       setError(
-        'Dateien konnten nicht automatisch zugeordnet werden. Bitte verwenden Sie zertifikat, zertifikat.pub und zertifikat-cert.pub.'
+        tr(
+          'Dateien konnten nicht automatisch zugeordnet werden. Bitte verwenden Sie zertifikat, zertifikat.pub und zertifikat-cert.pub.',
+          'Could not classify files automatically. Please use zertifikat, zertifikat.pub, and optionally zertifikat-cert.pub.'
+        )
       );
     }
   }
@@ -161,11 +156,21 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
       setLastGeneratedBundle(generated);
       setSuccess(
         saved.replaced
-          ? `Bestehendes Test-Zertifikatspaket „${saved.certificate.name}“ wurde mit einem neu erzeugten Ed25519-Verbund (zertifikat, zertifikat.pub, zertifikat-cert.pub) überschrieben.`
-          : `Test-Zertifikatspaket „${saved.certificate.name}“ (zertifikat, zertifikat.pub, zertifikat-cert.pub) wurde erzeugt, kryptografisch verifiziert und sofort gespeichert — es kann jetzt im Dashboard und bei der Befehlsausführung ausgewählt werden.`
+          ? tr(
+              `Bestehendes Test-Zertifikatspaket „${saved.certificate.name}“ wurde mit einem neu erzeugten Ed25519-Verbund (zertifikat, zertifikat.pub, zertifikat-cert.pub) überschrieben.`,
+              `Existing test certificate bundle "${saved.certificate.name}" has been replaced with a newly generated Ed25519 bundle (zertifikat, zertifikat.pub, zertifikat-cert.pub).`
+            )
+          : tr(
+              `Test-Zertifikatspaket „${saved.certificate.name}“ (zertifikat, zertifikat.pub, zertifikat-cert.pub) wurde erzeugt, kryptografisch verifiziert und sofort gespeichert — es kann jetzt im Dashboard und bei der Befehlsausführung ausgewählt werden.`,
+              `Test certificate bundle "${saved.certificate.name}" (zertifikat, zertifikat.pub, zertifikat-cert.pub) was generated, cryptographically verified, and saved immediately — it is now available in the Dashboard and Run SSH views.`
+            )
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Testzertifikat konnte nicht erzeugt werden.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Testzertifikat konnte nicht erzeugt werden.', 'Could not generate test certificate.')
+      );
     } finally {
       setGenerating(false);
     }
@@ -178,7 +183,10 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
 
     if (!privContent.trim() || !pubContent.trim()) {
       setError(
-        'Bitte laden Sie mindestens den privaten Schlüssel (zertifikat) und den öffentlichen Schlüssel (zertifikat.pub) hoch. Das signierte Zertifikat (zertifikat-cert.pub) ist optional.'
+        tr(
+          'Bitte laden Sie mindestens den privaten Schlüssel (zertifikat) und den öffentlichen Schlüssel (zertifikat.pub) hoch. Das signierte Zertifikat (zertifikat-cert.pub) ist optional.',
+          'Please upload at least the private key (zertifikat) and public key (zertifikat.pub). The signed certificate (zertifikat-cert.pub) is optional.'
+        )
       );
       return;
     }
@@ -187,7 +195,11 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
     setSaving(true);
     try {
       const res = await api.uploadCertificate({
-        name: bundleName.trim() || (hasCertFile ? 'SSH-Zertifikat' : 'SSH-Schlüsselpaar'),
+        name:
+          bundleName.trim() ||
+          (hasCertFile
+            ? tr('SSH-Zertifikat', 'SSH Certificate')
+            : tr('SSH-Schlüsselpaar', 'SSH Keypair')),
         privateKeyFileName: privFile,
         publicKeyFileName: pubFile,
         certFileName: hasCertFile ? certFile : '',
@@ -203,14 +215,25 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
       setCertContent('');
       setShareOnCreate(false);
       setLastGeneratedBundle(null);
-      const kindLabel = hasCertFile ? 'Zertifikatspaket (3 Dateien)' : 'SSH-Schlüsselpaar (2 Dateien)';
+      const kindLabelDe = hasCertFile ? 'Zertifikatspaket (3 Dateien)' : 'SSH-Schlüsselpaar (2 Dateien)';
+      const kindLabelEn = hasCertFile ? 'certificate bundle (3 files)' : 'SSH keypair (2 files)';
       setSuccess(
         res.replaced
-          ? `Bestehendes ${kindLabel} „${res.certificate.name}“ wurde kryptografisch geprüft und erfolgreich überschrieben.`
-          : `${kindLabel} „${res.certificate.name}“ kryptografisch geprüft und verschlüsselt gespeichert.`
+          ? tr(
+              `Bestehendes ${kindLabelDe} „${res.certificate.name}“ wurde kryptografisch geprüft und erfolgreich überschrieben.`,
+              `Existing ${kindLabelEn} "${res.certificate.name}" was cryptographically verified and replaced.`
+            )
+          : tr(
+              `${kindLabelDe} „${res.certificate.name}“ kryptografisch geprüft und verschlüsselt gespeichert.`,
+              `Verified and encrypted ${kindLabelEn} "${res.certificate.name}" saved.`
+            )
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Zertifikatsprüfung fehlgeschlagen.', 'Certificate verification failed.')
+      );
     } finally {
       setSaving(false);
     }
@@ -223,7 +246,11 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
       await api.deleteCertificate(id);
       await onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Zertifikat konnte nicht entfernt werden.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Zertifikat konnte nicht entfernt werden.', 'Could not remove certificate.')
+      );
     } finally {
       setDeletingId(null);
     }
@@ -242,27 +269,55 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
-            SSH-Schlüssel &amp; Zertifikate
+            {tr('SSH-Schlüssel & Zertifikate', 'SSH Keys & Certificates')}
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Laden Sie für die passwortlose Anmeldung entweder ein klassisches Schlüsselpaar (
+            {tr(
+              'Laden Sie für die passwortlose Anmeldung entweder ein klassisches Schlüsselpaar (',
+              'For passwordless login, upload either a standard SSH keypair ('
+            )}
             <code className="font-mono text-xs text-slate-800">zertifikat</code> +{' '}
-            <code className="font-mono text-xs text-slate-800">zertifikat.pub</code>) oder zusätzlich ein
-            signiertes OpenSSH-Zertifikat (
-            <code className="font-mono text-xs text-slate-800">zertifikat-cert.pub</code>) hoch.
+            <code className="font-mono text-xs text-slate-800">zertifikat.pub</code>
+            {tr(
+              ') oder zusätzlich ein signiertes OpenSSH-Zertifikat (',
+              ') or additionally a signed OpenSSH certificate ('
+            )}
+            <code className="font-mono text-xs text-slate-800">zertifikat-cert.pub</code>
+            {tr(') hoch.', ').')}
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleGenerateTestBundle}
-          disabled={generating}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-        >
-          <Wand2 className="w-3.5 h-3.5" />
-          {generating ? 'Erzeuge Ed25519-Paket...' : 'Test-Zertifikatspaket erzeugen'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowApiPanel((v) => !v)}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-medium border rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              showApiPanel
+                ? 'text-blue-800 bg-blue-50 border-blue-300'
+                : 'text-slate-700 bg-white border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            {showApiPanel
+              ? tr('curl-API ausblenden', 'Hide curl API')
+              : tr('Upload per curl & API-Key', 'Upload via curl & API Key')}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleGenerateTestBundle}
+            disabled={generating}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <Wand2 className="w-3.5 h-3.5" />
+            {generating
+              ? tr('Erzeuge Ed25519-Paket...', 'Generating Ed25519 bundle...')
+              : tr('Test-Zertifikatspaket erzeugen', 'Generate Test Certificate Bundle')}
+          </button>
+        </div>
       </div>
+
+      {showApiPanel && <ApiKeyCurlPanel defaultCertName={`${user.username}-ssh`} />}
 
       {error && (
         <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
@@ -281,10 +336,16 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200">
           <div>
             <h2 className="font-display text-base font-semibold text-slate-900">
-              SSH-Schlüsselpaar (2 Dateien) oder Zertifikatspaket (3 Dateien) hochladen
+              {tr(
+                'SSH-Schlüsselpaar (2 Dateien) oder Zertifikatspaket (3 Dateien) hochladen',
+                'Upload SSH Keypair (2 files) or Certificate Bundle (3 files)'
+              )}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Die kryptografische Zusammengehörigkeit von Privatschlüssel, öffentlichem Schlüssel und optionalem CA-Zertifikat wird beim Speichern verifiziert.
+              {tr(
+                'Die kryptografische Zusammengehörigkeit von Privatschlüssel, öffentlichem Schlüssel und optionalem CA-Zertifikat wird beim Speichern verifiziert.',
+                'Cryptographic pairing between the private key, public key, and optional CA certificate is verified upon saving.'
+              )}
             </p>
           </div>
           <button
@@ -292,7 +353,9 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
             onClick={() => setShowTextEditors((v) => !v)}
             className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap shrink-0"
           >
-            {showTextEditors ? 'Textfelder ausblenden' : 'Inhalte manuell einfügen'}
+            {showTextEditors
+              ? tr('Textfelder ausblenden', 'Hide text fields')
+              : tr('Inhalte manuell einfügen', 'Paste contents manually')}
           </button>
         </div>
 
@@ -316,7 +379,10 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
         >
           <Upload className="w-5 h-5 text-slate-500 mx-auto mb-2" />
           <p className="text-sm font-medium text-slate-800">
-            2 Dateien (Schlüsselpaar) oder 3 Dateien (mit CA-Zertifikat) hierher ziehen oder auswählen
+            {tr(
+              '2 Dateien (Schlüsselpaar) oder 3 Dateien (mit CA-Zertifikat) hierher ziehen oder auswählen',
+              'Drag and drop 2 files (keypair) or 3 files (with CA certificate) here, or browse'
+            )}
           </p>
           <p className="text-xs text-slate-500 mt-1 font-mono">
             zertifikat · zertifikat.pub · [optional: zertifikat-cert.pub]
@@ -336,7 +402,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
             onClick={() => multiInputRef.current?.click()}
             className="mt-3 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
           >
-            Dateien auswählen
+            {tr('Dateien auswählen', 'Select Files')}
           </button>
         </div>
 
@@ -352,11 +418,14 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                     privContent.trim() ? 'text-emerald-700' : 'text-slate-400'
                   }`}
                 >
-                  {privContent.trim() ? 'Geladen' : 'Fehlt'}
+                  {privContent.trim() ? tr('Geladen', 'Loaded') : tr('Fehlt', 'Missing')}
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Privater OpenSSH-Schlüssel (AES-256-GCM verschlüsselt gespeichert, chmod 0600).
+                {tr(
+                  'Privater OpenSSH-Schlüssel (AES-256-GCM verschlüsselt gespeichert, chmod 0600).',
+                  'Private OpenSSH key (stored with AES-256-GCM encryption, chmod 0600).'
+                )}
               </p>
               {privContent.trim() && (
                 <p className="mt-2 text-xs font-mono text-slate-700 truncate">{privFile}</p>
@@ -374,14 +443,14 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                 onClick={() => privInputRef.current?.click()}
                 className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
-                Datei wählen
+                {tr('Datei wählen', 'Choose File')}
               </button>
               {privContent.trim() && (
                 <button
                   type="button"
                   onClick={() => downloadTextFile(privFile || 'zertifikat', privContent)}
                   className="p-1.5 text-slate-500 hover:text-slate-900 rounded-md cursor-pointer"
-                  title="zertifikat herunterladen"
+                  title={tr('zertifikat herunterladen', 'Download zertifikat')}
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
@@ -399,11 +468,14 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                     pubContent.trim() ? 'text-emerald-700' : 'text-slate-400'
                   }`}
                 >
-                  {pubContent.trim() ? 'Geladen' : 'Fehlt'}
+                  {pubContent.trim() ? tr('Geladen', 'Loaded') : tr('Fehlt', 'Missing')}
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Öffentlicher Schlüssel (z. B. ssh-ed25519 AAAA...) zur Schlüsselpaar-Prüfung.
+                {tr(
+                  'Öffentlicher Schlüssel (z. B. ssh-ed25519 AAAA...) zur Schlüsselpaar-Prüfung.',
+                  'Public key (e.g. ssh-ed25519 AAAA...) used to verify keypair integrity.'
+                )}
               </p>
               {pubContent.trim() && (
                 <p className="mt-2 text-xs font-mono text-slate-700 truncate">{pubFile}</p>
@@ -422,14 +494,14 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                 onClick={() => pubInputRef.current?.click()}
                 className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
-                Datei wählen
+                {tr('Datei wählen', 'Choose File')}
               </button>
               {pubContent.trim() && (
                 <button
                   type="button"
                   onClick={() => downloadTextFile(pubFile || 'zertifikat.pub', pubContent)}
                   className="p-1.5 text-slate-500 hover:text-slate-900 rounded-md cursor-pointer"
-                  title="zertifikat.pub herunterladen"
+                  title={tr('zertifikat.pub herunterladen', 'Download zertifikat.pub')}
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
@@ -449,11 +521,14 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                     certContent.trim() ? 'text-emerald-700' : 'text-slate-500'
                   }`}
                 >
-                  {certContent.trim() ? 'Geladen' : 'Optional'}
+                  {certContent.trim() ? tr('Geladen', 'Loaded') : tr('Optional', 'Optional')}
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Optional: Von Ihrer SSH-CA signiertes OpenSSH-Benutzerzertifikat (*-cert-v01@openssh.com). Leer lassen für klassisches Schlüsselpaar.
+                {tr(
+                  'Optional: Von Ihrer SSH-CA signiertes OpenSSH-Benutzerzertifikat (*-cert-v01@openssh.com). Leer lassen für klassisches Schlüsselpaar.',
+                  'Optional: OpenSSH user certificate (*-cert-v01@openssh.com) signed by your SSH CA. Leave empty for a standard keypair.'
+                )}
               </p>
               {certContent.trim() && (
                 <p className="mt-2 text-xs font-mono text-slate-700 truncate">{certFile}</p>
@@ -472,7 +547,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                 onClick={() => certInputRef.current?.click()}
                 className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
-                Datei wählen
+                {tr('Datei wählen', 'Choose File')}
               </button>
               {certContent.trim() && (
                 <>
@@ -480,7 +555,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                     type="button"
                     onClick={() => downloadTextFile(certFile || 'zertifikat-cert.pub', certContent)}
                     className="p-1.5 text-slate-500 hover:text-slate-900 rounded-md cursor-pointer"
-                    title="zertifikat-cert.pub herunterladen"
+                    title={tr('zertifikat-cert.pub herunterladen', 'Download zertifikat-cert.pub')}
                   >
                     <Download className="w-3.5 h-3.5" />
                   </button>
@@ -489,7 +564,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                     onClick={() => setCertContent('')}
                     className="text-xs text-slate-500 hover:text-red-700 cursor-pointer"
                   >
-                    Leeren
+                    {tr('Leeren', 'Clear')}
                   </button>
                 </>
               )}
@@ -501,7 +576,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
           <div className="px-4 py-3 rounded-md bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-medium text-slate-900">
-                Erzeugte Dateien lokal herunterladen (optional):
+                {tr('Erzeugte Dateien lokal herunterladen (optional):', 'Download generated files locally (optional):')}
               </span>
               <div className="flex flex-wrap items-center gap-3">
                 <button
@@ -547,7 +622,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
           <div className="grid grid-cols-1 gap-4 pt-2 border-t border-slate-200">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
-                Inhalt von zertifikat (Privater Schlüssel)
+                {tr('Inhalt von zertifikat (Privater Schlüssel)', 'Contents of zertifikat (Private Key)')}
               </label>
               <textarea
                 rows={4}
@@ -559,7 +634,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
-                Inhalt von zertifikat.pub (Öffentlicher Schlüssel)
+                {tr('Inhalt von zertifikat.pub (Öffentlicher Schlüssel)', 'Contents of zertifikat.pub (Public Key)')}
               </label>
               <textarea
                 rows={2}
@@ -571,7 +646,10 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
-                Inhalt von zertifikat-cert.pub (optional · Signiertes OpenSSH-Zertifikat)
+                {tr(
+                  'Inhalt von zertifikat-cert.pub (optional · Signiertes OpenSSH-Zertifikat)',
+                  'Contents of zertifikat-cert.pub (optional · Signed OpenSSH Certificate)'
+                )}
               </label>
               <textarea
                 rows={3}
@@ -588,14 +666,14 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
           <div className="flex flex-col sm:flex-row sm:items-end gap-4">
             <div className="flex-1">
               <label htmlFor="cert-bundle-name" className="block text-xs font-medium text-slate-700 mb-1.5">
-                Bezeichnung für dieses Schlüssel-/Zertifikatspaket
+                {tr('Bezeichnung für dieses Schlüssel-/Zertifikatspaket', 'Label for this key / certificate bundle')}
               </label>
               <input
                 id="cert-bundle-name"
                 type="text"
                 value={bundleName}
                 onChange={(e) => setBundleName(e.target.value)}
-                placeholder="z. B. Produktion Ed25519 (Q4)"
+                placeholder={tr('z. B. Produktion Ed25519 (Q4)', 'e.g. Production Ed25519 (Q4)')}
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
@@ -605,18 +683,21 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
               className="px-5 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               {saving
-                ? 'Wird verifiziert...'
+                ? tr('Wird verifiziert...', 'Verifying...')
                 : matchingExistingOwnCert
-                  ? 'Bestehendes Paket überschreiben'
+                  ? tr('Bestehendes Paket überschreiben', 'Overwrite Existing Bundle')
                   : certContent.trim()
-                    ? 'Zertifikatspaket prüfen & speichern'
-                    : 'Schlüsselpaar prüfen & speichern'}
+                    ? tr('Zertifikatspaket prüfen & speichern', 'Verify & Save Certificate Bundle')
+                    : tr('Schlüsselpaar prüfen & speichern', 'Verify & Save Keypair')}
             </button>
           </div>
 
           {matchingExistingOwnCert && (
             <p className="text-xs text-amber-800">
-              Hinweis: Ein eigenes Zertifikatspaket mit der Bezeichnung „{matchingExistingOwnCert.name}“ existiert bereits und wird beim Speichern überschrieben.
+              {tr(
+                `Hinweis: Ein eigenes Zertifikatspaket mit der Bezeichnung „${matchingExistingOwnCert.name}“ existiert bereits und wird beim Speichern überschrieben.`,
+                `Note: You already have a bundle named "${matchingExistingOwnCert.name}". Saving will overwrite it.`
+              )}
             </p>
           )}
 
@@ -628,7 +709,12 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                 onChange={(e) => setShareOnCreate(e.target.checked)}
                 className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
               />
-              <span>Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)</span>
+              <span>
+                {tr(
+                  'Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)',
+                  'Share immediately with all users (otherwise visible only to me)'
+                )}
+              </span>
             </label>
           )}
         </div>
@@ -638,19 +724,29 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-base font-semibold text-slate-900">
-            Hinterlegte Zertifikatspakete ({certificates.length})
+            {tr(
+              `Hinterlegte Zertifikatspakete (${certificates.length})`,
+              `Saved Key & Certificate Bundles (${certificates.length})`
+            )}
           </h2>
         </div>
 
         {certificates.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-lg px-6 py-12 text-center">
             <KeyRound className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-slate-900">Noch kein SSH-Schlüssel oder Zertifikat hinterlegt</h3>
+            <h3 className="text-sm font-semibold text-slate-900">
+              {tr('Noch kein SSH-Schlüssel oder Zertifikat hinterlegt', 'No SSH keys or certificates stored yet')}
+            </h3>
             <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
-              Laden Sie oben <code className="font-mono text-xs">zertifikat</code> und{' '}
-              <code className="font-mono text-xs">zertifikat.pub</code> (optional zusätzlich{' '}
-              <code className="font-mono text-xs">zertifikat-cert.pub</code>) hoch oder erzeugen Sie ein
-              Test-Zertifikatspaket.
+              {tr('Laden Sie oben ', 'Upload ')}
+              <code className="font-mono text-xs">zertifikat</code> {tr('und', 'and')}{' '}
+              <code className="font-mono text-xs">zertifikat.pub</code>{' '}
+              {tr('(optional zusätzlich ', '(optionally with ')}
+              <code className="font-mono text-xs">zertifikat-cert.pub</code>
+              {tr(
+                ') hoch oder erzeugen Sie ein Test-Zertifikatspaket.',
+                ') above, or generate a test certificate bundle.'
+              )}
             </p>
           </div>
         ) : (
@@ -660,8 +756,11 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
               const hasCert = m.hasCertificate !== false && Boolean(cert.certFileName);
               const isOwner = cert.userId === user.id;
               const shareLabel = isOwner
-                ? formatShareSummary(cert.sharedWithAll, cert.sharedWithUserIds)
-                : `Geteilt von ${cert.ownerUsername || 'admin'}`;
+                ? formatShareSummary(cert.sharedWithAll, cert.sharedWithUserIds, locale)
+                : tr(
+                    `Geteilt von ${cert.ownerUsername || 'admin'}`,
+                    `Shared by ${cert.ownerUsername || 'admin'}`
+                  );
               return (
                 <article
                   key={cert.id}
@@ -677,18 +776,21 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                           m.isExpired ? (
                             <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700">
                               <AlertTriangle className="w-3.5 h-3.5" />
-                              Abgelaufen
+                              {tr('Abgelaufen', 'Expired')}
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
                               <CheckCircle2 className="w-3.5 h-3.5" />
-                              3-Dateien-Verbund verifiziert
+                              {tr('3-Dateien-Verbund verifiziert', '3-file bundle verified')}
                             </span>
                           )
                         ) : (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
                             <CheckCircle2 className="w-3.5 h-3.5" />
-                            Schlüsselpaar verifiziert (ohne CA-Zertifikat)
+                            {tr(
+                              'Schlüsselpaar verifiziert (ohne CA-Zertifikat)',
+                              'Keypair verified (without CA certificate)'
+                            )}
                           </span>
                         )}
                         <span aria-hidden="true" className="text-slate-300">·</span>
@@ -704,7 +806,9 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                       </div>
                       <p className="text-xs text-slate-500 mt-1 font-mono">
                         {cert.privateKeyFileName} · {cert.publicKeyFileName}
-                        {hasCert ? ` · ${cert.certFileName}` : ' · (ohne zertifikat-cert.pub)'}
+                        {hasCert
+                          ? ` · ${cert.certFileName}`
+                          : tr(' · (ohne zertifikat-cert.pub)', ' · (no zertifikat-cert.pub)')}
                       </p>
                     </div>
 
@@ -717,7 +821,7 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                           >
                             <Share2 className="w-3.5 h-3.5" />
-                            Teilen
+                            {tr('Teilen', 'Share')}
                           </button>
                         )}
                         <button
@@ -727,12 +831,14 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          {deletingId === cert.id ? 'Wird gelöscht...' : 'Entfernen'}
+                          {deletingId === cert.id
+                            ? tr('Wird gelöscht...', 'Deleting...')
+                            : tr('Entfernen', 'Delete')}
                         </button>
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
-                        Nur für SSH nutzbar
+                        {tr('Nur für SSH nutzbar', 'SSH use only')}
                       </span>
                     )}
                   </div>
@@ -740,41 +846,50 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                   {hasCert ? (
                     <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 text-xs">
                       <div>
-                        <dt className="text-slate-500">Key-ID &amp; Seriennummer</dt>
+                        <dt className="text-slate-500">{tr('Key-ID & Seriennummer', 'Key ID & Serial')}</dt>
                         <dd className="font-mono text-slate-900 mt-0.5 tabular-nums">
                           {m.keyId || '—'} · #{m.serial}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">Erlaubte Principals (SSH-User)</dt>
+                        <dt className="text-slate-500">
+                          {tr('Erlaubte Principals (SSH-User)', 'Allowed Principals (SSH Users)')}
+                        </dt>
                         <dd className="font-mono text-slate-900 mt-0.5">
-                          {m.principals.length > 0 ? m.principals.join(', ') : '(alle)'}
+                          {m.principals.length > 0 ? m.principals.join(', ') : tr('(alle)', '(all)')}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">Gültig ab</dt>
+                        <dt className="text-slate-500">{tr('Gültig ab', 'Valid From')}</dt>
                         <dd className="font-mono text-slate-900 mt-0.5 tabular-nums">
-                          {formatIsoDate(m.validAfter)}
+                          {formatDateTime(m.validAfter)}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">Gültig bis</dt>
+                        <dt className="text-slate-500">{tr('Gültig bis', 'Valid Until')}</dt>
                         <dd
                           className={`font-mono mt-0.5 tabular-nums ${
                             m.isExpired ? 'text-red-700 font-semibold' : 'text-slate-900'
                           }`}
                         >
-                          {formatIsoDate(m.validBefore)}
+                          {formatDateTime(m.validBefore)}
                         </dd>
                       </div>
                       <div className="sm:col-span-2">
-                        <dt className="text-slate-500">Schlüssel-Fingerabdruck ({m.pubKeyAlgorithm})</dt>
+                        <dt className="text-slate-500">
+                          {tr(
+                            `Schlüssel-Fingerabdruck (${m.pubKeyAlgorithm})`,
+                            `Key Fingerprint (${m.pubKeyAlgorithm})`
+                          )}
+                        </dt>
                         <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.pubKeyFingerprint}>
                           {m.pubKeyFingerprint}
                         </dd>
                       </div>
                       <div className="sm:col-span-2">
-                        <dt className="text-slate-500">Signierende CA (TrustedUserCAKeys)</dt>
+                        <dt className="text-slate-500">
+                          {tr('Signierende CA (TrustedUserCAKeys)', 'Signing CA (TrustedUserCAKeys)')}
+                        </dt>
                         <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.caFingerprint}>
                           {m.caFingerprint}
                         </dd>
@@ -783,31 +898,31 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                   ) : (
                     <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 text-xs">
                       <div>
-                        <dt className="text-slate-500">Anmeldemodus</dt>
+                        <dt className="text-slate-500">{tr('Anmeldemodus', 'Auth Mode')}</dt>
                         <dd className="font-mono text-slate-900 mt-0.5">
-                          SSH-Schlüsselpaar (authorized_keys)
+                          {tr('SSH-Schlüsselpaar (authorized_keys)', 'SSH Keypair (authorized_keys)')}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">Schlüsselkommentar</dt>
+                        <dt className="text-slate-500">{tr('Schlüsselkommentar', 'Key Comment')}</dt>
                         <dd className="font-mono text-slate-900 mt-0.5">
                           {m.keyId || '—'}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">Privatschlüssel-Format</dt>
+                        <dt className="text-slate-500">{tr('Privatschlüssel-Format', 'Private Key Format')}</dt>
                         <dd className="font-mono text-slate-900 mt-0.5">
                           {m.privateKeyFormat}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">Algorithmus</dt>
+                        <dt className="text-slate-500">{tr('Algorithmus', 'Algorithm')}</dt>
                         <dd className="font-mono text-slate-900 mt-0.5">
                           {m.pubKeyAlgorithm}
                         </dd>
                       </div>
                       <div className="sm:col-span-4">
-                        <dt className="text-slate-500">Schlüssel-Fingerabdruck</dt>
+                        <dt className="text-slate-500">{tr('Schlüssel-Fingerabdruck', 'Key Fingerprint')}</dt>
                         <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.pubKeyFingerprint}>
                           {m.pubKeyFingerprint}
                         </dd>
@@ -834,9 +949,12 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
 
       {sharingCert && isAdmin && (
         <ShareDialog
-          title="SSH-Zertifikatspaket teilen"
+          title={tr('SSH-Zertifikatspaket teilen', 'Share SSH Certificate Bundle')}
           itemName={`${sharingCert.name} (${sharingCert.metadata.keyId || sharingCert.certFileName})`}
-          securityHint="Berechtigte Benutzer können dieses Zertifikatspaket für passwortlose SSH-Ausführungen nutzen. Der private Schlüssel bleibt AES-256-GCM-verschlüsselt auf dem Server und kann von Empfängern nicht eingesehen oder heruntergeladen werden."
+          securityHint={tr(
+            'Berechtigte Benutzer können dieses Zertifikatspaket für passwortlose SSH-Ausführungen nutzen. Der private Schlüssel bleibt AES-256-GCM-verschlüsselt auf dem Server und kann von Empfängern nicht eingesehen oder heruntergeladen werden.',
+            'Authorized users can use this certificate bundle for passwordless SSH execution. The private key remains AES-256-GCM encrypted on the server and cannot be viewed or downloaded by recipients.'
+          )}
           currentUserId={user.id}
           users={users}
           initialSharedWithAll={sharingCert.sharedWithAll}

@@ -17,6 +17,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { api } from '../api';
+import { translateCategory, useI18n } from '../i18n';
 import type {
   ActiveTab,
   BmcCheckResult,
@@ -37,17 +38,6 @@ interface DashboardViewProps {
   onExecutionComplete: () => Promise<void>;
 }
 
-function formatClockTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
 function formatBmcUrl(ipAddress: string): string {
   const clean = ipAddress.trim();
   const host = clean.includes(':') ? `[${clean}]` : clean;
@@ -62,6 +52,7 @@ export function DashboardView({
   onNavigate,
   onExecutionComplete,
 }: DashboardViewProps) {
+  const { locale, tr, formatClockTime } = useI18n();
   const activeCommands = useMemo(() => commands.filter((c) => c.enabled), [commands]);
 
   const [pingData, setPingData] = useState<DashboardPingResponse | null>(null);
@@ -176,7 +167,9 @@ export function DashboardView({
       const res = await api.triggerPing();
       setPingData(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ping-Prüfung fehlgeschlagen.');
+      setError(
+        err instanceof Error ? err.message : tr('Ping-Prüfung fehlgeschlagen.', 'Ping check failed.')
+      );
     } finally {
       setPingingAll(false);
     }
@@ -189,7 +182,9 @@ export function DashboardView({
       const res = await api.triggerPing(serverId);
       setPingData(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Einzel-Ping fehlgeschlagen.');
+      setError(
+        err instanceof Error ? err.message : tr('Einzel-Ping fehlgeschlagen.', 'Single ping failed.')
+      );
     } finally {
       setPingingServerId(null);
     }
@@ -202,7 +197,11 @@ export function DashboardView({
       const { result } = await api.checkServerBmc(serverId);
       setBmcResults((prev) => ({ ...prev, [serverId]: result }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'BMC HTTPS-Prüfung fehlgeschlagen.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('BMC HTTPS-Prüfung fehlgeschlagen.', 'BMC HTTPS check failed.')
+      );
     } finally {
       setCheckingBmcId(null);
     }
@@ -261,11 +260,21 @@ export function DashboardView({
   async function handleDispatchBatch() {
     setError(null);
     if (!selectedCertId) {
-      setError('Bitte laden Sie zuerst ein 3-Dateien-SSH-Zertifikatspaket hoch und wählen Sie es aus.');
+      setError(
+        tr(
+          'Bitte laden Sie zuerst ein SSH-Schlüssel- oder Zertifikatspaket hoch und wählen Sie es aus.',
+          'Please upload and select an SSH key or certificate bundle first.'
+        )
+      );
       return;
     }
     if (preparedJobs.length === 0) {
-      setError('Bitte markieren Sie mindestens eine IP-Adresse und wählen Sie einen SSH-Befehl aus.');
+      setError(
+        tr(
+          'Bitte markieren Sie mindestens eine IP-Adresse und wählen Sie einen SSH-Befehl aus.',
+          'Please select at least one IP address and an SSH command.'
+        )
+      );
       return;
     }
 
@@ -278,7 +287,11 @@ export function DashboardView({
       setBatchResults(res.results);
       await onExecutionComplete();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sammelausführung fehlgeschlagen.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Sammelausführung fehlgeschlagen.', 'Batch execution failed.')
+      );
     } finally {
       setRunningBatch(false);
     }
@@ -293,10 +306,13 @@ export function DashboardView({
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
-            Server-Dashboard
+            {tr('Server-Dashboard', 'Server Dashboard')}
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Erreichbarkeit aller Ziel-IPs im 60-Sekunden-Ping-Takt sowie direkte Befehls-Schnellauswahl und Sammelausführung.
+            {tr(
+              'Erreichbarkeit aller Ziel-IPs im 60-Sekunden-Ping-Takt sowie direkte Befehls-Schnellauswahl und Sammelausführung.',
+              'Reachability of all target IPs on a 60-second ping cycle, plus quick command assignment and parallel batch execution.'
+            )}
           </p>
         </div>
 
@@ -307,7 +323,9 @@ export function DashboardView({
           className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${pingingAll ? 'animate-spin' : ''}`} />
-          {pingingAll ? 'Prüfe alle IPs...' : 'Alle IPs jetzt pingen'}
+          {pingingAll
+            ? tr('Prüfe alle IPs...', 'Checking all IPs...')
+            : tr('Alle IPs jetzt pingen', 'Ping All IPs Now')}
         </button>
       </div>
 
@@ -320,7 +338,7 @@ export function DashboardView({
       {/* Single-elevation KPI Strip */}
       <section className="bg-white border border-slate-200 rounded-lg grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
         <div className="p-5">
-          <p className="text-xs text-slate-500">Überwachte IPs</p>
+          <p className="text-xs text-slate-500">{tr('Überwachte IPs', 'Monitored IPs')}</p>
           <p className="mt-1 font-display text-2xl font-bold text-slate-900 tabular-nums">
             {counts.total}
           </p>
@@ -338,12 +356,12 @@ export function DashboardView({
           </p>
         </div>
         <div className="p-5">
-          <p className="text-xs text-slate-500">Auto-Ping (60s-Takt)</p>
+          <p className="text-xs text-slate-500">{tr('Auto-Ping (60s-Takt)', 'Auto-Ping (60s cycle)')}</p>
           <p className="mt-1 font-mono text-sm font-semibold text-slate-900 tabular-nums">
-            Nächster in {secondsToNext}s
+            {tr(`Nächster in ${secondsToNext}s`, `Next in ${secondsToNext}s`)}
           </p>
           <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
-            Letzter Lauf: {formatClockTime(pingData?.lastCycleAt)}
+            {tr('Letzter Lauf', 'Last run')}: {formatClockTime(pingData?.lastCycleAt)}
           </p>
         </div>
       </section>
@@ -353,14 +371,20 @@ export function DashboardView({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
           <div>
             <h2 className="font-display text-sm font-semibold text-slate-900">
-              Schnellauswahl &amp; Sammelausführung
+              {tr('Schnellauswahl & Sammelausführung', 'Quick Select & Batch Execution')}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Weisen Sie einen Befehl allen markierten IPs gemeinsam zu oder wählen Sie in der Tabelle pro IP einen eigenen Befehl und schicken Sie alles gesammelt ab.
+              {tr(
+                'Weisen Sie einen Befehl allen markierten IPs gemeinsam zu oder wählen Sie in der Tabelle pro IP einen eigenen Befehl und schicken Sie alles gesammelt ab.',
+                'Assign one command to all selected IPs or choose individual commands per row, then dispatch everything in one batch.'
+              )}
             </p>
           </div>
           <span className="text-xs font-mono text-slate-600 tabular-nums whitespace-nowrap shrink-0">
-            {preparedJobs.length} Auftrag{preparedJobs.length === 1 ? '' : 'e'} bereit
+            {tr(
+              `${preparedJobs.length} Auftrag${preparedJobs.length === 1 ? '' : 'e'} bereit`,
+              `${preparedJobs.length} job${preparedJobs.length === 1 ? '' : 's'} ready`
+            )}
           </span>
         </div>
 
@@ -368,7 +392,7 @@ export function DashboardView({
           {/* Quick Command Selector */}
           <div className="lg:col-span-5">
             <label htmlFor="dash-quick-cmd" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Schnellauswahl SSH-Befehl / Befehlskette
+              {tr('Schnellauswahl SSH-Befehl / Befehlskette', 'Quick-Select SSH Command / Chain')}
             </label>
             <div className="flex items-center gap-2">
               <select
@@ -379,13 +403,15 @@ export function DashboardView({
                 className="flex-1 min-w-0 px-3 py-2 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
                 {activeCommands.length === 0 ? (
-                  <option value="">Keine sichtbaren Befehle vorhanden</option>
+                  <option value="">{tr('Keine sichtbaren Befehle vorhanden', 'No visible commands available')}</option>
                 ) : (
                   activeCommands.map((cmd) => (
                     <option key={cmd.id} value={cmd.id}>
-                      [{cmd.category}] {cmd.name}
-                      {cmd.kind === 'chain' ? ` (Kette · ${cmd.steps.length})` : ''}
-                      {cmd.userId !== currentUser.id ? ` · Geteilt` : ''}
+                      [{translateCategory(cmd.category, locale)}] {cmd.name}
+                      {cmd.kind === 'chain'
+                        ? tr(` (Kette · ${cmd.steps.length})`, ` (Chain · ${cmd.steps.length})`)
+                        : ''}
+                      {cmd.userId !== currentUser.id ? tr(' · Geteilt', ' · Shared') : ''}
                     </option>
                   ))
                 )}
@@ -396,7 +422,7 @@ export function DashboardView({
                 disabled={!quickCommandId || selectedIds.length === 0}
                 className="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
-                Auf markierte anwenden
+                {tr('Auf markierte anwenden', 'Apply to selected')}
               </button>
             </div>
           </div>
@@ -404,7 +430,7 @@ export function DashboardView({
           {/* Certificate Selector */}
           <div className="lg:col-span-4">
             <label htmlFor="dash-cert" className="block text-xs font-medium text-slate-700 mb-1.5">
-              SSH-Schlüssel / Zertifikatspaket
+              {tr('SSH-Schlüssel / Zertifikatspaket', 'SSH Key / Certificate Bundle')}
             </label>
             {certificates.length === 0 ? (
               <button
@@ -413,7 +439,7 @@ export function DashboardView({
                 className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 <KeyRound className="w-3.5 h-3.5" />
-                Schlüssel / Zertifikat hochladen
+                {tr('Schlüssel / Zertifikat hochladen', 'Upload Key / Certificate')}
               </button>
             ) : (
               <select
@@ -429,9 +455,9 @@ export function DashboardView({
                       {cert.name} (
                       {hasCert
                         ? cert.metadata.keyId || cert.certFileName
-                        : 'Schlüsselpaar'}
+                        : tr('Schlüsselpaar', 'Keypair')}
                       )
-                      {cert.userId !== currentUser.id ? ' · Geteilt' : ''}
+                      {cert.userId !== currentUser.id ? tr(' · Geteilt', ' · Shared') : ''}
                     </option>
                   );
                 })}
@@ -449,8 +475,8 @@ export function DashboardView({
             >
               <Play className="w-4 h-4" />
               {runningBatch
-                ? 'Wird ausgeführt...'
-                : `Gesamtpaket senden (${preparedJobs.length})`}
+                ? tr('Wird ausgeführt...', 'Running...')
+                : tr(`Gesamtpaket senden (${preparedJobs.length})`, `Dispatch Batch (${preparedJobs.length})`)}
             </button>
           </div>
         </div>
@@ -463,7 +489,7 @@ export function DashboardView({
             <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md">
               {(
                 [
-                  { id: 'all', label: `Alle (${counts.total})` },
+                  { id: 'all', label: tr(`Alle (${counts.total})`, `All (${counts.total})`) },
                   { id: 'online', label: `Online (${counts.online})` },
                   { id: 'offline', label: `Offline (${counts.offline})` },
                 ] as const
@@ -490,7 +516,7 @@ export function DashboardView({
                   onClick={selectAllVisible}
                   className="hover:text-blue-700 font-medium cursor-pointer whitespace-nowrap"
                 >
-                  Alle markieren
+                  {tr('Alle markieren', 'Select all')}
                 </button>
                 <span aria-hidden="true" className="text-slate-300">·</span>
                 <button
@@ -498,7 +524,7 @@ export function DashboardView({
                   onClick={selectOnlineOnly}
                   className="hover:text-blue-700 font-medium cursor-pointer whitespace-nowrap"
                 >
-                  Nur Online
+                  {tr('Nur Online', 'Online only')}
                 </button>
                 <span aria-hidden="true" className="text-slate-300">·</span>
                 <button
@@ -506,7 +532,7 @@ export function DashboardView({
                   onClick={clearSelection}
                   className="hover:text-slate-900 cursor-pointer whitespace-nowrap"
                 >
-                  Auswahl leeren
+                  {tr('Auswahl leeren', 'Clear selection')}
                 </button>
               </div>
             )}
@@ -518,7 +544,7 @@ export function DashboardView({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="IP oder Servername suchen..."
+              placeholder={tr('IP oder Servername suchen...', 'Search IP or server name...')}
               className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
@@ -527,21 +553,26 @@ export function DashboardView({
         {servers.length === 0 ? (
           <div className="px-6 py-14 text-center">
             <Server className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-slate-900">Noch keine Server-IPs hinterlegt</h3>
+            <h3 className="text-sm font-semibold text-slate-900">
+              {tr('Noch keine Server-IPs hinterlegt', 'No server IPs added yet')}
+            </h3>
             <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
-              Fügen Sie Ihre Ziel-IPs unter „Meine Server (IPs)“ hinzu, um den 60-Sekunden-Ping-Status und die Sammelausführung zu nutzen.
+              {tr(
+                'Fügen Sie Ihre Ziel-IPs unter „Meine Server (IPs)“ hinzu, um den 60-Sekunden-Ping-Status und die Sammelausführung zu nutzen.',
+                'Add your target IPs under "My Servers (IPs)" to enable 60-second ping monitoring and batch execution.'
+              )}
             </p>
             <button
               type="button"
               onClick={() => onNavigate('servers')}
               className="mt-4 px-4 py-2 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
             >
-              Server-IPs anlegen
+              {tr('Server-IPs anlegen', 'Add Server IPs')}
             </button>
           </div>
         ) : filteredServers.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-slate-500">
-            Keine Server entsprechen dem aktuellen Filter.
+            {tr('Keine Server entsprechen dem aktuellen Filter.', 'No servers match the current filter.')}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -553,14 +584,14 @@ export function DashboardView({
                       type="checkbox"
                       checked={allVisibleSelected}
                       onChange={(e) => (e.target.checked ? selectAllVisible() : clearSelection())}
-                      aria-label="Alle sichtbaren Server auswählen"
+                      aria-label={tr('Alle sichtbaren Server auswählen', 'Select all visible servers')}
                       className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
                     />
                   </th>
-                  <th className="py-2.5 px-4">Server · IP-Adresse</th>
+                  <th className="py-2.5 px-4">{tr('Server · IP-Adresse', 'Server · IP Address')}</th>
                   <th className="py-2.5 px-4">BMC (HTTPS :443)</th>
-                  <th className="py-2.5 px-4">Ping-Status</th>
-                  <th className="py-2.5 px-4">Zugewiesener Befehl</th>
+                  <th className="py-2.5 px-4">{tr('Ping-Status', 'Ping Status')}</th>
+                  <th className="py-2.5 px-4">{tr('Zugewiesener Befehl', 'Assigned Command')}</th>
                   <th className="py-2.5 pl-4 pr-6 text-right">Ping</th>
                 </tr>
               </thead>
@@ -584,7 +615,7 @@ export function DashboardView({
                           type="checkbox"
                           checked={isChecked}
                           onChange={() => toggleRow(srv.id)}
-                          aria-label={`${srv.label} auswählen`}
+                          aria-label={tr(`${srv.label} auswählen`, `Select ${srv.label}`)}
                           className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
                         />
                       </td>
@@ -593,7 +624,11 @@ export function DashboardView({
                           {srv.label}
                           {srv.userId !== currentUser.id && (
                             <span className="ml-2 text-xs font-normal text-blue-800">
-                              · Geteilt von {srv.ownerUsername || 'admin'}
+                              ·{' '}
+                              {tr(
+                                `Geteilt von ${srv.ownerUsername || 'admin'}`,
+                                `Shared by ${srv.ownerUsername || 'admin'}`
+                              )}
                             </span>
                           )}
                         </p>
@@ -609,7 +644,10 @@ export function DashboardView({
                                 href={formatBmcUrl(srv.bmcIpAddress)}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                title={`${formatBmcUrl(srv.bmcIpAddress)} in neuem Tab öffnen`}
+                                title={tr(
+                                  `${formatBmcUrl(srv.bmcIpAddress)} in neuem Tab öffnen`,
+                                  `Open ${formatBmcUrl(srv.bmcIpAddress)} in a new tab`
+                                )}
                                 className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline tabular-nums"
                               >
                                 <span>{srv.bmcIpAddress}</span>
@@ -619,7 +657,10 @@ export function DashboardView({
                                 type="button"
                                 onClick={() => handleCheckBmc(srv.id)}
                                 disabled={isCheckingBmc}
-                                title="BMC über https:// Port 443 prüfen"
+                                title={tr(
+                                  'BMC über https:// Port 443 prüfen',
+                                  'Check BMC over https:// port 443'
+                                )}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded transition-colors cursor-pointer"
                               >
                                 {isCheckingBmc ? (
@@ -627,7 +668,11 @@ export function DashboardView({
                                 ) : (
                                   <ShieldCheck className="w-3 h-3" />
                                 )}
-                                <span>{isCheckingBmc ? 'Prüft...' : '443 prüfen'}</span>
+                                <span>
+                                  {isCheckingBmc
+                                    ? tr('Prüft...', 'Checking...')
+                                    : tr('443 prüfen', 'Check 443')}
+                                </span>
                               </button>
                             </div>
                             {bmcRes && (
@@ -649,7 +694,7 @@ export function DashboardView({
                                 ) : (
                                   <>
                                     <XCircle className="w-3 h-3 shrink-0" />
-                                    <span>{bmcRes.error || 'Nicht erreichbar'}</span>
+                                    <span>{bmcRes.error || tr('Nicht erreichbar', 'Unreachable')}</span>
                                   </>
                                 )}
                               </p>
@@ -663,7 +708,7 @@ export function DashboardView({
                         {!st ? (
                           <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                             <Clock className="w-3.5 h-3.5" />
-                            Ausstehend
+                            {tr('Ausstehend', 'Pending')}
                           </span>
                         ) : st.online ? (
                           <div>
@@ -679,7 +724,7 @@ export function DashboardView({
                           <div>
                             <span
                               className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700"
-                              title={st.error || 'Nicht erreichbar'}
+                              title={st.error || tr('Nicht erreichbar', 'Unreachable')}
                             >
                               <XCircle className="w-3.5 h-3.5" />
                               Offline
@@ -695,18 +740,18 @@ export function DashboardView({
                           value={assignedCmdId}
                           onChange={(e) => setRowCommand(srv.id, e.target.value)}
                           disabled={activeCommands.length === 0}
-                          aria-label={`Befehl für ${srv.label}`}
+                          aria-label={tr(`Befehl für ${srv.label}`, `Command for ${srv.label}`)}
                           className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
                         >
                           <option value="">
                             {quickCommandId
-                              ? '↳ Schnellauswahl übernehmen'
-                              : 'Befehl auswählen...'}
+                              ? tr('↳ Schnellauswahl übernehmen', '↳ Use quick-select command')
+                              : tr('Befehl auswählen...', 'Select command...')}
                           </option>
                           {activeCommands.map((cmd) => (
                             <option key={cmd.id} value={cmd.id}>
-                              [{cmd.category}] {cmd.name}
-                              {cmd.kind === 'chain' ? ` (Kette)` : ''}
+                              [{translateCategory(cmd.category, locale)}] {cmd.name}
+                              {cmd.kind === 'chain' ? tr(' (Kette)', ' (Chain)') : ''}
                             </option>
                           ))}
                         </select>
@@ -716,11 +761,11 @@ export function DashboardView({
                           type="button"
                           onClick={() => handleManualPingOne(srv.id)}
                           disabled={isRowPinging}
-                          title="Diese IP sofort pingen"
+                          title={tr('Diese IP sofort pingen', 'Ping this IP now')}
                           className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-blue-700 disabled:opacity-40 cursor-pointer"
                         >
                           <RefreshCw className={`w-3.5 h-3.5 ${isRowPinging ? 'animate-spin' : ''}`} />
-                          Prüfen
+                          {tr('Prüfen', 'Check')}
                         </button>
                       </td>
                     </tr>
@@ -739,7 +784,7 @@ export function DashboardView({
             <div className="flex items-center gap-2">
               <Terminal className="w-4 h-4 text-slate-400" />
               <span className="text-xs font-medium text-slate-200">
-                Ergebnisse der Sammelausführung
+                {tr('Ergebnisse der Sammelausführung', 'Batch Execution Results')}
               </span>
             </div>
             {!runningBatch && (
@@ -749,7 +794,7 @@ export function DashboardView({
                 </span>
                 <span className="text-slate-600">·</span>
                 <span className="text-red-400">
-                  {batchResults.filter((r) => r.exitCode !== 0).length} Fehler
+                  {batchResults.filter((r) => r.exitCode !== 0).length} {tr('Fehler', 'Failed')}
                 </span>
               </div>
             )}
@@ -759,7 +804,12 @@ export function DashboardView({
             {runningBatch ? (
               <div className="py-8 text-center text-slate-400 flex items-center justify-center gap-2">
                 <CheckSquare className="w-4 h-4" />
-                <span>Führe {preparedJobs.length} SSH-Aufträge parallel per Zertifikat aus...</span>
+                <span>
+                  {tr(
+                    `Führe ${preparedJobs.length} SSH-Aufträge parallel per Schlüssel/Zertifikat aus...`,
+                    `Executing ${preparedJobs.length} SSH jobs in parallel...`
+                  )}
+                </span>
               </div>
             ) : (
               batchResults.map((res) => {
@@ -804,7 +854,7 @@ export function DashboardView({
                         ) : (
                           <ChevronRight className="w-3.5 h-3.5" />
                         )}
-                        OpenSSH-Aufruf anzeigen
+                        {tr('OpenSSH-Aufruf anzeigen', 'Show OpenSSH invocation')}
                       </button>
 
                       {showCmd && (

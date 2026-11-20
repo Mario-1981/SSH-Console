@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { api, setUnauthorizedHandler } from './api';
+import { LanguageSwitcher, useI18n } from './i18n';
 import { AccountView } from './components/AccountView';
 import { AuditLogView } from './components/AuditLogView';
 import { CertificatesView } from './components/CertificatesView';
@@ -22,18 +23,8 @@ import type {
   UserServer,
 } from './types';
 
-const TAB_BREADCRUMBS: Record<ActiveTab, { group: string; title: string }> = {
-  dashboard: { group: 'Arbeitsbereich', title: 'Dashboard' },
-  execute: { group: 'Arbeitsbereich', title: 'Befehle ausführen' },
-  servers: { group: 'Arbeitsbereich', title: 'Meine Server (IPs)' },
-  certificates: { group: 'Arbeitsbereich', title: 'SSH-Zertifikate' },
-  logs: { group: 'Arbeitsbereich', title: 'Ausführungsprotokoll' },
-  account: { group: 'Konto', title: 'Passwort ändern' },
-  'admin-commands': { group: 'Arbeitsbereich', title: 'SSH-Befehle' },
-  'admin-users': { group: 'Administration', title: 'Benutzerverwaltung' },
-};
-
 export default function App() {
+  const { tr } = useI18n();
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
   const [opensshAvailable, setOpensshAvailable] = useState(false);
@@ -97,7 +88,6 @@ export default function App() {
     setInitialized(true);
     setSettings(newSettings);
     setUser(admin);
-    // Guide admin directly to defining SSH commands right after initial setup
     setActiveTab('admin-commands');
     await loadWorkspaceData(admin);
   }
@@ -121,7 +111,9 @@ export default function App() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-sm text-slate-500">Initialisiere SSH Console...</p>
+        <p className="text-sm text-slate-500">
+          {tr('Initialisiere SSH Console...', 'Initializing SSH Console...')}
+        </p>
       </div>
     );
   }
@@ -134,7 +126,18 @@ export default function App() {
     return <LoginView instanceName={settings.instanceName} onLogin={handleLogin} />;
   }
 
-  const crumb = TAB_BREADCRUMBS[activeTab];
+  const breadcrumbs: Record<ActiveTab, { group: string; title: string }> = {
+    dashboard: { group: tr('Arbeitsbereich', 'Workspace'), title: 'Dashboard' },
+    execute: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Befehle ausführen', 'Run Commands') },
+    servers: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Meine Server (IPs)', 'My Servers (IPs)') },
+    certificates: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('SSH-Zertifikate', 'SSH Certificates') },
+    logs: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Ausführungsprotokoll', 'Execution Log') },
+    account: { group: tr('Konto', 'Account'), title: tr('Konto & API-Schlüssel', 'Account & API Keys') },
+    'admin-commands': { group: tr('Arbeitsbereich', 'Workspace'), title: tr('SSH-Befehle', 'SSH Commands') },
+    'admin-users': { group: 'Administration', title: tr('Benutzerverwaltung', 'User Management') },
+  };
+
+  const crumb = breadcrumbs[activeTab];
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -149,14 +152,13 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Bar Contract: Breadcrumb on left, single contextual action on right */}
-        <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-8 shrink-0">
+        <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               className="lg:hidden p-1.5 -ml-1.5 text-slate-600 hover:text-slate-900 rounded-md"
-              aria-label="Menü öffnen"
+              aria-label={tr('Menü öffnen', 'Open menu')}
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -168,13 +170,14 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
+            <LanguageSwitcher />
             {activeTab !== 'dashboard' ? (
               <button
                 type="button"
                 onClick={() => setActiveTab('dashboard')}
                 className="px-3.5 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
-                Zum Dashboard
+                {tr('Zum Dashboard', 'Go to Dashboard')}
               </button>
             ) : (
               <button
@@ -182,7 +185,7 @@ export default function App() {
                 onClick={() => setActiveTab('servers')}
                 className="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
-                Server verwalten ({servers.length})
+                {tr(`Server verwalten (${servers.length})`, `Manage Servers (${servers.length})`)}
               </button>
             )}
           </div>

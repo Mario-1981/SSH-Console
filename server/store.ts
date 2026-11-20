@@ -25,6 +25,16 @@ export interface StoredSession {
   expiresAt: string;
 }
 
+export interface StoredApiKey {
+  id: string;
+  userId: string;
+  name: string;
+  keyPrefix: string;
+  keyHash: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 export type CommandKind = 'single' | 'chain';
 
 export interface CommandStep {
@@ -146,6 +156,7 @@ interface DatabaseSchema {
   settings: AppSettings;
   users: StoredUser[];
   sessions: StoredSession[];
+  apiKeys: StoredApiKey[];
   commands: SshCommand[];
   servers: UserServer[];
   certificates: UserCertificateBundle[];
@@ -216,6 +227,10 @@ export function verifyPassword(password: string, salt: string, expectedHash: str
   return crypto.timingSafeEqual(derived, expected);
 }
 
+export function hashApiKey(plainKey: string): string {
+  return crypto.createHash('sha256').update(plainKey).digest('hex');
+}
+
 function emptyDb(): DatabaseSchema {
   return {
     settings: {
@@ -224,6 +239,7 @@ function emptyDb(): DatabaseSchema {
     },
     users: [],
     sessions: [],
+    apiKeys: [],
     commands: [],
     servers: [],
     certificates: [],
@@ -297,6 +313,7 @@ class Store {
         ...emptyDb(),
         ...parsed,
         settings: migratedSettings,
+        apiKeys: Array.isArray(parsed.apiKeys) ? parsed.apiKeys : [],
         commands: migratedCommands,
         servers: migratedServers,
         certificates: migratedCertificates,
@@ -449,6 +466,7 @@ class Store {
     }
     this.db.users = this.db.users.filter((u) => u.id !== id);
     this.db.sessions = this.db.sessions.filter((s) => s.userId !== id);
+    this.db.apiKeys = this.db.apiKeys.filter((k) => k.userId !== id);
     this.db.commands = this.db.commands
       .filter((c) => c.userId !== id)
       .map((c) => ({ ...c, sharedWithUserIds: c.sharedWithUserIds.filter((uid) => uid !== id) }));
@@ -505,6 +523,53 @@ class Store {
     if (!token) return;
     this.db.sessions = this.db.sessions.filter((s) => s.token !== token);
     this.save();
+  }
+
+  // Personal API Keys (for automated curl certificate uploads)
+  listApiKeys(userId: string): StoredApiKey[] {
+    return this.db.apiKeys
+      .filter((k) => k.userId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  createApiKey(userId: string, name: string): { apiKey: StoredApiKey; plainKey: string } {
+    const cleanName = name.trim().slice(0, 64) || 'API-Schlüssel';
+    const plainKey = `sshc_${crypto.randomBytes(32).toString('hex')}`;
+    const apiKey: StoredApiKey = {
+      id: crypto.randomUUID(),
+      userId,
+      name: cleanName,
+      keyPrefix: `${plainKey.slice(0, 12)}…`,
+      keyHash: hashApiKey(plainKey),
+      createdAt: new Date().toISOString(),
+      lastUsedAt: null,
+    };
+    this.db.apiKeys.push(apiKey);
+    this.save();
+    return { apiKey, plainKey };
+  }
+
+  deleteApiKey(id: string, userId: string): void {
+    this.db.apiKeys = this.db.apiKeys.filter((k) => !(k.id === id && k.userId === userId));
+    this.save();
+  }
+
+  getUserByApiKey(plainKey: string | undefined): StoredUser | null {
+    if (!plainKey || !plainKey.startsWith('sshc_') || plainKey.length < 20) {
+      return null;
+    }
+    const candidateHash = Buffer.from(hashApiKey(plainKey), 'hex');
+    const match = this.db.apiKeys.find((k) => {
+      const stored = Buffer.from(k.keyHash, 'hex');
+      if (stored.length !== candidateHash.length) return false;
+      return crypto.timingSafeEqual(stored, candidateHash);
+    });
+    if (!match) return null;
+    const user = this.db.users.find((u) => u.id === match.userId && u.active);
+    if (!user) return null;
+    match.lastUsedAt = new Date().toISOString();
+    this.save();
+    return user;
   }
 
   private normalizeSharedUserIds(ownerUserId: string, userIds: string[]): string[] {

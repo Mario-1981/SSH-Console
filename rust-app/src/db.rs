@@ -1,5 +1,5 @@
 use crate::models::{
-    CertInspection, CommandStep, ExecutionLog, SshCommand, UserCertificatePublic,
+    CertInspection, CommandStep, ExecutionLog, SshCommand, UserApiKeyPublic, UserCertificatePublic,
     UserCertificateSecret, UserPublic, UserServer,
 };
 use chrono::{Duration, Utc};
@@ -42,6 +42,16 @@ impl Database {
                 user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_api_keys (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                key_prefix TEXT NOT NULL,
+                key_hash TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS ssh_commands (
@@ -385,6 +395,102 @@ impl Database {
     pub fn delete_session(&self, token: &str) {
         if let Ok(conn) = self.conn.lock() {
             let _ = conn.execute("DELETE FROM sessions WHERE token = ?1", params![token]);
+        }
+    }
+
+    pub fn list_api_keys(&self, user_id: &str) -> Result<Vec<UserApiKeyPublic>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, key_prefix, created_at, last_used_at
+                 FROM user_api_keys WHERE user_id = ?1 ORDER BY created_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![user_id], |r| {
+                Ok(UserApiKeyPublic {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    key_prefix: r.get(2)?,
+                    created_at: r.get(3)?,
+                    last_used_at: r.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn create_api_key(
+        &self,
+        user_id: &str,
+        name: &str,
+        key_prefix: &str,
+        key_hash: &str,
+    ) -> Result<UserApiKeyPublic, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO user_api_keys (id, user_id, name, key_prefix, key_hash, created_at, last_used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
+            params![id, user_id, name, key_prefix, key_hash, now],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(UserApiKeyPublic {
+            id,
+            name: name.to_string(),
+            key_prefix: key_prefix.to_string(),
+            created_at: now,
+            last_used_at: None,
+        })
+    }
+
+    pub fn delete_api_key(&self, id: &str, user_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.execute(
+            "DELETE FROM user_api_keys WHERE id = ?1 AND user_id = ?2",
+            params![id, user_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn user_by_api_key_hash(&self, key_hash: &str) -> Result<Option<UserPublic>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let found: Option<(String, UserPublic)> = conn
+            .query_row(
+                "SELECT k.id, u.id, u.username, u.display_name, u.role, u.default_ssh_user, u.active, u.created_at, u.last_login_at
+                 FROM user_api_keys k
+                 JOIN users u ON u.id = k.user_id
+                 WHERE k.key_hash = ?1 AND u.active = 1",
+                params![key_hash],
+                |r| {
+                    let key_id: String = r.get(0)?;
+                    let user = UserPublic {
+                        id: r.get(1)?,
+                        username: r.get(2)?,
+                        display_name: r.get(3)?,
+                        role: r.get(4)?,
+                        default_ssh_user: r.get(5)?,
+                        active: r.get::<_, i64>(6)? == 1,
+                        created_at: r.get(7)?,
+                        last_login_at: r.get(8)?,
+                    };
+                    Ok((key_id, user))
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        if let Some((key_id, user)) = found {
+            let now = Utc::now().to_rfc3339();
+            let _ = conn.execute(
+                "UPDATE user_api_keys SET last_used_at = ?1 WHERE id = ?2",
+                params![now, key_id],
+            );
+            Ok(Some(user))
+        } else {
+            Ok(None)
         }
     }
 

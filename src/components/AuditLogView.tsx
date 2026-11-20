@@ -1,23 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { Search, ChevronDown, ChevronRight, History } from 'lucide-react';
+import { useI18n } from '../i18n';
 import type { ExecutionLog } from '../types';
 
 interface AuditLogViewProps {
   logs: ExecutionLog[];
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
 export function AuditLogView({ logs }: AuditLogViewProps) {
+  const { tr, formatDateTime } = useI18n();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'err'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -42,10 +33,13 @@ export function AuditLogView({ logs }: AuditLogViewProps) {
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
-          Ausführungsprotokoll
+          {tr('Ausführungsprotokoll', 'Execution Log')}
         </h1>
         <p className="text-sm text-slate-600 mt-1">
-          Vollständige Historie aller über OpenSSH-Zertifikate ausgeführten Befehle inklusive Rückgabecode und Konsolenausgabe.
+          {tr(
+            'Vollständige Historie aller über OpenSSH-Schlüssel und Zertifikate ausgeführten Befehle inklusive Rückgabecode und Konsolenausgabe.',
+            'Complete history of all SSH commands executed with OpenSSH keys and certificates, including exit code and console output.'
+          )}
         </p>
       </div>
 
@@ -54,9 +48,9 @@ export function AuditLogView({ logs }: AuditLogViewProps) {
           <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md self-start">
             {(
               [
-                { id: 'all', label: `Alle (${logs.length})` },
-                { id: 'ok', label: 'Erfolgreich' },
-                { id: 'err', label: 'Fehlgeschlagen' },
+                { id: 'all', label: tr(`Alle (${logs.length})`, `All (${logs.length})`) },
+                { id: 'ok', label: tr('Erfolgreich', 'Successful') },
+                { id: 'err', label: tr('Fehlgeschlagen', 'Failed') },
               ] as const
             ).map((tab) => (
               <button
@@ -80,7 +74,7 @@ export function AuditLogView({ logs }: AuditLogViewProps) {
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Nach IP, Befehl oder Benutzer suchen..."
+              placeholder={tr('Nach IP, Befehl oder Benutzer suchen...', 'Search by IP, command, or user...')}
               className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
@@ -89,9 +83,14 @@ export function AuditLogView({ logs }: AuditLogViewProps) {
         {filtered.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <History className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <p className="text-sm font-medium text-slate-900">Keine Protokolleinträge vorhanden</p>
+            <p className="text-sm font-medium text-slate-900">
+              {tr('Keine Protokolleinträge vorhanden', 'No log entries yet')}
+            </p>
             <p className="text-xs text-slate-500 mt-1">
-              Sobald SSH-Befehle ausgeführt werden, erscheinen die Ergebnisse hier.
+              {tr(
+                'Sobald SSH-Befehle ausgeführt werden, erscheinen die Ergebnisse hier.',
+                'Results will appear here as soon as SSH commands are executed.'
+              )}
             </p>
           </div>
         ) : (
@@ -100,11 +99,11 @@ export function AuditLogView({ logs }: AuditLogViewProps) {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
                   <th className="py-2.5 px-4 w-8"></th>
-                  <th className="py-2.5 px-4">Zeitpunkt</th>
-                  <th className="py-2.5 px-4">Zielserver</th>
-                  <th className="py-2.5 px-4">Befehl</th>
-                  <th className="py-2.5 px-4">Benutzer · Zertifikat</th>
-                  <th className="py-2.5 px-4 text-right">Dauer</th>
+                  <th className="py-2.5 px-4">{tr('Zeitpunkt', 'Timestamp')}</th>
+                  <th className="py-2.5 px-4">{tr('Zielserver', 'Target Server')}</th>
+                  <th className="py-2.5 px-4">{tr('Befehl', 'Command')}</th>
+                  <th className="py-2.5 px-4">{tr('Benutzer · Zertifikat', 'User · Certificate')}</th>
+                  <th className="py-2.5 px-4 text-right">{tr('Dauer', 'Duration')}</th>
                   <th className="py-2.5 px-6 text-right">Exit</th>
                 </tr>
               </thead>
@@ -126,7 +125,7 @@ export function AuditLogView({ logs }: AuditLogViewProps) {
                           )}
                         </td>
                         <td className="py-3 px-4 font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap">
-                          {formatTime(log.executedAt)}
+                          {formatDateTime(log.executedAt, { seconds: true })}
                         </td>
                         <td className="py-3 px-4 font-mono text-xs text-slate-900 tabular-nums whitespace-nowrap">
                           {log.sshUser}@{log.targetIp}:{log.targetPort}

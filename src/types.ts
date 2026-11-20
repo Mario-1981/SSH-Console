@@ -11,6 +11,14 @@ export interface User {
   lastLoginAt: string | null;
 }
 
+export interface UserApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 export interface AppSettings {
   instanceName: string;
   initializedAt: string | null;
