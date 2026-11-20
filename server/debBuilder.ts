@@ -140,7 +140,7 @@ if [ "$1" = "configure" ]; then
   export CARGO_HOME="$BUILD_TMP/cargo-home"
   export CARGO_TARGET_DIR="$BUILD_TMP/target"
 
-  cargo build --release --manifest-path /opt/ssh-console/rust-src/Cargo.toml
+  (cd /opt/ssh-console/rust-src && cargo build --release)
   install -m 0755 "$CARGO_TARGET_DIR/release/ssh-console" /usr/local/bin/ssh-console
 
   rm -rf "$BUILD_TMP"
