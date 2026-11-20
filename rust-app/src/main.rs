@@ -27,7 +27,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
-const SESSION_COOKIE: &str = "trixiessh_session";
+const SESSION_COOKIE: &str = "ssh_console_session";
 
 struct AppState {
     db: Database,
@@ -1262,7 +1262,9 @@ async fn api_rust_project_files(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _ = current_user(&state, &jar, &headers)?;
     let src_root = PathBuf::from(
-        std::env::var("TRIXIESSH_SRC_DIR").unwrap_or_else(|_| "/opt/trixiessh/rust-src".into()),
+        std::env::var("SSH_CONSOLE_SRC_DIR")
+            .or_else(|_| std::env::var("TRIXIESSH_SRC_DIR"))
+            .unwrap_or_else(|_| "/opt/ssh-console/rust-src".into()),
     );
     let mut files = Vec::new();
     if src_root.exists() {
@@ -1278,11 +1280,13 @@ async fn main() {
         .init();
 
     let data_dir = PathBuf::from(
-        std::env::var("TRIXIESSH_DATA_DIR").unwrap_or_else(|_| "/var/lib/trixiessh".into()),
+        std::env::var("SSH_CONSOLE_DATA_DIR")
+            .or_else(|_| std::env::var("TRIXIESSH_DATA_DIR"))
+            .unwrap_or_else(|_| "/var/lib/ssh-console".into()),
     );
     std::fs::create_dir_all(&data_dir).expect("Datenverzeichnis konnte nicht erstellt werden");
 
-    let db = Database::open(&data_dir.join("trixiessh.sqlite")).expect("SQLite-Datenbankfehler");
+    let db = Database::open(&data_dir.join("ssh-console.sqlite")).expect("SQLite-Datenbankfehler");
     let vault = Vault::load_or_create(&data_dir).expect("Vault-Initialisierungsfehler");
     let ping_state = Arc::new(tokio::sync::RwLock::new(ping::PingState {
         statuses: std::collections::HashMap::new(),
@@ -1319,7 +1323,9 @@ async fn main() {
     });
 
     let static_dir = PathBuf::from(
-        std::env::var("TRIXIESSH_STATIC_DIR").unwrap_or_else(|_| "/opt/trixiessh/dist".into()),
+        std::env::var("SSH_CONSOLE_STATIC_DIR")
+            .or_else(|_| std::env::var("TRIXIESSH_STATIC_DIR"))
+            .unwrap_or_else(|_| "/opt/ssh-console/dist".into()),
     );
     let spa_service = ServeDir::new(&static_dir)
         .not_found_service(ServeFile::new(static_dir.join("index.html")));
@@ -1365,9 +1371,11 @@ async fn main() {
         .fallback_service(spa_service)
         .with_state(state);
 
-    let bind = std::env::var("TRIXIESSH_BIND").unwrap_or_else(|_| "0.0.0.0:3000".into());
+    let bind = std::env::var("SSH_CONSOLE_BIND")
+        .or_else(|_| std::env::var("TRIXIESSH_BIND"))
+        .unwrap_or_else(|_| "0.0.0.0:3000".into());
     let addr: SocketAddr = bind.parse().expect("Ungültige Bind-Adresse");
-    tracing::info!("TrixieSSH Rust-Server aktiv auf http://{addr}");
+    tracing::info!("SSH Console Rust-Server aktiv auf http://{addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

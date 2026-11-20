@@ -345,7 +345,7 @@ pub async fn generate_test_cert_bundle(
     let user_path = tmp_dir.path().join("zertifikat");
 
     let ca_out = Command::new("/usr/bin/ssh-keygen")
-        .args(["-q", "-t", "ed25519", "-N", "", "-C", "trixiessh-test-ca", "-f"])
+        .args(["-q", "-t", "ed25519", "-N", "", "-C", "ssh-console-test-ca", "-f"])
         .arg(&ca_path)
         .output()
         .await

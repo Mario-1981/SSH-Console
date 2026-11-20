@@ -40,7 +40,7 @@ export default function App() {
   const [initialized, setInitialized] = useState(false);
   const [opensshAvailable, setOpensshAvailable] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
-    instanceName: 'TrixieSSH',
+    instanceName: 'SSH Console',
     initializedAt: null,
   });
   const [user, setUser] = useState<User | null>(null);
@@ -123,7 +123,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-sm text-slate-500">Initialisiere TrixieSSH...</p>
+        <p className="text-sm text-slate-500">Initialisiere SSH Console...</p>
       </div>
     );
   }

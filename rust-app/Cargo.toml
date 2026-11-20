@@ -1,8 +1,8 @@
 [package]
-name = "trixiessh"
+name = "ssh-console"
 version = "1.0.0"
 edition = "2021"
-description = "SSH-Befehls- und Zertifikats-Webinterface in Rust für Debian Trixie"
+description = "SSH Console — SSH-Befehls-, Zertifikats- & BMC-Webinterface in Rust für Debian Trixie"
 
 [dependencies]
 aes-gcm = "0.10"

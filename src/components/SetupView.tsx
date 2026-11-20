@@ -8,7 +8,7 @@ interface SetupViewProps {
 }
 
 export function SetupView({ onComplete }: SetupViewProps) {
-  const [instanceName, setInstanceName] = useState('TrixieSSH');
+  const [instanceName, setInstanceName] = useState('SSH Console');
   const [username, setUsername] = useState('admin');
   const [displayName, setDisplayName] = useState('Administrator');
   const [password, setPassword] = useState('');
@@ -49,7 +49,7 @@ export function SetupView({ onComplete }: SetupViewProps) {
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="border-b border-slate-200 bg-white px-8 py-4 flex items-center justify-between gap-8">
         <span className="font-display text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0">
-          TrixieSSH
+          SSH Console
         </span>
         <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">
           Debian 13 (Trixie) · Ersteinrichtung
@@ -64,7 +64,7 @@ export function SetupView({ onComplete }: SetupViewProps) {
                 Einmalige Systeminitialisierung
               </p>
               <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 leading-tight">
-                Administrator-Konto für TrixieSSH einrichten
+                Administrator-Konto für SSH Console einrichten
               </h1>
               <p className="mt-4 text-sm sm:text-base text-slate-600 leading-relaxed max-w-xl">
                 Legen Sie das erste Administratorkonto fest. Nach Abschluss dieser Einrichtung wird die
@@ -146,7 +146,7 @@ export function SetupView({ onComplete }: SetupViewProps) {
                   type="text"
                   value={instanceName}
                   onChange={(e) => setInstanceName(e.target.value)}
-                  placeholder="z. B. TrixieSSH Produktion"
+                  placeholder="z. B. SSH Console Produktion"
                   className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                   required
                 />

@@ -14,13 +14,15 @@ pub struct Vault {
 
 impl Vault {
     /// Lädt den 32-Byte AES-256-GCM Master-Key aus der Umgebungsvariable
-    /// `TRIXIESSH_MASTER_KEY` (Hex) oder aus `<data_dir>/master.key` (Modus 0600).
+    /// `SSH_CONSOLE_MASTER_KEY` (Hex) oder aus `<data_dir>/master.key` (Modus 0600).
     pub fn load_or_create(data_dir: &Path) -> Result<Self, String> {
-        if let Ok(hex_key) = std::env::var("TRIXIESSH_MASTER_KEY") {
+        if let Ok(hex_key) = std::env::var("SSH_CONSOLE_MASTER_KEY")
+            .or_else(|_| std::env::var("TRIXIESSH_MASTER_KEY"))
+        {
             let bytes = hex::decode(hex_key.trim())
-                .map_err(|e| format!("Ungültiger TRIXIESSH_MASTER_KEY (Hex erwartet): {e}"))?;
+                .map_err(|e| format!("Ungültiger SSH_CONSOLE_MASTER_KEY (Hex erwartet): {e}"))?;
             if bytes.len() != 32 {
-                return Err("TRIXIESSH_MASTER_KEY muss exakt 32 Bytes (64 Hex-Zeichen) lang sein.".into());
+                return Err("SSH_CONSOLE_MASTER_KEY muss exakt 32 Bytes (64 Hex-Zeichen) lang sein.".into());
             }
             let mut key = [0u8; 32];
             key.copy_from_slice(&bytes);

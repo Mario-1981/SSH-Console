@@ -370,7 +370,7 @@ export const api = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'trixiessh-debian-trixie-rust.tar.gz';
+    a.download = 'ssh-console-debian-trixie-rust.tar.gz';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -390,7 +390,7 @@ export const api = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'trixiessh_1.0.0_all.deb';
+    a.download = 'ssh-console_1.0.0_all.deb';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

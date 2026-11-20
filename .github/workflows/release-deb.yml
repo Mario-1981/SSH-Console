@@ -1,0 +1,91 @@
+name: Build & Release Debian Package (.deb)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Paketversion (z. B. 1.0.0)'
+        required: false
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Version bestimmen
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            RAW_TAG="${GITHUB_REF_NAME}"
+            VERSION="${RAW_TAG#v}"
+            TAG_NAME="${RAW_TAG}"
+          else
+            VERSION="${{ github.event.inputs.version || '1.0.0' }}"
+            TAG_NAME="v${VERSION}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Node.js einrichten & Web-Frontend bauen
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Frontend-Abhaengigkeiten installieren & kompilieren
+        run: |
+          npm ci
+          npm run build
+
+      - name: Vorkompiliertes Debian-13-(Trixie)-Paket (amd64) bauen
+        run: |
+          docker run --rm \
+            -e DEB_VERSION="${{ steps.meta.outputs.version }}" \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -w /work/rust-app \
+            debian:trixie \
+            bash -lc '
+              set -euo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                cargo rustc build-essential pkg-config libssl-dev ca-certificates dpkg-dev
+              chmod +x debian/build-deb.sh
+              ./debian/build-deb.sh /work/dist
+            '
+          mkdir -p release-assets
+          cp rust-app/ssh-console_*_amd64.deb release-assets/
+
+      - name: Universelles Debian-Paket (all) bauen
+        run: |
+          npx tsx -e "
+            import { buildDebianPackage } from './server/debBuilder.ts';
+            import fs from 'node:fs';
+            const pkg = buildDebianPackage(process.cwd(), process.cwd() + '/rust-app');
+            fs.writeFileSync('release-assets/' + pkg.fileName, pkg.buffer);
+          "
+          ls -lh release-assets/
+
+      - name: Pakete als Workflow-Artefakt speichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-console-deb-${{ steps.meta.outputs.version }}
+          path: release-assets/*.deb
+
+      - name: GitHub Release erstellen & .deb-Pakete anhaengen
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: SSH Console ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            release-assets/*.deb

@@ -219,7 +219,7 @@ export function verifyPassword(password: string, salt: string, expectedHash: str
 function emptyDb(): DatabaseSchema {
   return {
     settings: {
-      instanceName: 'TrixieSSH',
+      instanceName: 'SSH Console',
       initializedAt: null,
     },
     users: [],
@@ -284,9 +284,19 @@ class Store {
         sharedWithUserIds: Array.isArray(cert.sharedWithUserIds) ? cert.sharedWithUserIds : [],
       }));
 
+      const migratedSettings: AppSettings = {
+        ...emptyDb().settings,
+        ...(parsed.settings ?? {}),
+        instanceName:
+          !parsed.settings?.instanceName || parsed.settings.instanceName === 'TrixieSSH'
+            ? 'SSH Console'
+            : parsed.settings.instanceName,
+      };
+
       return {
         ...emptyDb(),
         ...parsed,
+        settings: migratedSettings,
         commands: migratedCommands,
         servers: migratedServers,
         certificates: migratedCertificates,
@@ -335,7 +345,7 @@ class Store {
       lastLoginAt: now,
     };
     this.db.settings = {
-      instanceName: params.instanceName.trim() || 'TrixieSSH',
+      instanceName: params.instanceName.trim() || 'SSH Console',
       initializedAt: now,
     };
     this.db.users.push(admin);

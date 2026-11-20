@@ -60,7 +60,7 @@ export async function checkBmcHttps(bmcIpAddress: string, timeoutMs = 4000): Pro
         rejectUnauthorized: false,
         headers: {
           Host: cleanIp.includes(':') ? `[${cleanIp}]` : cleanIp,
-          'User-Agent': 'TrixieSSH-BMC-Check/1.0',
+          'User-Agent': 'SSH-Console-BMC-Check/1.0',
           Connection: 'close',
         },
       },

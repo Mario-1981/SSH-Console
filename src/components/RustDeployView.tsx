@@ -106,18 +106,18 @@ export function RustDeployView() {
             01. Installation per Debian-Paket (.deb)
           </h2>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Kopieren Sie <code className="font-mono">trixiessh_1.0.0_all.deb</code> auf Ihren Debian-13-Server und installieren Sie es mit <code className="font-mono">apt</code>. Alle Abhängigkeiten (<code className="font-mono">openssh-client</code>, <code className="font-mono">iputils-ping</code>, <code className="font-mono">curl</code>, Rust-Toolchain) werden automatisch aufgelöst, das native Binary für <code className="font-mono">amd64</code>/<code className="font-mono">arm64</code> kompiliert und der <code className="font-mono">systemd</code>-Dienst direkt gestartet.
+            Kopieren Sie <code className="font-mono">ssh-console_1.0.0_all.deb</code> auf Ihren Debian-13-Server und installieren Sie es mit <code className="font-mono">apt</code>. Alle Abhängigkeiten (<code className="font-mono">openssh-client</code>, <code className="font-mono">iputils-ping</code>, <code className="font-mono">curl</code>, Rust-Toolchain) werden automatisch aufgelöst, das native Binary für <code className="font-mono">amd64</code>/<code className="font-mono">arm64</code> kompiliert und der <code className="font-mono">systemd</code>-Dienst direkt gestartet.
           </p>
           <pre className="p-3.5 rounded-md bg-[#0B1120] text-slate-200 font-mono text-xs overflow-x-auto leading-relaxed">
 {`sudo apt update
-sudo apt install ./trixiessh_1.0.0_all.deb
+sudo apt install ./ssh-console_1.0.0_all.deb
 
 # Dienststatus & Logs prüfen
-sudo systemctl status trixiessh
-sudo journalctl -u trixiessh -f`}
+sudo systemctl status ssh-console
+sudo journalctl -u ssh-console -f`}
           </pre>
           <p className="text-xs text-slate-500">
-            Port oder Bind-Adresse lassen sich jederzeit in <code className="font-mono">/etc/default/trixiessh</code> anpassen (danach <code className="font-mono">sudo systemctl restart trixiessh</code>). Deinstallation: <code className="font-mono">sudo apt remove trixiessh</code> (oder <code className="font-mono">purge</code> inkl. Datenbank).
+            Port oder Bind-Adresse lassen sich jederzeit in <code className="font-mono">/etc/default/ssh-console</code> anpassen (danach <code className="font-mono">sudo systemctl restart ssh-console</code>). Deinstallation: <code className="font-mono">sudo apt remove ssh-console</code> (oder <code className="font-mono">purge</code> inkl. Datenbank).
           </p>
         </div>
 
@@ -126,7 +126,7 @@ sudo journalctl -u trixiessh -f`}
             02. OpenSSH-Zertifikat oder Schlüsselpaar einrichten
           </h2>
           <p className="text-xs text-slate-600 leading-relaxed">
-            TrixieSSH unterstützt sowohl klassische 2-Dateien-SSH-Schlüsselpaare (<code className="font-mono">zertifikat</code> + <code className="font-mono">zertifikat.pub</code> via <code className="font-mono">authorized_keys</code>) als auch CA-signierte 3-Dateien-Zertifikate inkl. <code className="font-mono">zertifikat-cert.pub</code>.
+            SSH Console unterstützt sowohl klassische 2-Dateien-SSH-Schlüsselpaare (<code className="font-mono">zertifikat</code> + <code className="font-mono">zertifikat.pub</code> via <code className="font-mono">authorized_keys</code>) als auch CA-signierte 3-Dateien-Zertifikate inkl. <code className="font-mono">zertifikat-cert.pub</code>.
           </p>
           <pre className="p-3.5 rounded-md bg-[#0B1120] text-slate-200 font-mono text-xs overflow-x-auto leading-relaxed">
 {`# Variante A: Klassisches Schlüsselpaar (ohne cert.pub)
@@ -137,6 +137,33 @@ ssh-copy-id -i zertifikat.pub root@<ziel-ip>
 ssh-keygen -s ssh_user_ca -I "benutzer-01" -n root,deploy -V +90d zertifikat.pub
 # Auf Zielservern in /etc/ssh/sshd_config:
 TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub`}
+          </pre>
+        </div>
+      </section>
+
+      {/* GitHub Releases Publishing Guide */}
+      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-3">
+        <h2 className="font-display text-base font-semibold text-slate-900">
+          03. Auf GitHub Releases bereitstellen &amp; direkt auf dem Server installieren
+        </h2>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Der fertige GitHub-Actions-Workflow <code className="font-mono">.github/workflows/release-deb.yml</code> liegt bereits im Projekt. Nach dem Speichern/Pushen in dein GitHub-Repository baut ein Tag-Push (z. B. <code className="font-mono">v1.0.0</code>) automatisch sowohl ein vorkompiliertes <code className="font-mono">amd64</code>-Paket für Debian 13 als auch das universelle <code className="font-mono">all</code>-Paket und veröffentlicht beide direkt unter <strong>GitHub Releases</strong>.
+        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <pre className="p-3.5 rounded-md bg-[#0B1120] text-slate-200 font-mono text-xs overflow-x-auto leading-relaxed">
+{`# Option A: Automatisch per GitHub Actions (Tag pushen)
+git tag v1.0.0
+git push origin v1.0.0
+
+# Option B: Heruntergeladene .deb direkt als Release hochladen
+gh release create v1.0.0 ./ssh-console_1.0.0_all.deb \\
+  --title "SSH Console v1.0.0"`}
+          </pre>
+          <pre className="p-3.5 rounded-md bg-[#0B1120] text-slate-200 font-mono text-xs overflow-x-auto leading-relaxed">
+{`# Danach direkt auf deinem Debian-13-Server installieren:
+wget https://github.com/<DEIN-USER>/<DEIN-REPO>/releases/latest/download/ssh-console_1.0.0_amd64.deb
+sudo apt update
+sudo apt install ./ssh-console_1.0.0_amd64.deb`}
           </pre>
         </div>
       </section>

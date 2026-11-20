@@ -13,21 +13,21 @@ RUN cargo build --release
 FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssh-client iputils-ping ca-certificates \
+    openssh-client iputils-ping curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --home-dir /var/lib/trixiessh --shell /usr/sbin/nologin trixiessh \
-    && mkdir -p /var/lib/trixiessh /opt/trixiessh/dist \
-    && chown -R trixiessh:trixiessh /var/lib/trixiessh /opt/trixiessh \
-    && chmod 0700 /var/lib/trixiessh
+    && useradd --system --home-dir /var/lib/ssh-console --shell /usr/sbin/nologin ssh-console \
+    && mkdir -p /var/lib/ssh-console /opt/ssh-console/dist \
+    && chown -R ssh-console:ssh-console /var/lib/ssh-console /opt/ssh-console \
+    && chmod 0700 /var/lib/ssh-console
 
-COPY --from=builder /build/target/release/trixiessh /usr/local/bin/trixiessh
+COPY --from=builder /build/target/release/ssh-console /usr/local/bin/ssh-console
 
-USER trixiessh
-ENV TRIXIESSH_BIND=0.0.0.0:3000
-ENV TRIXIESSH_DATA_DIR=/var/lib/trixiessh
-ENV TRIXIESSH_STATIC_DIR=/opt/trixiessh/dist
+USER ssh-console
+ENV SSH_CONSOLE_BIND=0.0.0.0:3000
+ENV SSH_CONSOLE_DATA_DIR=/var/lib/ssh-console
+ENV SSH_CONSOLE_STATIC_DIR=/opt/ssh-console/dist
 
 EXPOSE 3000
-VOLUME ["/var/lib/trixiessh"]
+VOLUME ["/var/lib/ssh-console"]
 
-ENTRYPOINT ["/usr/local/bin/trixiessh"]
+ENTRYPOINT ["/usr/local/bin/ssh-console"]

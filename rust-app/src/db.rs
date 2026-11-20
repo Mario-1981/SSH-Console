@@ -166,14 +166,20 @@ impl Database {
 
     pub fn get_instance_name(&self) -> String {
         let Ok(conn) = self.conn.lock() else {
-            return "TrixieSSH".into();
+            return "SSH Console".into();
         };
-        conn.query_row(
-            "SELECT value FROM settings WHERE key = 'instance_name'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or_else(|_| "TrixieSSH".into())
+        let raw: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'instance_name'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "SSH Console".into());
+        if raw.trim().is_empty() || raw == "TrixieSSH" {
+            "SSH Console".into()
+        } else {
+            raw
+        }
     }
 
     pub fn get_initialized_at(&self) -> Option<String> {
@@ -190,7 +196,7 @@ impl Database {
 
     pub fn set_instance_name(&self, name: &str) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
-        let clean = if name.trim().is_empty() { "TrixieSSH" } else { name.trim() };
+        let clean = if name.trim().is_empty() { "SSH Console" } else { name.trim() };
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('instance_name', ?1)",
             params![clean],

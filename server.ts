@@ -248,7 +248,7 @@ async function startServer() {
         username,
         displayName: typeof displayName === 'string' ? displayName : username,
         password,
-        instanceName: typeof instanceName === 'string' ? instanceName : 'TrixieSSH',
+        instanceName: typeof instanceName === 'string' ? instanceName : 'SSH Console',
       });
       const session = store.createSession(admin.id);
       setSessionCookie(req, res, session.token);
@@ -974,7 +974,7 @@ async function startServer() {
     }
     const tarGz = buildRustProjectTarGz(RUST_APP_DIR);
     res.setHeader('Content-Type', 'application/gzip');
-    res.setHeader('Content-Disposition', 'attachment; filename="trixiessh-debian-trixie-rust.tar.gz"');
+    res.setHeader('Content-Disposition', 'attachment; filename="ssh-console-debian-trixie-rust.tar.gz"');
     res.send(tarGz);
   });
 
@@ -1012,7 +1012,7 @@ async function startServer() {
   pingMonitor.start();
   const PORT = 3000;
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`TrixieSSH server listening on http://0.0.0.0:${PORT}`);
+    console.log(`SSH Console server listening on http://0.0.0.0:${PORT}`);
   });
 }
 

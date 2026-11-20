@@ -73,7 +73,7 @@ export function AccountView({ user }: AccountViewProps) {
           Konto &amp; Passwort
         </h1>
         <p className="text-sm text-slate-600 mt-1">
-          Verwalten Sie Ihr persönliches Zugangspasswort für diese TrixieSSH-Instanz.
+          Verwalten Sie Ihr persönliches Zugangspasswort für diese SSH Console-Instanz.
         </p>
       </div>
 

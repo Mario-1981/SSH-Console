@@ -1,0 +1,32 @@
+[Unit]
+Description=SSH Console — Rust SSH Certificate Command Console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ssh-console
+Group=ssh-console
+WorkingDirectory=/opt/ssh-console
+ExecStart=/usr/local/bin/ssh-console
+Environment=SSH_CONSOLE_BIND=0.0.0.0:3000
+Environment=SSH_CONSOLE_DATA_DIR=/var/lib/ssh-console
+Environment=SSH_CONSOLE_STATIC_DIR=/opt/ssh-console/dist
+Environment=SSH_CONSOLE_SRC_DIR=/opt/ssh-console/rust-src
+Environment=RUST_LOG=info
+EnvironmentFile=-/etc/default/ssh-console
+Restart=on-failure
+RestartSec=3
+
+# Systemd Hardening (Debian Trixie)
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/ssh-console
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

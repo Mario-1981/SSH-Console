@@ -10,7 +10,7 @@ export interface BuiltDebPackage {
   buffer: Buffer;
 }
 
-const PACKAGE_NAME = 'trixiessh';
+const PACKAGE_NAME = 'ssh-console';
 const PACKAGE_VERSION = '1.0.0';
 const PACKAGE_ARCH = 'all';
 
@@ -71,7 +71,7 @@ export function buildDebianPackage(projectRoot: string, rustAppDir: string): Bui
   }
 
   const distDir = ensureFrontendDist(projectRoot);
-  const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'trixiessh-deb-'));
+  const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'ssh-console-deb-'));
   const stageDir = path.join(tmpBase, 'pkg');
   const fileName = `${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCH}.deb`;
   const outDebPath = path.join(tmpBase, fileName);
@@ -80,9 +80,9 @@ export function buildDebianPackage(projectRoot: string, rustAppDir: string): Bui
     const debianDir = path.join(stageDir, 'DEBIAN');
     const systemdDir = path.join(stageDir, 'etc', 'systemd', 'system');
     const defaultsDir = path.join(stageDir, 'etc', 'default');
-    const optDistDir = path.join(stageDir, 'opt', 'trixiessh', 'dist');
-    const optRustDir = path.join(stageDir, 'opt', 'trixiessh', 'rust-src');
-    const docDir = path.join(stageDir, 'usr', 'share', 'doc', 'trixiessh');
+    const optDistDir = path.join(stageDir, 'opt', 'ssh-console', 'dist');
+    const optRustDir = path.join(stageDir, 'opt', 'ssh-console', 'rust-src');
+    const docDir = path.join(stageDir, 'usr', 'share', 'doc', 'ssh-console');
 
     for (const dir of [debianDir, systemdDir, defaultsDir, optDistDir, optRustDir, docDir]) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
@@ -95,9 +95,9 @@ export function buildDebianPackage(projectRoot: string, rustAppDir: string): Bui
     copyDirRecursive(rustAppDir, optRustDir, new Set(['target', '.git', 'node_modules']));
 
     // 3. Systemd-Unit und Dokumentation
-    const serviceSrc = path.join(rustAppDir, 'debian', 'trixiessh.service');
-    fs.copyFileSync(serviceSrc, path.join(systemdDir, 'trixiessh.service'));
-    fs.chmodSync(path.join(systemdDir, 'trixiessh.service'), 0o644);
+    const serviceSrc = path.join(rustAppDir, 'debian', 'ssh-console.service');
+    fs.copyFileSync(serviceSrc, path.join(systemdDir, 'ssh-console.service'));
+    fs.chmodSync(path.join(systemdDir, 'ssh-console.service'), 0o644);
 
     const readmeSrc = path.join(rustAppDir, 'README.md');
     if (fs.existsSync(readmeSrc)) {
@@ -105,19 +105,19 @@ export function buildDebianPackage(projectRoot: string, rustAppDir: string): Bui
       fs.chmodSync(path.join(docDir, 'README.md'), 0o644);
     }
 
-    // 4. Editierbare Dienstkonfiguration (/etc/default/trixiessh)
-    const defaultsContent = `# TrixieSSH Dienstkonfiguration (/etc/default/trixiessh)
-# Nach Aenderungen Dienst neu starten: sudo systemctl restart trixiessh
-TRIXIESSH_BIND=0.0.0.0:3000
-TRIXIESSH_DATA_DIR=/var/lib/trixiessh
-TRIXIESSH_STATIC_DIR=/opt/trixiessh/dist
-TRIXIESSH_SRC_DIR=/opt/trixiessh/rust-src
+    // 4. Editierbare Dienstkonfiguration (/etc/default/ssh-console)
+    const defaultsContent = `# SSH Console Dienstkonfiguration (/etc/default/ssh-console)
+# Nach Aenderungen Dienst neu starten: sudo systemctl restart ssh-console
+SSH_CONSOLE_BIND=0.0.0.0:3000
+SSH_CONSOLE_DATA_DIR=/var/lib/ssh-console
+SSH_CONSOLE_STATIC_DIR=/opt/ssh-console/dist
+SSH_CONSOLE_SRC_DIR=/opt/ssh-console/rust-src
 RUST_LOG=info
 `;
-    fs.writeFileSync(path.join(defaultsDir, 'trixiessh'), defaultsContent, { mode: 0o644 });
+    fs.writeFileSync(path.join(defaultsDir, 'ssh-console'), defaultsContent, { mode: 0o644 });
 
     // 5. DEBIAN/conffiles
-    fs.writeFileSync(path.join(debianDir, 'conffiles'), '/etc/default/trixiessh\n', {
+    fs.writeFileSync(path.join(debianDir, 'conffiles'), '/etc/default/ssh-console\n', {
       mode: 0o644,
     });
 
@@ -126,39 +126,39 @@ RUST_LOG=info
 set -e
 
 if [ "$1" = "configure" ]; then
-  if ! id -u trixiessh >/dev/null 2>&1; then
-    adduser --system --group --home /var/lib/trixiessh --no-create-home --shell /usr/sbin/nologin trixiessh
+  if ! id -u ssh-console >/dev/null 2>&1; then
+    adduser --system --group --home /var/lib/ssh-console --no-create-home --shell /usr/sbin/nologin ssh-console
   fi
 
-  mkdir -p /var/lib/trixiessh /opt/trixiessh/dist
-  chown -R trixiessh:trixiessh /var/lib/trixiessh
-  chmod 0700 /var/lib/trixiessh
+  mkdir -p /var/lib/ssh-console /opt/ssh-console/dist
+  chown -R ssh-console:ssh-console /var/lib/ssh-console
+  chmod 0700 /var/lib/ssh-console
 
-  echo "TrixieSSH: Kompiliere natives Rust-Server-Binary fuer $(dpkg --print-architecture)..."
-  BUILD_TMP="$(mktemp -d /tmp/trixiessh-build.XXXXXX)"
+  echo "SSH Console: Kompiliere natives Rust-Server-Binary fuer $(dpkg --print-architecture)..."
+  BUILD_TMP="$(mktemp -d /tmp/ssh-console-build.XXXXXX)"
   trap 'rm -rf "$BUILD_TMP"' EXIT
   export CARGO_HOME="$BUILD_TMP/cargo-home"
   export CARGO_TARGET_DIR="$BUILD_TMP/target"
 
-  cargo build --release --manifest-path /opt/trixiessh/rust-src/Cargo.toml
-  install -m 0755 "$CARGO_TARGET_DIR/release/trixiessh" /usr/local/bin/trixiessh
+  cargo build --release --manifest-path /opt/ssh-console/rust-src/Cargo.toml
+  install -m 0755 "$CARGO_TARGET_DIR/release/ssh-console" /usr/local/bin/ssh-console
 
   rm -rf "$BUILD_TMP"
   trap - EXIT
 
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     systemctl daemon-reload
-    systemctl enable trixiessh.service >/dev/null 2>&1 || true
-    systemctl restart trixiessh.service || true
+    systemctl enable ssh-console.service >/dev/null 2>&1 || true
+    systemctl restart ssh-console.service || true
   fi
 
   echo ""
   echo "=============================================================="
-  echo " TrixieSSH ${PACKAGE_VERSION} erfolgreich installiert!"
+  echo " SSH Console ${PACKAGE_VERSION} erfolgreich installiert!"
   echo " Web-Oberflaeche: http://<Server-IP>:3000"
-  echo " Konfiguration:   /etc/default/trixiessh"
-  echo " Status pruefen:  sudo systemctl status trixiessh"
-  echo " Logs anzeigen:   sudo journalctl -u trixiessh -f"
+  echo " Konfiguration:   /etc/default/ssh-console"
+  echo " Status pruefen:  sudo systemctl status ssh-console"
+  echo " Logs anzeigen:   sudo journalctl -u ssh-console -f"
   echo "=============================================================="
 fi
 
@@ -172,8 +172,8 @@ set -e
 
 if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    systemctl stop trixiessh.service >/dev/null 2>&1 || true
-    systemctl disable trixiessh.service >/dev/null 2>&1 || true
+    systemctl stop ssh-console.service >/dev/null 2>&1 || true
+    systemctl disable ssh-console.service >/dev/null 2>&1 || true
   fi
 fi
 
@@ -190,18 +190,18 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
 fi
 
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-  rm -f /usr/local/bin/trixiessh
+  rm -f /usr/local/bin/ssh-console
 fi
 
 if [ "$1" = "purge" ]; then
-  rm -rf /var/lib/trixiessh
+  rm -rf /var/lib/ssh-console
 fi
 
 exit 0
 `;
     fs.writeFileSync(path.join(debianDir, 'postrm'), postrm, { mode: 0o755 });
 
-    // 9. DEBIAN/control (nachdem alle Nutzdaten kopiert wurden, fuer korrekte Installed-Size)
+    // 9. DEBIAN/control
     const installedSizeKb = directorySizeKb(stageDir);
     const control = `Package: ${PACKAGE_NAME}
 Version: ${PACKAGE_VERSION}
@@ -209,9 +209,9 @@ Section: admin
 Priority: optional
 Architecture: ${PACKAGE_ARCH}
 Installed-Size: ${installedSizeKb}
-Maintainer: TrixieSSH Maintainers <admin@localhost>
+Maintainer: SSH Console Maintainers <admin@localhost>
 Depends: openssh-client, iputils-ping, curl, ca-certificates, adduser, build-essential, pkg-config, libssl-dev, cargo, rustc
-Description: TrixieSSH - SSH-Befehls-, Zertifikats- & BMC-Webkonsole
+Description: SSH Console - SSH-Befehls-, Zertifikats- & BMC-Webkonsole
  Selbstgehostetes Webinterface fuer Debian 13 (Trixie) zur passwortlosen
  Ausfuehrung von SSH-Befehlen und Befehlsketten mit OpenSSH-Schluesselpaaren
  oder CA-signierten Benutzerzertifikaten, 60-Sekunden-Ping-Dashboard und

@@ -68,7 +68,7 @@ function buildTarHeader(fileName: string, size: number, mode: number): Buffer {
 }
 
 export function buildRustProjectTarGz(rustAppDir: string): Buffer {
-  const entries = collectEntries(rustAppDir, 'trixiessh-rust');
+  const entries = collectEntries(rustAppDir, 'ssh-console-rust');
   const chunks: Buffer[] = [];
 
   for (const entry of entries) {
