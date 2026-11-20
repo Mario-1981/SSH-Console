@@ -29,7 +29,8 @@ mkdir -p \
   "${STAGE_DIR}/opt/ssh-console/dist" \
   "${STAGE_DIR}/usr/share/doc/ssh-console"
 
-install -m 0755 "${RUST_ROOT}/target/release/ssh-console" "${STAGE_DIR}/usr/local/bin/ssh-console"
+TARGET_DIR="${CARGO_TARGET_DIR:-${RUST_ROOT}/target}"
+install -m 0755 "${TARGET_DIR}/release/ssh-console" "${STAGE_DIR}/usr/local/bin/ssh-console"
 install -m 0644 "${RUST_ROOT}/debian/ssh-console.service" "${STAGE_DIR}/etc/systemd/system/ssh-console.service"
 install -m 0644 "${RUST_ROOT}/README.md" "${STAGE_DIR}/usr/share/doc/ssh-console/README.md"
 

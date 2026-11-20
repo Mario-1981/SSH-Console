@@ -11,7 +11,7 @@ export interface BuiltDebPackage {
 }
 
 const PACKAGE_NAME = 'ssh-console';
-const PACKAGE_VERSION = '1.0.0';
+const PACKAGE_VERSION = (process.env.DEB_VERSION || '1.0.0').replace(/^v/, '').trim() || '1.0.0';
 const PACKAGE_ARCH = 'all';
 
 function copyDirRecursive(src: string, dest: string, skipNames: Set<string> = new Set()) {

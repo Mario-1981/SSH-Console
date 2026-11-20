@@ -10,6 +10,11 @@ on:
         description: 'Paketversion (z. B. 1.0.0)'
         required: false
         default: '1.0.0'
+      create_release:
+        description: 'Direkt als GitHub Release veroeffentlichen'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -35,21 +40,25 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Node.js einrichten & Web-Frontend bauen
+      - name: Node.js einrichten
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: 22
 
       - name: Frontend-Abhaengigkeiten installieren & kompilieren
         run: |
-          npm ci
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
           npm run build
 
       - name: Vorkompiliertes Debian-13-(Trixie)-Paket (amd64) bauen
         run: |
           docker run --rm \
             -e DEB_VERSION="${{ steps.meta.outputs.version }}" \
+            -e CARGO_TARGET_DIR="/tmp/cargo-target" \
             -v "${GITHUB_WORKSPACE}:/work" \
             -w /work/rust-app \
             debian:trixie \
@@ -65,6 +74,8 @@ jobs:
           cp rust-app/ssh-console_*_amd64.deb release-assets/
 
       - name: Universelles Debian-Paket (all) bauen
+        env:
+          DEB_VERSION: ${{ steps.meta.outputs.version }}
         run: |
           npx tsx -e "
             import { buildDebianPackage } from './server/debBuilder.ts';
@@ -81,7 +92,7 @@ jobs:
           path: release-assets/*.deb
 
       - name: GitHub Release erstellen & .deb-Pakete anhaengen
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.create_release == true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
