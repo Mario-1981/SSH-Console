@@ -47,6 +47,7 @@ export function ServersView({
   const [label, setLabel] = useState('');
   const [ipAddress, setIpAddress] = useState('');
   const [bmcIpAddress, setBmcIpAddress] = useState('');
+  const [bmcIpAddress2, setBmcIpAddress2] = useState('');
   const [port, setPort] = useState('22');
   const [sshUser, setSshUser] = useState(user.defaultSshUser || 'root');
   const [notes, setNotes] = useState('');
@@ -57,7 +58,7 @@ export function ServersView({
   const [saving, setSaving] = useState(false);
   const [togglingPingId, setTogglingPingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [checkingBmcId, setCheckingBmcId] = useState<string | null>(null);
+  const [checkingBmcKey, setCheckingBmcKey] = useState<string | null>(null);
   const [bmcResults, setBmcResults] = useState<Record<string, BmcCheckResult>>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -69,6 +70,7 @@ export function ServersView({
         s.label.toLowerCase().includes(q) ||
         s.ipAddress.toLowerCase().includes(q) ||
         (s.bmcIpAddress || '').toLowerCase().includes(q) ||
+        (s.bmcIpAddress2 || '').toLowerCase().includes(q) ||
         s.sshUser.toLowerCase().includes(q) ||
         s.notes.toLowerCase().includes(q)
     );
@@ -79,6 +81,7 @@ export function ServersView({
     setLabel('');
     setIpAddress('');
     setBmcIpAddress('');
+    setBmcIpAddress2('');
     setPort('22');
     setSshUser(user.defaultSshUser || 'root');
     setNotes('');
@@ -92,6 +95,7 @@ export function ServersView({
     setLabel(srv.label);
     setIpAddress(srv.ipAddress);
     setBmcIpAddress(srv.bmcIpAddress || '');
+    setBmcIpAddress2(srv.bmcIpAddress2 || '');
     setPort(String(srv.port));
     setSshUser(srv.sshUser);
     setNotes(srv.notes || '');
@@ -109,15 +113,17 @@ export function ServersView({
           label: label.trim() || ipAddress.trim(),
           ipAddress: ipAddress.trim(),
           bmcIpAddress: bmcIpAddress.trim(),
+          bmcIpAddress2: bmcIpAddress2.trim(),
           port: Number(port) || 22,
           sshUser: sshUser.trim() || 'root',
           notes: notes.trim(),
           pingEnabled,
         });
-        // Clear stale BMC check result when IP changed
+        // Clear stale BMC check results when IPs changed
         setBmcResults((prev) => {
           const next = { ...prev };
-          delete next[editingId];
+          delete next[`${editingId}:1`];
+          delete next[`${editingId}:2`];
           return next;
         });
       } else {
@@ -125,6 +131,7 @@ export function ServersView({
           label: label.trim() || ipAddress.trim(),
           ipAddress: ipAddress.trim(),
           bmcIpAddress: bmcIpAddress.trim(),
+          bmcIpAddress2: bmcIpAddress2.trim(),
           port: Number(port) || 22,
           sshUser: sshUser.trim() || 'root',
           notes: notes.trim(),
@@ -145,12 +152,13 @@ export function ServersView({
     }
   }
 
-  async function handleCheckBmc(serverId: string) {
-    setCheckingBmcId(serverId);
+  async function handleCheckBmc(serverId: string, slot: 1 | 2) {
+    const key = `${serverId}:${slot}`;
+    setCheckingBmcKey(key);
     setError(null);
     try {
-      const { result } = await api.checkServerBmc(serverId);
-      setBmcResults((prev) => ({ ...prev, [serverId]: result }));
+      const { result } = await api.checkServerBmc(serverId, slot);
+      setBmcResults((prev) => ({ ...prev, [key]: result }));
     } catch (err) {
       setError(
         err instanceof Error
@@ -158,7 +166,7 @@ export function ServersView({
           : tr('BMC HTTPS-Prüfung fehlgeschlagen.', 'BMC HTTPS check failed.')
       );
     } finally {
-      setCheckingBmcId(null);
+      setCheckingBmcKey(null);
     }
   }
 
@@ -206,12 +214,12 @@ export function ServersView({
         <p className="text-sm text-slate-600 mt-1">
           {isAdmin
             ? tr(
-                'Hinterlegen Sie Ziel-IPs und optionale BMC-Adressen (HTTPS Port 443). Einträge sind standardmäßig privat und können als Administrator mit anderen Benutzern geteilt werden.',
-                'Store target server IPs and optional BMC addresses (HTTPS port 443). Entries are private by default and can be shared with other users as an administrator.'
+                'Hinterlegen Sie Ziel-IPs und bis zu zwei optionale BMC-Adressen (HTTPS Port 443). Einträge sind standardmäßig privat und können als Administrator mit anderen Benutzern geteilt werden.',
+                'Store target server IPs and up to two optional BMC addresses (HTTPS port 443). Entries are private by default and can be shared with other users as an administrator.'
               )
             : tr(
-                'Hinterlegen Sie die IP-Adressen Ihrer Zielserver sowie optional eine zweite BMC-IP. Eigene Einträge sind nur für Sie sichtbar; vom Administrator geteilte Server stehen zusätzlich bereit.',
-                'Store your target server IP addresses and an optional secondary BMC IP. Your own entries are visible only to you; servers shared by an administrator are also available.'
+                'Hinterlegen Sie die IP-Adressen Ihrer Zielserver sowie optional bis zu zwei BMC-IPs. Eigene Einträge sind nur für Sie sichtbar; vom Administrator geteilte Server stehen zusätzlich bereit.',
+                'Store your target server IP addresses and up to two optional BMC IPs. Your own entries are visible only to you; servers shared by an administrator are also available.'
               )}
         </p>
       </div>
@@ -259,7 +267,7 @@ export function ServersView({
 
           <div className="lg:col-span-3">
             <label htmlFor="srv-bmc-ip" className="block text-xs font-medium text-slate-700 mb-1.5">
-              {tr('BMC-IP (optional · HTTPS :443)', 'BMC IP (optional · HTTPS :443)')}
+              {tr('BMC-IP 1 (optional · HTTPS :443)', 'BMC IP 1 (optional · HTTPS :443)')}
             </label>
             <input
               id="srv-bmc-ip"
@@ -271,6 +279,36 @@ export function ServersView({
             />
           </div>
 
+          <div className="lg:col-span-3">
+            <label htmlFor="srv-bmc-ip2" className="block text-xs font-medium text-slate-700 mb-1.5">
+              {tr('BMC-IP 2 (optional · HTTPS :443)', 'BMC IP 2 (optional · HTTPS :443)')}
+            </label>
+            <input
+              id="srv-bmc-ip2"
+              type="text"
+              value={bmcIpAddress2}
+              onChange={(e) => setBmcIpAddress2(e.target.value)}
+              placeholder="192.168.10.125"
+              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+          </div>
+
+          <div className="lg:col-span-3">
+            <label htmlFor="srv-label" className="block text-xs font-medium text-slate-700 mb-1.5">
+              {tr('Bezeichnung', 'Label')}
+            </label>
+            <input
+              id="srv-label"
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="web-trixie-01"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
           <div className="lg:col-span-2">
             <label htmlFor="srv-port" className="block text-xs font-medium text-slate-700 mb-1.5">
               {tr('SSH-Port', 'SSH Port')}
@@ -302,23 +340,7 @@ export function ServersView({
             />
           </div>
 
-          <div className="lg:col-span-2">
-            <label htmlFor="srv-label" className="block text-xs font-medium text-slate-700 mb-1.5">
-              {tr('Bezeichnung', 'Label')}
-            </label>
-            <input
-              id="srv-label"
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="web-trixie-01"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
-          <div className="lg:col-span-9">
+          <div className="sm:col-span-2 lg:col-span-5">
             <label htmlFor="srv-notes" className="block text-xs font-medium text-slate-700 mb-1.5">
               {tr('Notiz (optional)', 'Notes (optional)')}
             </label>
@@ -335,7 +357,7 @@ export function ServersView({
             />
           </div>
 
-          <div className="lg:col-span-3">
+          <div className="sm:col-span-2 lg:col-span-3">
             <button
               type="submit"
               disabled={saving}
@@ -449,8 +471,9 @@ export function ServersView({
                         `Geteilt von ${srv.ownerUsername || 'admin'}`,
                         `Shared by ${srv.ownerUsername || 'admin'}`
                       );
-                  const bmcRes = bmcResults[srv.id];
-                  const isCheckingBmc = checkingBmcId === srv.id;
+                  const bmcEntries: Array<{ slot: 1 | 2; ip: string }> = [];
+                  if (srv.bmcIpAddress) bmcEntries.push({ slot: 1, ip: srv.bmcIpAddress });
+                  if (srv.bmcIpAddress2) bmcEntries.push({ slot: 2, ip: srv.bmcIpAddress2 });
 
                   return (
                     <tr key={srv.id} className="hover:bg-slate-50/80 transition-colors">
@@ -464,71 +487,83 @@ export function ServersView({
                         </p>
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        {srv.bmcIpAddress ? (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-3">
-                              <a
-                                href={formatBmcUrl(srv.bmcIpAddress)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title={tr(
-                                  `${formatBmcUrl(srv.bmcIpAddress)} in neuem Tab öffnen`,
-                                  `Open ${formatBmcUrl(srv.bmcIpAddress)} in a new tab`
-                                )}
-                                className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline tabular-nums"
-                              >
-                                <span>{srv.bmcIpAddress}</span>
-                                <ExternalLink className="w-3 h-3 shrink-0" />
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() => handleCheckBmc(srv.id)}
-                                disabled={isCheckingBmc}
-                                title={tr(
-                                  'Erreichbarkeit über https:// Port 443 prüfen',
-                                  'Check reachability over https:// port 443'
-                                )}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded transition-colors cursor-pointer"
-                              >
-                                {isCheckingBmc ? (
-                                  <RefreshCw className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <ShieldCheck className="w-3 h-3" />
-                                )}
-                                <span>
-                                  {isCheckingBmc
-                                    ? tr('Prüft...', 'Checking...')
-                                    : tr('HTTPS :443 prüfen', 'Check HTTPS :443')}
-                                </span>
-                              </button>
-                            </div>
-                            {bmcRes && (
-                              <p
-                                className={`inline-flex items-center gap-1 text-[11px] font-mono tabular-nums ${
-                                  bmcRes.reachable ? 'text-emerald-700' : 'text-red-700'
-                                }`}
-                                title={bmcRes.error || `${bmcRes.url} (${bmcRes.tlsProtocol || 'TLS'})`}
-                              >
-                                {bmcRes.reachable ? (
-                                  <>
-                                    <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                    <span>
-                                      {tr('Erreichbar', 'Reachable')}
-                                      {bmcRes.httpStatus ? ` · HTTP ${bmcRes.httpStatus}` : ''}
-                                      {bmcRes.latencyMs !== null ? ` · ${bmcRes.latencyMs} ms` : ''}
+                        {bmcEntries.length > 0 ? (
+                          <div className="space-y-2">
+                            {bmcEntries.map(({ slot, ip }) => {
+                              const key = `${srv.id}:${slot}`;
+                              const bmcRes = bmcResults[key];
+                              const isCheckingBmc = checkingBmcKey === key;
+                              return (
+                                <div key={slot} className="space-y-1">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="text-[11px] font-mono text-slate-400">
+                                      BMC {slot}
                                     </span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <XCircle className="w-3 h-3 shrink-0" />
-                                    <span>
-                                      {bmcRes.error ||
-                                        tr('Port 443 nicht erreichbar', 'Port 443 unreachable')}
-                                    </span>
-                                  </>
-                                )}
-                              </p>
-                            )}
+                                    <a
+                                      href={formatBmcUrl(ip)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={tr(
+                                        `${formatBmcUrl(ip)} in neuem Tab öffnen`,
+                                        `Open ${formatBmcUrl(ip)} in a new tab`
+                                      )}
+                                      className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline tabular-nums"
+                                    >
+                                      <span>{ip}</span>
+                                      <ExternalLink className="w-3 h-3 shrink-0" />
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCheckBmc(srv.id, slot)}
+                                      disabled={isCheckingBmc}
+                                      title={tr(
+                                        `BMC ${slot} über https:// Port 443 prüfen`,
+                                        `Check BMC ${slot} over https:// port 443`
+                                      )}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded transition-colors cursor-pointer"
+                                    >
+                                      {isCheckingBmc ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <ShieldCheck className="w-3 h-3" />
+                                      )}
+                                      <span>
+                                        {isCheckingBmc
+                                          ? tr('Prüft...', 'Checking...')
+                                          : tr('HTTPS :443 prüfen', 'Check HTTPS :443')}
+                                      </span>
+                                    </button>
+                                  </div>
+                                  {bmcRes && (
+                                    <p
+                                      className={`inline-flex items-center gap-1 text-[11px] font-mono tabular-nums ${
+                                        bmcRes.reachable ? 'text-emerald-700' : 'text-red-700'
+                                      }`}
+                                      title={bmcRes.error || `${bmcRes.url} (${bmcRes.tlsProtocol || 'TLS'})`}
+                                    >
+                                      {bmcRes.reachable ? (
+                                        <>
+                                          <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                          <span>
+                                            {tr('Erreichbar', 'Reachable')}
+                                            {bmcRes.httpStatus ? ` · HTTP ${bmcRes.httpStatus}` : ''}
+                                            {bmcRes.latencyMs !== null ? ` · ${bmcRes.latencyMs} ms` : ''}
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <XCircle className="w-3 h-3 shrink-0" />
+                                          <span>
+                                            {bmcRes.error ||
+                                              tr('Port 443 nicht erreichbar', 'Port 443 unreachable')}
+                                          </span>
+                                        </>
+                                      )}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
                           <span className="text-xs text-slate-400">—</span>

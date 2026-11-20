@@ -795,7 +795,13 @@ async fn api_create_server(
     let ip = ssh::validate_ip(&req.ip_address).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
     let bmc_ip = match req.bmc_ip_address.as_deref().map(str::trim) {
         Some(v) if !v.is_empty() => {
-            ssh::validate_ip(v).map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("BMC-IP: {e}")))?
+            ssh::validate_ip(v).map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("BMC-IP 1: {e}")))?
+        }
+        _ => String::new(),
+    };
+    let bmc_ip2 = match req.bmc_ip_address2.as_deref().map(str::trim) {
+        Some(v) if !v.is_empty() => {
+            ssh::validate_ip(v).map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("BMC-IP 2: {e}")))?
         }
         _ => String::new(),
     };
@@ -821,6 +827,7 @@ async fn api_create_server(
             label.trim(),
             &ip,
             &bmc_ip,
+            &bmc_ip2,
             req.port.unwrap_or(22),
             &ssh_user,
             req.notes.as_deref().unwrap_or(""),
@@ -874,9 +881,16 @@ async fn api_update_server(
     let bmc_ip = match req.bmc_ip_address.as_deref().map(str::trim) {
         Some("") => String::new(),
         Some(v) => {
-            ssh::validate_ip(v).map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("BMC-IP: {e}")))?
+            ssh::validate_ip(v).map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("BMC-IP 1: {e}")))?
         }
         None => existing.bmc_ip_address,
+    };
+    let bmc_ip2 = match req.bmc_ip_address2.as_deref().map(str::trim) {
+        Some("") => String::new(),
+        Some(v) => {
+            ssh::validate_ip(v).map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("BMC-IP 2: {e}")))?
+        }
+        None => existing.bmc_ip_address2,
     };
     let ssh_user = match req.ssh_user.as_deref() {
         Some(v) => ssh::validate_ssh_user(v).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?,
@@ -905,6 +919,7 @@ async fn api_update_server(
             &label,
             &ip,
             &bmc_ip,
+            &bmc_ip2,
             port,
             &ssh_user,
             notes.trim(),
@@ -936,6 +951,7 @@ async fn api_check_bmc(
     jar: CookieJar,
     headers: HeaderMap,
     AxumPath(id): AxumPath<String>,
+    body: Option<Json<CheckBmcRequest>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_user(&state, &jar, &headers)?;
     let Some(server) = state
@@ -945,13 +961,30 @@ async fn api_check_bmc(
     else {
         return Err(err_resp(StatusCode::NOT_FOUND, "Server nicht gefunden."));
     };
-    if server.bmc_ip_address.trim().is_empty() {
+    let req_slot = body.and_then(|Json(b)| b.slot);
+    let slot: u8 = match req_slot {
+        Some(2) => 2,
+        Some(1) => 1,
+        _ => {
+            if !server.bmc_ip_address.trim().is_empty() {
+                1
+            } else {
+                2
+            }
+        }
+    };
+    let target_bmc = if slot == 2 {
+        server.bmc_ip_address2.trim()
+    } else {
+        server.bmc_ip_address.trim()
+    };
+    if target_bmc.is_empty() {
         return Err(err_resp(
             StatusCode::BAD_REQUEST,
-            "Für diesen Server ist keine BMC-IP hinterlegt.",
+            format!("Für diesen Server ist keine BMC-IP {slot} hinterlegt."),
         ));
     }
-    let result = ping::check_bmc_https(&server.id, &server.bmc_ip_address).await;
+    let result = ping::check_bmc_https(&server.id, slot, target_bmc).await;
     Ok(Json(json!({ "result": result })))
 }
 

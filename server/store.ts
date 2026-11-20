@@ -95,6 +95,7 @@ export interface UserServer {
   label: string;
   ipAddress: string;
   bmcIpAddress: string;
+  bmcIpAddress2: string;
   port: number;
   sshUser: string;
   notes: string;
@@ -289,6 +290,7 @@ class Store {
         ...s,
         ownerUsername: s.ownerUsername || idToUsername.get(s.userId) || '',
         bmcIpAddress: typeof s.bmcIpAddress === 'string' ? s.bmcIpAddress.trim() : '',
+        bmcIpAddress2: typeof s.bmcIpAddress2 === 'string' ? s.bmcIpAddress2.trim() : '',
         pingEnabled: typeof s.pingEnabled === 'boolean' ? s.pingEnabled : true,
         sharedWithAll: Boolean(s.sharedWithAll),
         sharedWithUserIds: Array.isArray(s.sharedWithUserIds) ? s.sharedWithUserIds : [],
@@ -859,6 +861,7 @@ class Store {
     label: string;
     ipAddress: string;
     bmcIpAddress?: string;
+    bmcIpAddress2?: string;
     port: number;
     sshUser: string;
     notes: string;
@@ -877,6 +880,7 @@ class Store {
       label: params.label.trim() || params.ipAddress.trim(),
       ipAddress: params.ipAddress.trim(),
       bmcIpAddress: (params.bmcIpAddress ?? '').trim(),
+      bmcIpAddress2: (params.bmcIpAddress2 ?? '').trim(),
       port: Math.min(65535, Math.max(1, Number(params.port) || 22)),
       sshUser: params.sshUser.trim() || 'root',
       notes: params.notes.trim(),
@@ -897,6 +901,7 @@ class Store {
       label?: string;
       ipAddress?: string;
       bmcIpAddress?: string;
+      bmcIpAddress2?: string;
       port?: number;
       sshUser?: string;
       notes?: string;
@@ -911,6 +916,7 @@ class Store {
     if (patch.ipAddress !== undefined) srv.ipAddress = patch.ipAddress.trim();
     if (patch.label !== undefined) srv.label = patch.label.trim() || srv.ipAddress;
     if (patch.bmcIpAddress !== undefined) srv.bmcIpAddress = patch.bmcIpAddress.trim();
+    if (patch.bmcIpAddress2 !== undefined) srv.bmcIpAddress2 = patch.bmcIpAddress2.trim();
     if (patch.port !== undefined) {
       srv.port = Math.min(65535, Math.max(1, Number(patch.port) || 22));
     }

@@ -68,6 +68,7 @@ pub struct UserServer {
     pub label: String,
     pub ip_address: String,
     pub bmc_ip_address: String,
+    pub bmc_ip_address2: String,
     pub port: u16,
     pub ssh_user: String,
     pub notes: String,
@@ -81,6 +82,7 @@ pub struct UserServer {
 #[serde(rename_all = "camelCase")]
 pub struct BmcCheckResult {
     pub server_id: String,
+    pub slot: u8,
     pub bmc_ip_address: String,
     pub url: String,
     pub port: u16,
@@ -326,6 +328,8 @@ pub struct CreateServerRequest {
     pub ip_address: String,
     #[serde(alias = "bmc_ip_address")]
     pub bmc_ip_address: Option<String>,
+    #[serde(alias = "bmc_ip_address2", alias = "bmc_ip_address_2")]
+    pub bmc_ip_address2: Option<String>,
     pub port: Option<u16>,
     #[serde(alias = "ssh_user")]
     pub ssh_user: Option<String>,
@@ -346,12 +350,21 @@ pub struct UpdateServerRequest {
     pub ip_address: Option<String>,
     #[serde(alias = "bmc_ip_address")]
     pub bmc_ip_address: Option<String>,
+    #[serde(alias = "bmc_ip_address2", alias = "bmc_ip_address_2")]
+    pub bmc_ip_address2: Option<String>,
     pub port: Option<u16>,
     #[serde(alias = "ssh_user")]
     pub ssh_user: Option<String>,
     pub notes: Option<String>,
     #[serde(alias = "ping_enabled")]
     pub ping_enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckBmcRequest {
+    #[serde(alias = "bmcSlot", alias = "bmc_slot")]
+    pub slot: Option<u8>,
 }
 
 #[derive(Debug, Deserialize)]

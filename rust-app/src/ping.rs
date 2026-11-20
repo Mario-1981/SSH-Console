@@ -132,7 +132,7 @@ fn parse_ping_ms(output: &str) -> Option<u64> {
 }
 
 /// Prüft die HTTPS-Erreichbarkeit einer BMC-IP auf Port 443 (inkl. selbstsignierter Zertifikate).
-pub async fn check_bmc_https(server_id: &str, bmc_ip: &str) -> BmcCheckResult {
+pub async fn check_bmc_https(server_id: &str, slot: u8, bmc_ip: &str) -> BmcCheckResult {
     let clean_ip = bmc_ip.trim();
     let checked_at = Utc::now().to_rfc3339();
     let is_ipv6 = clean_ip
@@ -168,6 +168,7 @@ pub async fn check_bmc_https(server_id: &str, bmc_ip: &str) -> BmcCheckResult {
             if out.status.success() || code.is_some() {
                 return BmcCheckResult {
                     server_id: server_id.to_string(),
+                    slot,
                     bmc_ip_address: clean_ip.to_string(),
                     url,
                     port: 443,
@@ -182,6 +183,7 @@ pub async fn check_bmc_https(server_id: &str, bmc_ip: &str) -> BmcCheckResult {
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
             return BmcCheckResult {
                 server_id: server_id.to_string(),
+                slot,
                 bmc_ip_address: clean_ip.to_string(),
                 url,
                 port: 443,
@@ -209,6 +211,7 @@ pub async fn check_bmc_https(server_id: &str, bmc_ip: &str) -> BmcCheckResult {
     match timeout(Duration::from_secs(4), TcpStream::connect(&target)).await {
         Ok(Ok(_)) => BmcCheckResult {
             server_id: server_id.to_string(),
+            slot,
             bmc_ip_address: clean_ip.to_string(),
             url,
             port: 443,
@@ -221,6 +224,7 @@ pub async fn check_bmc_https(server_id: &str, bmc_ip: &str) -> BmcCheckResult {
         },
         Ok(Err(e)) => BmcCheckResult {
             server_id: server_id.to_string(),
+            slot,
             bmc_ip_address: clean_ip.to_string(),
             url,
             port: 443,
@@ -233,6 +237,7 @@ pub async fn check_bmc_https(server_id: &str, bmc_ip: &str) -> BmcCheckResult {
         },
         Err(_) => BmcCheckResult {
             server_id: server_id.to_string(),
+            slot,
             bmc_ip_address: clean_ip.to_string(),
             url,
             port: 443,

@@ -587,6 +587,7 @@ async function startServer() {
       label,
       ipAddress,
       bmcIpAddress,
+      bmcIpAddress2,
       port,
       sshUser,
       notes,
@@ -600,7 +601,12 @@ async function startServer() {
     }
     const cleanBmcIp = typeof bmcIpAddress === 'string' ? bmcIpAddress.trim() : '';
     if (cleanBmcIp && !validateTargetIp(cleanBmcIp)) {
-      res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für die BMC-IP an (oder lassen Sie das Feld leer).' });
+      res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 1 an (oder lassen Sie das Feld leer).' });
+      return;
+    }
+    const cleanBmcIp2 = typeof bmcIpAddress2 === 'string' ? bmcIpAddress2.trim() : '';
+    if (cleanBmcIp2 && !validateTargetIp(cleanBmcIp2)) {
+      res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 2 an (oder lassen Sie das Feld leer).' });
       return;
     }
     const cleanSshUser = typeof sshUser === 'string' && sshUser.trim() ? sshUser.trim() : req.user!.defaultSshUser;
@@ -615,6 +621,7 @@ async function startServer() {
       label: typeof label === 'string' ? label : ipAddress,
       ipAddress: ipAddress.trim(),
       bmcIpAddress: cleanBmcIp,
+      bmcIpAddress2: cleanBmcIp2,
       port: Number(port) || 22,
       sshUser: cleanSshUser,
       notes: typeof notes === 'string' ? notes : '',
@@ -630,19 +637,30 @@ async function startServer() {
   });
 
   app.patch('/api/servers/:id', requireAuth, (req: AuthedRequest, res) => {
-    const { label, ipAddress, bmcIpAddress, port, sshUser, notes, pingEnabled } = req.body ?? {};
+    const { label, ipAddress, bmcIpAddress, bmcIpAddress2, port, sshUser, notes, pingEnabled } = req.body ?? {};
     if (ipAddress !== undefined && (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress))) {
       res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
       return;
     }
     if (bmcIpAddress !== undefined) {
       if (typeof bmcIpAddress !== 'string') {
-        res.status(400).json({ error: 'Ungültige BMC-IP-Adresse.' });
+        res.status(400).json({ error: 'Ungültige BMC-IP-Adresse 1.' });
         return;
       }
       const trimmedBmc = bmcIpAddress.trim();
       if (trimmedBmc && !validateTargetIp(trimmedBmc)) {
-        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für die BMC-IP an (oder lassen Sie das Feld leer).' });
+        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 1 an (oder lassen Sie das Feld leer).' });
+        return;
+      }
+    }
+    if (bmcIpAddress2 !== undefined) {
+      if (typeof bmcIpAddress2 !== 'string') {
+        res.status(400).json({ error: 'Ungültige BMC-IP-Adresse 2.' });
+        return;
+      }
+      const trimmedBmc2 = bmcIpAddress2.trim();
+      if (trimmedBmc2 && !validateTargetIp(trimmedBmc2)) {
+        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 2 an (oder lassen Sie das Feld leer).' });
         return;
       }
     }
@@ -655,6 +673,7 @@ async function startServer() {
         label: typeof label === 'string' ? label : undefined,
         ipAddress: typeof ipAddress === 'string' ? ipAddress : undefined,
         bmcIpAddress: typeof bmcIpAddress === 'string' ? bmcIpAddress : undefined,
+        bmcIpAddress2: typeof bmcIpAddress2 === 'string' ? bmcIpAddress2 : undefined,
         port: port !== undefined ? Number(port) : undefined,
         sshUser: typeof sshUser === 'string' ? sshUser : undefined,
         notes: typeof notes === 'string' ? notes : undefined,
@@ -679,14 +698,25 @@ async function startServer() {
       res.status(404).json({ error: 'Server nicht gefunden.' });
       return;
     }
-    if (!server.bmcIpAddress) {
-      res.status(400).json({ error: 'Für diesen Server ist keine BMC-IP hinterlegt.' });
+    const requestedSlot = Number(req.body?.slot ?? req.body?.bmcSlot);
+    let slot: 1 | 2;
+    if (requestedSlot === 2) {
+      slot = 2;
+    } else if (requestedSlot === 1) {
+      slot = 1;
+    } else {
+      slot = server.bmcIpAddress ? 1 : 2;
+    }
+    const targetBmcIp = slot === 2 ? server.bmcIpAddress2 : server.bmcIpAddress;
+    if (!targetBmcIp) {
+      res.status(400).json({ error: `Für diesen Server ist keine BMC-IP ${slot} hinterlegt.` });
       return;
     }
-    const result = await checkBmcHttps(server.bmcIpAddress);
+    const result = await checkBmcHttps(targetBmcIp);
     res.json({
       result: {
         serverId: server.id,
+        slot,
         ...result,
       },
     });

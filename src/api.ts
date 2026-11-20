@@ -249,6 +249,7 @@ export const api = {
     label: string;
     ipAddress: string;
     bmcIpAddress?: string;
+    bmcIpAddress2?: string;
     port: number;
     sshUser: string;
     notes: string;
@@ -267,6 +268,7 @@ export const api = {
       label?: string;
       ipAddress?: string;
       bmcIpAddress?: string;
+      bmcIpAddress2?: string;
       port?: number;
       sshUser?: string;
       notes?: string;
@@ -278,9 +280,10 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  checkServerBmc: (id: string) =>
+  checkServerBmc: (id: string, slot: 1 | 2 = 1) =>
     request<{ result: BmcCheckResult }>(`/api/servers/${encodeURIComponent(id)}/check-bmc`, {
       method: 'POST',
+      body: JSON.stringify({ slot }),
     }),
 
   shareServer: (id: string, payload: { sharedWithAll: boolean; sharedWithUserIds: string[] }) =>

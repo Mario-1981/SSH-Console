@@ -89,7 +89,8 @@ export function DashboardView({
   const [runningBatch, setRunningBatch] = useState(false);
   const [batchResults, setBatchResults] = useState<ExecutionLog[]>([]);
   const [expandedInvocations, setExpandedInvocations] = useState<Record<string, boolean>>({});
-  const [checkingBmcId, setCheckingBmcId] = useState<string | null>(null);
+  const [selectedBmcSlots, setSelectedBmcSlots] = useState<Record<string, 1 | 2>>({});
+  const [checkingBmcKey, setCheckingBmcKey] = useState<string | null>(null);
   const [bmcResults, setBmcResults] = useState<Record<string, BmcCheckResult>>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -196,6 +197,7 @@ export function DashboardView({
         srv.label.toLowerCase().includes(q) ||
         srv.ipAddress.toLowerCase().includes(q) ||
         (srv.bmcIpAddress || '').toLowerCase().includes(q) ||
+        (srv.bmcIpAddress2 || '').toLowerCase().includes(q) ||
         srv.sshUser.toLowerCase().includes(q) ||
         srv.notes.toLowerCase().includes(q)
       );
@@ -321,12 +323,13 @@ export function DashboardView({
     }
   }
 
-  async function handleCheckBmc(serverId: string) {
+  async function handleCheckBmc(serverId: string, slot: 1 | 2) {
+    const key = `${serverId}:${slot}`;
     setError(null);
-    setCheckingBmcId(serverId);
+    setCheckingBmcKey(key);
     try {
-      const { result } = await api.checkServerBmc(serverId);
-      setBmcResults((prev) => ({ ...prev, [serverId]: result }));
+      const { result } = await api.checkServerBmc(serverId, slot);
+      setBmcResults((prev) => ({ ...prev, [key]: result }));
     } catch (err) {
       setError(
         err instanceof Error
@@ -334,7 +337,7 @@ export function DashboardView({
           : tr('BMC HTTPS-Prüfung fehlgeschlagen.', 'BMC HTTPS check failed.')
       );
     } finally {
-      setCheckingBmcId(null);
+      setCheckingBmcKey(null);
     }
   }
 
@@ -870,8 +873,25 @@ export function DashboardView({
                   const isChecked = selectedIds.includes(srv.id);
                   const assignedCmdId = rowCommandOverrides[srv.id] ?? '';
                   const isRowPinging = pingingServerId === srv.id || pingingAll;
-                  const bmcRes = bmcResults[srv.id];
-                  const isCheckingBmc = checkingBmcId === srv.id;
+                  const hasBmc1 = Boolean(srv.bmcIpAddress);
+                  const hasBmc2 = Boolean(srv.bmcIpAddress2);
+                  const activeBmcSlot: 1 | 2 | null =
+                    hasBmc1 && hasBmc2
+                      ? selectedBmcSlots[srv.id] ?? 1
+                      : hasBmc1
+                      ? 1
+                      : hasBmc2
+                      ? 2
+                      : null;
+                  const activeBmcIp =
+                    activeBmcSlot === 2
+                      ? srv.bmcIpAddress2
+                      : activeBmcSlot === 1
+                      ? srv.bmcIpAddress
+                      : '';
+                  const bmcKey = activeBmcSlot ? `${srv.id}:${activeBmcSlot}` : '';
+                  const bmcRes = bmcKey ? bmcResults[bmcKey] : undefined;
+                  const isCheckingBmc = Boolean(bmcKey && checkingBmcKey === bmcKey);
                   return (
                     <tr
                       key={srv.id}
@@ -906,29 +926,70 @@ export function DashboardView({
                         </p>
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        {srv.bmcIpAddress ? (
+                        {activeBmcSlot && activeBmcIp ? (
                           <div className="space-y-1">
-                            <div className="flex items-center gap-2.5">
-                              <a
-                                href={formatBmcUrl(srv.bmcIpAddress)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title={tr(
-                                  `${formatBmcUrl(srv.bmcIpAddress)} in neuem Tab öffnen`,
-                                  `Open ${formatBmcUrl(srv.bmcIpAddress)} in a new tab`
-                                )}
-                                className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline tabular-nums"
-                              >
-                                <span>{srv.bmcIpAddress}</span>
-                                <ExternalLink className="w-3 h-3 shrink-0" />
-                              </a>
+                            <div className="flex items-center gap-2">
+                              {hasBmc1 && hasBmc2 ? (
+                                <select
+                                  value={activeBmcSlot}
+                                  onChange={(e) =>
+                                    setSelectedBmcSlots((prev) => ({
+                                      ...prev,
+                                      [srv.id]: Number(e.target.value) === 2 ? 2 : 1,
+                                    }))
+                                  }
+                                  aria-label={tr(
+                                    `BMC-IP für ${srv.label} auswählen`,
+                                    `Select BMC IP for ${srv.label}`
+                                  )}
+                                  className="px-2 py-1 text-xs font-mono tabular-nums bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                >
+                                  <option value={1}>BMC 1 · {srv.bmcIpAddress}</option>
+                                  <option value={2}>BMC 2 · {srv.bmcIpAddress2}</option>
+                                </select>
+                              ) : (
+                                <a
+                                  href={formatBmcUrl(activeBmcIp)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={tr(
+                                    `${formatBmcUrl(activeBmcIp)} in neuem Tab öffnen`,
+                                    `Open ${formatBmcUrl(activeBmcIp)} in a new tab`
+                                  )}
+                                  className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline tabular-nums"
+                                >
+                                  {activeBmcSlot === 2 && (
+                                    <span className="text-[11px] font-normal text-slate-400">
+                                      BMC 2 ·
+                                    </span>
+                                  )}
+                                  <span>{activeBmcIp}</span>
+                                  <ExternalLink className="w-3 h-3 shrink-0" />
+                                </a>
+                              )}
+
+                              {hasBmc1 && hasBmc2 && (
+                                <a
+                                  href={formatBmcUrl(activeBmcIp)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={tr(
+                                    `BMC ${activeBmcSlot} (${formatBmcUrl(activeBmcIp)}) in neuem Tab öffnen`,
+                                    `Open BMC ${activeBmcSlot} (${formatBmcUrl(activeBmcIp)}) in a new tab`
+                                  )}
+                                  className="inline-flex items-center justify-center p-1 text-blue-700 hover:text-blue-900 hover:bg-blue-50 rounded transition-colors"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                                </a>
+                              )}
+
                               <button
                                 type="button"
-                                onClick={() => handleCheckBmc(srv.id)}
+                                onClick={() => handleCheckBmc(srv.id, activeBmcSlot)}
                                 disabled={isCheckingBmc}
                                 title={tr(
-                                  'BMC über https:// Port 443 prüfen',
-                                  'Check BMC over https:// port 443'
+                                  `BMC ${activeBmcSlot} (${activeBmcIp}) über https:// Port 443 prüfen`,
+                                  `Check BMC ${activeBmcSlot} (${activeBmcIp}) over https:// port 443`
                                 )}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded transition-colors cursor-pointer"
                               >
@@ -955,6 +1016,7 @@ export function DashboardView({
                                   <>
                                     <CheckCircle2 className="w-3 h-3 shrink-0" />
                                     <span>
+                                      {hasBmc1 && hasBmc2 ? `BMC ${activeBmcSlot} · ` : ''}
                                       HTTPS OK
                                       {bmcRes.httpStatus ? ` · ${bmcRes.httpStatus}` : ''}
                                       {bmcRes.latencyMs !== null ? ` · ${bmcRes.latencyMs} ms` : ''}
@@ -963,7 +1025,10 @@ export function DashboardView({
                                 ) : (
                                   <>
                                     <XCircle className="w-3 h-3 shrink-0" />
-                                    <span>{bmcRes.error || tr('Nicht erreichbar', 'Unreachable')}</span>
+                                    <span>
+                                      {hasBmc1 && hasBmc2 ? `BMC ${activeBmcSlot} · ` : ''}
+                                      {bmcRes.error || tr('Nicht erreichbar', 'Unreachable')}
+                                    </span>
                                   </>
                                 )}
                               </p>

@@ -81,6 +81,7 @@ impl Database {
                 label TEXT NOT NULL,
                 ip_address TEXT NOT NULL,
                 bmc_ip_address TEXT NOT NULL DEFAULT '',
+                bmc_ip_address2 TEXT NOT NULL DEFAULT '',
                 port INTEGER NOT NULL DEFAULT 22,
                 ssh_user TEXT NOT NULL DEFAULT 'root',
                 notes TEXT NOT NULL DEFAULT '',
@@ -136,6 +137,10 @@ impl Database {
         // Migrationen für bestehende Datenbanken
         let _ = conn.execute(
             "ALTER TABLE user_servers ADD COLUMN bmc_ip_address TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE user_servers ADD COLUMN bmc_ip_address2 TEXT NOT NULL DEFAULT ''",
             [],
         );
         let _ = conn.execute(
@@ -932,13 +937,13 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, port, ssh_user, notes, ping_enabled, shared_with_all, shared_with_user_ids, created_at
+                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, shared_with_all, shared_with_user_ids, created_at
                  FROM user_servers ORDER BY label ASC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
-                let shared_json: String = r.get(11)?;
+                let shared_json: String = r.get(12)?;
                 let shared_with_user_ids: Vec<String> =
                     serde_json::from_str(&shared_json).unwrap_or_default();
                 Ok(UserServer {
@@ -948,13 +953,14 @@ impl Database {
                     label: r.get(3)?,
                     ip_address: r.get(4)?,
                     bmc_ip_address: r.get(5)?,
-                    port: r.get::<_, i64>(6)? as u16,
-                    ssh_user: r.get(7)?,
-                    notes: r.get(8)?,
-                    ping_enabled: r.get::<_, i64>(9)? == 1,
-                    shared_with_all: r.get::<_, i64>(10)? == 1,
+                    bmc_ip_address2: r.get(6)?,
+                    port: r.get::<_, i64>(7)? as u16,
+                    ssh_user: r.get(8)?,
+                    notes: r.get(9)?,
+                    ping_enabled: r.get::<_, i64>(10)? == 1,
+                    shared_with_all: r.get::<_, i64>(11)? == 1,
                     shared_with_user_ids,
-                    created_at: r.get(12)?,
+                    created_at: r.get(13)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -986,6 +992,7 @@ impl Database {
         label: &str,
         ip: &str,
         bmc_ip: &str,
+        bmc_ip2: &str,
         port: u16,
         ssh_user: &str,
         notes: &str,
@@ -1003,8 +1010,8 @@ impl Database {
         };
         let shared_json = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
         conn.execute(
-            "INSERT INTO user_servers (id, user_id, owner_username, label, ip_address, bmc_ip_address, port, ssh_user, notes, ping_enabled, shared_with_all, shared_with_user_ids, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO user_servers (id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, shared_with_all, shared_with_user_ids, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 id,
                 user_id,
@@ -1012,6 +1019,7 @@ impl Database {
                 label,
                 ip,
                 bmc_ip,
+                bmc_ip2,
                 port as i64,
                 ssh_user,
                 notes,
@@ -1029,6 +1037,7 @@ impl Database {
             label: label.to_string(),
             ip_address: ip.to_string(),
             bmc_ip_address: bmc_ip.to_string(),
+            bmc_ip_address2: bmc_ip2.to_string(),
             port,
             ssh_user: ssh_user.to_string(),
             notes: notes.to_string(),
@@ -1047,6 +1056,7 @@ impl Database {
         label: &str,
         ip: &str,
         bmc_ip: &str,
+        bmc_ip2: &str,
         port: u16,
         ssh_user: &str,
         notes: &str,
@@ -1057,12 +1067,13 @@ impl Database {
             let changed = conn
                 .execute(
                     "UPDATE user_servers
-                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, port = ?4, ssh_user = ?5, notes = ?6, ping_enabled = ?7
-                     WHERE id = ?8 AND user_id = ?9",
+                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, bmc_ip_address2 = ?4, port = ?5, ssh_user = ?6, notes = ?7, ping_enabled = ?8
+                     WHERE id = ?9 AND user_id = ?10",
                     params![
                         label,
                         ip,
                         bmc_ip,
+                        bmc_ip2,
                         port as i64,
                         ssh_user,
                         notes,

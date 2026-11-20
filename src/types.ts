@@ -67,6 +67,7 @@ export interface UserServer {
   label: string;
   ipAddress: string;
   bmcIpAddress: string;
+  bmcIpAddress2: string;
   port: number;
   sshUser: string;
   notes: string;
@@ -78,6 +79,7 @@ export interface UserServer {
 
 export interface BmcCheckResult {
   serverId: string;
+  slot?: 1 | 2;
   bmcIpAddress: string;
   url: string;
   port: number;
