@@ -12,6 +12,8 @@ import {
   XCircle,
   Pencil,
   X,
+  Activity,
+  Ban,
 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
@@ -22,6 +24,7 @@ interface ServersViewProps {
   user: User;
   users: User[];
   servers: UserServer[];
+  globalPingAllowed?: boolean;
   onRefresh: () => Promise<void>;
 }
 
@@ -31,7 +34,13 @@ function formatBmcUrl(ipAddress: string): string {
   return `https://${host}`;
 }
 
-export function ServersView({ user, users, servers, onRefresh }: ServersViewProps) {
+export function ServersView({
+  user,
+  users,
+  servers,
+  globalPingAllowed = true,
+  onRefresh,
+}: ServersViewProps) {
   const { locale, tr } = useI18n();
   const isAdmin = user.role === 'admin';
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -41,10 +50,12 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
   const [port, setPort] = useState('22');
   const [sshUser, setSshUser] = useState(user.defaultSshUser || 'root');
   const [notes, setNotes] = useState('');
+  const [pingEnabled, setPingEnabled] = useState(true);
   const [shareOnCreate, setShareOnCreate] = useState(false);
   const [sharingServer, setSharingServer] = useState<UserServer | null>(null);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
+  const [togglingPingId, setTogglingPingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [checkingBmcId, setCheckingBmcId] = useState<string | null>(null);
   const [bmcResults, setBmcResults] = useState<Record<string, BmcCheckResult>>({});
@@ -71,6 +82,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
     setPort('22');
     setSshUser(user.defaultSshUser || 'root');
     setNotes('');
+    setPingEnabled(true);
     setShareOnCreate(false);
   }
 
@@ -83,6 +95,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
     setPort(String(srv.port));
     setSshUser(srv.sshUser);
     setNotes(srv.notes || '');
+    setPingEnabled(srv.pingEnabled !== false);
     setShareOnCreate(false);
   }
 
@@ -99,6 +112,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
           port: Number(port) || 22,
           sshUser: sshUser.trim() || 'root',
           notes: notes.trim(),
+          pingEnabled,
         });
         // Clear stale BMC check result when IP changed
         setBmcResults((prev) => {
@@ -114,6 +128,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
           port: Number(port) || 22,
           sshUser: sshUser.trim() || 'root',
           notes: notes.trim(),
+          pingEnabled,
           ...(isAdmin && shareOnCreate ? { sharedWithAll: true, sharedWithUserIds: [] } : {}),
         });
       }
@@ -144,6 +159,23 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
       );
     } finally {
       setCheckingBmcId(null);
+    }
+  }
+
+  async function handleTogglePing(srv: UserServer) {
+    setTogglingPingId(srv.id);
+    setError(null);
+    try {
+      await api.updateServer(srv.id, { pingEnabled: srv.pingEnabled === false });
+      await onRefresh();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Ping-Einstellung konnte nicht geändert werden.', 'Could not update ping setting.')
+      );
+    } finally {
+      setTogglingPingId(null);
     }
   }
 
@@ -319,22 +351,44 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
           </div>
         </div>
 
-        {isAdmin && !editingId && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-1">
           <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
             <input
               type="checkbox"
-              checked={shareOnCreate}
-              onChange={(e) => setShareOnCreate(e.target.checked)}
+              checked={pingEnabled}
+              onChange={(e) => setPingEnabled(e.target.checked)}
               className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
             />
             <span>
               {tr(
-                'Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)',
-                'Share immediately with all users (otherwise visible only to me)'
+                'Diese IP automatisch anpingen (Erreichbarkeitsprüfung)',
+                'Auto-ping this IP (reachability check)'
+              )}
+              {!globalPingAllowed && (
+                <span className="text-amber-700 ml-1.5">
+                  ({tr('aktuell vom Admin global deaktiviert', 'currently disabled globally by admin')})
+                </span>
               )}
             </span>
           </label>
-        )}
+
+          {isAdmin && !editingId && (
+            <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={shareOnCreate}
+                onChange={(e) => setShareOnCreate(e.target.checked)}
+                className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              />
+              <span>
+                {tr(
+                  'Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)',
+                  'Share immediately with all users (otherwise visible only to me)'
+                )}
+              </span>
+            </label>
+          )}
+        </div>
       </form>
 
       {/* Server Table */}
@@ -380,6 +434,7 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                   <th className="py-2.5 px-6">{tr('Bezeichnung', 'Label')}</th>
                   <th className="py-2.5 px-4">{tr('Server-IP · SSH', 'Server IP · SSH')}</th>
                   <th className="py-2.5 px-4">BMC (HTTPS :443)</th>
+                  <th className="py-2.5 px-4">Ping</th>
                   <th className="py-2.5 px-4">{tr('Sichtbarkeit', 'Visibility')}</th>
                   <th className="py-2.5 px-4">{tr('Notiz', 'Notes')}</th>
                   <th className="py-2.5 px-6 text-right">{tr('Aktionen', 'Actions')}</th>
@@ -477,6 +532,55 @@ export function ServersView({ user, users, servers, onRefresh }: ServersViewProp
                           </div>
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-xs whitespace-nowrap">
+                        {isOwner ? (
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePing(srv)}
+                            disabled={togglingPingId === srv.id}
+                            title={
+                              srv.pingEnabled !== false
+                                ? tr('Anpingen für diese IP deaktivieren', 'Disable pinging for this IP')
+                                : tr('Anpingen für diese IP aktivieren', 'Enable pinging for this IP')
+                            }
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
+                              srv.pingEnabled !== false
+                                ? 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+                                : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
+                            }`}
+                          >
+                            {srv.pingEnabled !== false ? (
+                              <>
+                                <Activity className="w-3 h-3 shrink-0" />
+                                <span>{tr('Aktiv', 'On')}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Ban className="w-3 h-3 shrink-0" />
+                                <span>{tr('Aus', 'Off')}</span>
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1 font-medium ${
+                              srv.pingEnabled !== false ? 'text-emerald-700' : 'text-slate-500'
+                            }`}
+                          >
+                            {srv.pingEnabled !== false ? (
+                              <>
+                                <Activity className="w-3 h-3 shrink-0" />
+                                {tr('Aktiv', 'On')}
+                              </>
+                            ) : (
+                              <>
+                                <Ban className="w-3 h-3 shrink-0" />
+                                {tr('Aus', 'Off')}
+                              </>
+                            )}
+                          </span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-xs whitespace-nowrap">

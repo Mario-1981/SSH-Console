@@ -12,6 +12,7 @@ export interface StoredUser {
   role: UserRole;
   defaultSshUser: string;
   active: boolean;
+  pingEnabled: boolean;
   passwordSalt: string;
   passwordHash: string;
   createdAt: string;
@@ -97,6 +98,7 @@ export interface UserServer {
   port: number;
   sshUser: string;
   notes: string;
+  pingEnabled: boolean;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   createdAt: string;
@@ -150,6 +152,8 @@ export interface ExecutionLog {
 export interface AppSettings {
   instanceName: string;
   initializedAt: string | null;
+  pingAllowed: boolean;
+  pingIntervalSec: number;
 }
 
 interface DatabaseSchema {
@@ -236,6 +240,8 @@ function emptyDb(): DatabaseSchema {
     settings: {
       instanceName: 'SSH Console',
       initializedAt: null,
+      pingAllowed: true,
+      pingIntervalSec: 60,
     },
     users: [],
     sessions: [],
@@ -261,7 +267,10 @@ class Store {
     }
     try {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) as DatabaseSchema;
-      const users = parsed.users ?? [];
+      const users: StoredUser[] = (parsed.users ?? []).map((u) => ({
+        ...u,
+        pingEnabled: typeof u.pingEnabled === 'boolean' ? u.pingEnabled : true,
+      }));
       const usernameToId = new Map(users.map((u) => [u.username.toLowerCase(), u.id]));
       const idToUsername = new Map(users.map((u) => [u.id, u.username]));
       const fallbackAdminId = users.find((u) => u.role === 'admin')?.id ?? '';
@@ -280,6 +289,7 @@ class Store {
         ...s,
         ownerUsername: s.ownerUsername || idToUsername.get(s.userId) || '',
         bmcIpAddress: typeof s.bmcIpAddress === 'string' ? s.bmcIpAddress.trim() : '',
+        pingEnabled: typeof s.pingEnabled === 'boolean' ? s.pingEnabled : true,
         sharedWithAll: Boolean(s.sharedWithAll),
         sharedWithUserIds: Array.isArray(s.sharedWithUserIds) ? s.sharedWithUserIds : [],
       }));
@@ -300,6 +310,7 @@ class Store {
         sharedWithUserIds: Array.isArray(cert.sharedWithUserIds) ? cert.sharedWithUserIds : [],
       }));
 
+      const rawInterval = Number(parsed.settings?.pingIntervalSec);
       const migratedSettings: AppSettings = {
         ...emptyDb().settings,
         ...(parsed.settings ?? {}),
@@ -307,11 +318,17 @@ class Store {
           !parsed.settings?.instanceName || parsed.settings.instanceName === 'TrixieSSH'
             ? 'SSH Console'
             : parsed.settings.instanceName,
+        pingAllowed:
+          typeof parsed.settings?.pingAllowed === 'boolean' ? parsed.settings.pingAllowed : true,
+        pingIntervalSec: Number.isFinite(rawInterval)
+          ? Math.min(3600, Math.max(10, Math.round(rawInterval)))
+          : 60,
       };
 
       return {
         ...emptyDb(),
         ...parsed,
+        users,
         settings: migratedSettings,
         apiKeys: Array.isArray(parsed.apiKeys) ? parsed.apiKeys : [],
         commands: migratedCommands,
@@ -338,6 +355,47 @@ class Store {
     return this.db.settings;
   }
 
+  updateGlobalPingSettings(patch: {
+    pingAllowed?: boolean;
+    pingIntervalSec?: number;
+  }): AppSettings {
+    if (patch.pingAllowed !== undefined) {
+      this.db.settings.pingAllowed = Boolean(patch.pingAllowed);
+    }
+    if (patch.pingIntervalSec !== undefined) {
+      const n = Math.round(Number(patch.pingIntervalSec));
+      if (!Number.isFinite(n) || n < 10 || n > 3600) {
+        throw new Error('Ping-Intervall muss zwischen 10 und 3600 Sekunden liegen.');
+      }
+      this.db.settings.pingIntervalSec = n;
+    }
+    this.save();
+    return this.db.settings;
+  }
+
+  setUserPingEnabled(userId: string, pingEnabled: boolean): StoredUser {
+    const user = this.db.users.find((u) => u.id === userId);
+    if (!user) throw new Error('Benutzer nicht gefunden.');
+    user.pingEnabled = Boolean(pingEnabled);
+    this.save();
+    return user;
+  }
+
+  shouldPingServer(server: UserServer): boolean {
+    if (!this.db.settings.pingAllowed) return false;
+    if (server.pingEnabled === false) return false;
+    const owner = this.db.users.find((u) => u.id === server.userId && u.active);
+    if (owner && owner.pingEnabled !== false) return true;
+    if (server.sharedWithAll) {
+      return this.db.users.some((u) => u.active && u.pingEnabled !== false);
+    }
+    if (server.sharedWithUserIds.length > 0) {
+      const sharedSet = new Set(server.sharedWithUserIds);
+      return this.db.users.some((u) => u.active && sharedSet.has(u.id) && u.pingEnabled !== false);
+    }
+    return false;
+  }
+
   setupInitialAdmin(params: {
     username: string;
     displayName: string;
@@ -356,6 +414,7 @@ class Store {
       role: 'admin',
       defaultSshUser: 'root',
       active: true,
+      pingEnabled: true,
       passwordSalt: salt,
       passwordHash: hash,
       createdAt: now,
@@ -364,6 +423,8 @@ class Store {
     this.db.settings = {
       instanceName: params.instanceName.trim() || 'SSH Console',
       initializedAt: now,
+      pingAllowed: true,
+      pingIntervalSec: 60,
     };
     this.db.users.push(admin);
     this.save();
@@ -405,6 +466,7 @@ class Store {
       role: params.role,
       defaultSshUser: params.defaultSshUser.trim() || 'root',
       active: true,
+      pingEnabled: true,
       passwordSalt: salt,
       passwordHash: hash,
       createdAt: new Date().toISOString(),
@@ -800,6 +862,7 @@ class Store {
     port: number;
     sshUser: string;
     notes: string;
+    pingEnabled?: boolean;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
   }): UserServer {
@@ -817,6 +880,7 @@ class Store {
       port: Math.min(65535, Math.max(1, Number(params.port) || 22)),
       sshUser: params.sshUser.trim() || 'root',
       notes: params.notes.trim(),
+      pingEnabled: params.pingEnabled !== undefined ? Boolean(params.pingEnabled) : true,
       sharedWithAll,
       sharedWithUserIds,
       createdAt: new Date().toISOString(),
@@ -836,6 +900,7 @@ class Store {
       port?: number;
       sshUser?: string;
       notes?: string;
+      pingEnabled?: boolean;
     }
   ): UserServer {
     const srv = this.db.servers.find((s) => s.id === id);
@@ -851,6 +916,7 @@ class Store {
     }
     if (patch.sshUser !== undefined) srv.sshUser = patch.sshUser.trim() || 'root';
     if (patch.notes !== undefined) srv.notes = patch.notes.trim();
+    if (patch.pingEnabled !== undefined) srv.pingEnabled = Boolean(patch.pingEnabled);
     this.save();
     return srv;
   }

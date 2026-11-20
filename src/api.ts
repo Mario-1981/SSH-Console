@@ -252,6 +252,7 @@ export const api = {
     port: number;
     sshUser: string;
     notes: string;
+    pingEnabled?: boolean;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
   }) =>
@@ -269,6 +270,7 @@ export const api = {
       port?: number;
       sshUser?: string;
       notes?: string;
+      pingEnabled?: boolean;
     }
   ) =>
     request<{ server: UserServer }>(`/api/servers/${encodeURIComponent(id)}`, {
@@ -365,6 +367,18 @@ export const api = {
     request<DashboardPingResponse>('/api/dashboard/ping', {
       method: 'POST',
       body: JSON.stringify(serverId ? { serverId } : {}),
+    }),
+
+  updateUserPingSettings: (pingEnabled: boolean) =>
+    request<{ user: User; dashboardStatus: DashboardPingResponse }>('/api/dashboard/ping-settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ pingEnabled }),
+    }),
+
+  updateAdminPingSettings: (payload: { pingAllowed?: boolean; pingIntervalSec?: number }) =>
+    request<{ settings: AppSettings; dashboardStatus: DashboardPingResponse }>('/api/admin/ping-settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     }),
 
   listLogs: () => request<{ logs: ExecutionLog[] }>('/api/logs'),

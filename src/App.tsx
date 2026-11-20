@@ -31,6 +31,8 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>({
     instanceName: 'SSH Console',
     initializedAt: null,
+    pingAllowed: true,
+    pingIntervalSec: 60,
   });
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -196,10 +198,17 @@ export default function App() {
             {activeTab === 'dashboard' && (
               <DashboardView
                 currentUser={user}
+                settings={settings}
                 servers={servers}
                 commands={commands}
                 certificates={certificates}
                 onNavigate={setActiveTab}
+                onRefreshServers={async () => {
+                  const res = await api.listServers();
+                  setServers(res.servers);
+                }}
+                onUpdateUser={setUser}
+                onUpdateSettings={setSettings}
                 onExecutionComplete={async () => {
                   const res = await api.listLogs();
                   setLogs(res.logs);
@@ -227,6 +236,7 @@ export default function App() {
                 user={user}
                 users={users}
                 servers={servers}
+                globalPingAllowed={settings.pingAllowed}
                 onRefresh={async () => {
                   const res = await api.listServers();
                   setServers(res.servers);

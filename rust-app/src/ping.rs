@@ -13,7 +13,7 @@ use tokio::time::timeout;
 pub struct PingState {
     pub statuses: HashMap<String, ServerPingStatus>,
     pub last_cycle_at: Option<String>,
-    pub next_cycle_at: String,
+    pub next_cycle_at: Option<String>,
 }
 
 pub type SharedPingState = Arc<RwLock<PingState>>;

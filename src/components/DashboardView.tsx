@@ -15,11 +15,15 @@ import {
   CheckSquare,
   ExternalLink,
   ShieldCheck,
+  Ban,
+  Activity,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { api } from '../api';
 import { translateCategory, useI18n } from '../i18n';
 import type {
   ActiveTab,
+  AppSettings,
   BmcCheckResult,
   DashboardPingResponse,
   ExecutionLog,
@@ -31,10 +35,14 @@ import type {
 
 interface DashboardViewProps {
   currentUser: User;
+  settings: AppSettings;
   servers: UserServer[];
   commands: SshCommand[];
   certificates: UserCertificate[];
   onNavigate: (tab: ActiveTab) => void;
+  onRefreshServers: () => Promise<void>;
+  onUpdateUser: (user: User) => void;
+  onUpdateSettings: (settings: AppSettings) => void;
   onExecutionComplete: () => Promise<void>;
 }
 
@@ -46,19 +54,29 @@ function formatBmcUrl(ipAddress: string): string {
 
 export function DashboardView({
   currentUser,
+  settings,
   servers,
   commands,
   certificates,
   onNavigate,
+  onRefreshServers,
+  onUpdateUser,
+  onUpdateSettings,
   onExecutionComplete,
 }: DashboardViewProps) {
   const { locale, tr, formatClockTime } = useI18n();
+  const isAdmin = currentUser.role === 'admin';
   const activeCommands = useMemo(() => commands.filter((c) => c.enabled), [commands]);
 
   const [pingData, setPingData] = useState<DashboardPingResponse | null>(null);
   const [pingingAll, setPingingAll] = useState(false);
   const [pingingServerId, setPingingServerId] = useState<string | null>(null);
-  const [secondsToNext, setSecondsToNext] = useState<number>(60);
+  const [togglingServerPingId, setTogglingServerPingId] = useState<string | null>(null);
+  const [savingUserPing, setSavingUserPing] = useState(false);
+  const [savingAdminPing, setSavingAdminPing] = useState(false);
+  const [intervalInput, setIntervalInput] = useState<string>(String(settings.pingIntervalSec || 60));
+  const [intervalSavedNotice, setIntervalSavedNotice] = useState(false);
+  const [secondsToNext, setSecondsToNext] = useState<number>(settings.pingIntervalSec || 60);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [quickCommandId, setQuickCommandId] = useState<string>('');
@@ -75,6 +93,15 @@ export function DashboardView({
   const [bmcResults, setBmcResults] = useState<Record<string, BmcCheckResult>>({});
   const [error, setError] = useState<string | null>(null);
 
+  const globalPingAllowed = pingData?.globalPingAllowed ?? settings.pingAllowed ?? true;
+  const userPingEnabled = pingData?.userPingEnabled ?? currentUser.pingEnabled ?? true;
+  const intervalSec = pingData?.intervalSec ?? settings.pingIntervalSec ?? 60;
+  const effectivePingActive = globalPingAllowed && userPingEnabled;
+
+  useEffect(() => {
+    setIntervalInput(String(intervalSec));
+  }, [intervalSec]);
+
   const fetchPingStatus = useCallback(async () => {
     try {
       const data = await api.getDashboardStatus();
@@ -84,7 +111,7 @@ export function DashboardView({
     }
   }, []);
 
-  // Poll backend status every 15s (server runs actual ping cycle every 60s)
+  // Poll backend status every 15s (server runs actual ping cycle based on configured interval)
   useEffect(() => {
     void fetchPingStatus();
     const poll = setInterval(() => {
@@ -95,16 +122,20 @@ export function DashboardView({
 
   // Live 1-second countdown synced to backend nextCycleAt
   useEffect(() => {
-    const tick = setInterval(() => {
-      if (!pingData?.nextCycleAt) return;
-      const diff = Math.max(0, Math.ceil((Date.parse(pingData.nextCycleAt) - Date.now()) / 1000));
+    if (!effectivePingActive || !pingData?.nextCycleAt) {
+      return;
+    }
+    const updateCountdown = () => {
+      const diff = Math.max(0, Math.ceil((Date.parse(pingData.nextCycleAt!) - Date.now()) / 1000));
       setSecondsToNext(diff);
       if (diff === 0) {
         void fetchPingStatus();
       }
-    }, 1000);
+    };
+    updateCountdown();
+    const tick = setInterval(updateCountdown, 1000);
     return () => clearInterval(tick);
-  }, [pingData?.nextCycleAt, fetchPingStatus]);
+  }, [effectivePingActive, pingData?.nextCycleAt, fetchPingStatus]);
 
   useEffect(() => {
     if (activeCommands.length === 0) {
@@ -130,23 +161,34 @@ export function DashboardView({
 
   const statuses = pingData?.statuses ?? {};
 
+  const anyPingableServer = useMemo(
+    () => servers.some((s) => s.pingEnabled !== false),
+    [servers]
+  );
+
   const counts = useMemo(() => {
     let online = 0;
     let offline = 0;
     let pending = 0;
+    let disabled = 0;
     for (const srv of servers) {
+      if (!effectivePingActive || srv.pingEnabled === false) {
+        disabled++;
+        continue;
+      }
       const st = statuses[srv.id];
       if (!st) pending++;
       else if (st.online) online++;
       else offline++;
     }
-    return { total: servers.length, online, offline, pending };
-  }, [servers, statuses]);
+    return { total: servers.length, online, offline, pending, disabled };
+  }, [servers, statuses, effectivePingActive]);
 
   const filteredServers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return servers.filter((srv) => {
-      const st = statuses[srv.id];
+      const pingOn = effectivePingActive && srv.pingEnabled !== false;
+      const st = pingOn ? statuses[srv.id] : undefined;
       if (statusFilter === 'online' && !st?.online) return false;
       if (statusFilter === 'offline' && (!st || st.online)) return false;
       if (!q) return true;
@@ -158,7 +200,7 @@ export function DashboardView({
         srv.notes.toLowerCase().includes(q)
       );
     });
-  }, [servers, statuses, statusFilter, search]);
+  }, [servers, statuses, statusFilter, search, effectivePingActive]);
 
   async function handleManualPingAll() {
     setError(null);
@@ -187,6 +229,95 @@ export function DashboardView({
       );
     } finally {
       setPingingServerId(null);
+    }
+  }
+
+  async function handleToggleUserPing() {
+    if (!globalPingAllowed) return;
+    setError(null);
+    setSavingUserPing(true);
+    try {
+      const res = await api.updateUserPingSettings(!userPingEnabled);
+      onUpdateUser(res.user);
+      setPingData(res.dashboardStatus);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Ping-Einstellung konnte nicht gespeichert werden.', 'Could not save ping setting.')
+      );
+    } finally {
+      setSavingUserPing(false);
+    }
+  }
+
+  async function handleToggleGlobalPing() {
+    setError(null);
+    setSavingAdminPing(true);
+    try {
+      const res = await api.updateAdminPingSettings({ pingAllowed: !globalPingAllowed });
+      onUpdateSettings(res.settings);
+      setPingData(res.dashboardStatus);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr(
+              'Globale Ping-Einstellung konnte nicht geändert werden.',
+              'Could not update global ping setting.'
+            )
+      );
+    } finally {
+      setSavingAdminPing(false);
+    }
+  }
+
+  async function handleSaveInterval(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const parsed = Math.round(Number(intervalInput));
+    if (!Number.isFinite(parsed) || parsed < 10 || parsed > 3600) {
+      setError(
+        tr(
+          'Das Ping-Intervall muss zwischen 10 und 3600 Sekunden liegen.',
+          'Ping interval must be between 10 and 3600 seconds.'
+        )
+      );
+      return;
+    }
+    setSavingAdminPing(true);
+    try {
+      const res = await api.updateAdminPingSettings({ pingIntervalSec: parsed });
+      onUpdateSettings(res.settings);
+      setPingData(res.dashboardStatus);
+      setIntervalSavedNotice(true);
+      setTimeout(() => setIntervalSavedNotice(false), 2500);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Ping-Intervall konnte nicht gespeichert werden.', 'Could not save ping interval.')
+      );
+    } finally {
+      setSavingAdminPing(false);
+    }
+  }
+
+  async function handleToggleServerPing(srv: UserServer) {
+    setError(null);
+    setTogglingServerPingId(srv.id);
+    try {
+      await api.updateServer(srv.id, { pingEnabled: srv.pingEnabled === false });
+      await onRefreshServers();
+      await fetchPingStatus();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('IP-Ping-Status konnte nicht geändert werden.', 'Could not update IP ping setting.')
+      );
+    } finally {
+      setTogglingServerPingId(null);
     }
   }
 
@@ -219,7 +350,9 @@ export function DashboardView({
   }
 
   function selectOnlineOnly() {
-    const ids = servers.filter((s) => statuses[s.id]?.online).map((s) => s.id);
+    const ids = servers
+      .filter((s) => effectivePingActive && s.pingEnabled !== false && statuses[s.id]?.online)
+      .map((s) => s.id);
     setSelectedIds(ids);
   }
 
@@ -309,17 +442,36 @@ export function DashboardView({
             {tr('Server-Dashboard', 'Server Dashboard')}
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            {tr(
-              'Erreichbarkeit aller Ziel-IPs im 60-Sekunden-Ping-Takt sowie direkte Befehls-Schnellauswahl und Sammelausführung.',
-              'Reachability of all target IPs on a 60-second ping cycle, plus quick command assignment and parallel batch execution.'
-            )}
+            {!globalPingAllowed
+              ? tr(
+                  'Anpingen ist durch den Administrator global untersagt. Direkte Befehls-Schnellauswahl und Sammelausführung bleiben vollständig nutzbar.',
+                  'Pinging is globally disabled by the administrator. Quick command assignment and parallel batch execution remain fully available.'
+                )
+              : !userPingEnabled
+              ? tr(
+                  'Anpingen ist für Ihr Konto deaktiviert. Direkte Befehls-Schnellauswahl und Sammelausführung bleiben vollständig nutzbar.',
+                  'Pinging is disabled for your account. Quick command assignment and parallel batch execution remain fully available.'
+                )
+              : tr(
+                  `Erreichbarkeit aller aktiven Ziel-IPs im ${intervalSec}-Sekunden-Ping-Takt sowie direkte Befehls-Schnellauswahl und Sammelausführung.`,
+                  `Reachability of active target IPs on a ${intervalSec}-second ping cycle, plus quick command assignment and parallel batch execution.`
+                )}
           </p>
         </div>
 
         <button
           type="button"
           onClick={handleManualPingAll}
-          disabled={pingingAll || servers.length === 0}
+          disabled={pingingAll || servers.length === 0 || !effectivePingActive || !anyPingableServer}
+          title={
+            !globalPingAllowed
+              ? tr('Vom Administrator global deaktiviert', 'Globally disabled by administrator')
+              : !userPingEnabled
+              ? tr('Anpingen ist für Ihr Konto deaktiviert', 'Pinging is disabled for your account')
+              : !anyPingableServer
+              ? tr('Keine IP hat Ping aktiviert', 'No IP has ping enabled')
+              : undefined
+          }
           className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${pingingAll ? 'animate-spin' : ''}`} />
@@ -338,10 +490,15 @@ export function DashboardView({
       {/* Single-elevation KPI Strip */}
       <section className="bg-white border border-slate-200 rounded-lg grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
         <div className="p-5">
-          <p className="text-xs text-slate-500">{tr('Überwachte IPs', 'Monitored IPs')}</p>
+          <p className="text-xs text-slate-500">{tr('Server-IPs gesamt', 'Total Server IPs')}</p>
           <p className="mt-1 font-display text-2xl font-bold text-slate-900 tabular-nums">
             {counts.total}
           </p>
+          {counts.disabled > 0 && (
+            <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+              {tr(`${counts.disabled} ohne Ping`, `${counts.disabled} ping off`)}
+            </p>
+          )}
         </div>
         <div className="p-5">
           <p className="text-xs text-slate-500">Online</p>
@@ -356,14 +513,126 @@ export function DashboardView({
           </p>
         </div>
         <div className="p-5">
-          <p className="text-xs text-slate-500">{tr('Auto-Ping (60s-Takt)', 'Auto-Ping (60s cycle)')}</p>
-          <p className="mt-1 font-mono text-sm font-semibold text-slate-900 tabular-nums">
-            {tr(`Nächster in ${secondsToNext}s`, `Next in ${secondsToNext}s`)}
+          <p className="text-xs text-slate-500">
+            {tr(`Auto-Ping (${intervalSec}s-Takt)`, `Auto-Ping (${intervalSec}s cycle)`)}
           </p>
-          <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
-            {tr('Letzter Lauf', 'Last run')}: {formatClockTime(pingData?.lastCycleAt)}
-          </p>
+          {!globalPingAllowed ? (
+            <>
+              <p className="mt-1 font-mono text-sm font-semibold text-amber-800">
+                {tr('Global verboten (Admin)', 'Globally disabled (Admin)')}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {tr('Keine Ping-Prüfungen aktiv', 'No ping checks active')}
+              </p>
+            </>
+          ) : !userPingEnabled ? (
+            <>
+              <p className="mt-1 font-mono text-sm font-semibold text-slate-700">
+                {tr('Komplett deaktiviert', 'Completely disabled')}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {tr('Für Ihr Konto pausiert', 'Paused for your account')}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 font-mono text-sm font-semibold text-slate-900 tabular-nums">
+                {tr(`Nächster in ${secondsToNext}s`, `Next in ${secondsToNext}s`)}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+                {tr('Letzter Lauf', 'Last run')}: {formatClockTime(pingData?.lastCycleAt)}
+              </p>
+            </>
+          )}
         </div>
+      </section>
+
+      {/* Ping Controls Bar (User + Admin) */}
+      <section className="bg-white border border-slate-200 rounded-lg px-5 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+            <span>{tr('Ping-Steuerung', 'Ping Controls')}</span>
+          </div>
+          <span aria-hidden="true" className="hidden sm:inline text-slate-300">|</span>
+          <label
+            className={`inline-flex items-center gap-2 text-xs ${
+              globalPingAllowed ? 'text-slate-700 cursor-pointer' : 'text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={userPingEnabled}
+              disabled={!globalPingAllowed || savingUserPing}
+              onChange={handleToggleUserPing}
+              className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-50"
+            />
+            <span>
+              {tr('Automatisches Anpingen für mein Konto aktivieren', 'Enable pinging for my account')}
+            </span>
+          </label>
+          {!globalPingAllowed && (
+            <span className="text-xs text-amber-800 font-medium">
+              ({tr('Durch Admin global untersagt', 'Globally forbidden by admin')})
+            </span>
+          )}
+        </div>
+
+        {isAdmin && (
+          <div className="flex flex-wrap items-center gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-200">
+            <button
+              type="button"
+              onClick={handleToggleGlobalPing}
+              disabled={savingAdminPing}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap ${
+                globalPingAllowed
+                  ? 'text-red-700 bg-red-50 border-red-200 hover:bg-red-100'
+                  : 'text-emerald-800 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+              }`}
+            >
+              {globalPingAllowed ? (
+                <>
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>{tr('Ping global verbieten', 'Forbid ping globally')}</span>
+                </>
+              ) : (
+                <>
+                  <Activity className="w-3.5 h-3.5" />
+                  <span>{tr('Ping global erlauben', 'Allow ping globally')}</span>
+                </>
+              )}
+            </button>
+
+            <form onSubmit={handleSaveInterval} className="inline-flex items-center gap-2">
+              <label htmlFor="admin-ping-interval" className="text-xs text-slate-600 whitespace-nowrap">
+                {tr('Intervall (Sek.):', 'Interval (sec):')}
+              </label>
+              <input
+                id="admin-ping-interval"
+                type="number"
+                min={10}
+                max={3600}
+                step={5}
+                value={intervalInput}
+                onChange={(e) => setIntervalInput(e.target.value)}
+                disabled={savingAdminPing}
+                className="w-20 px-2.5 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <button
+                type="submit"
+                disabled={savingAdminPing}
+                className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              >
+                {tr('Speichern', 'Save')}
+              </button>
+              {intervalSavedNotice && (
+                <span className="text-xs text-emerald-700 font-medium whitespace-nowrap">
+                  {tr('Gespeichert', 'Saved')}
+                </span>
+              )}
+            </form>
+          </div>
+        )}
       </section>
 
       {/* Quick Command & Multi-IP Dispatch Bar */}
@@ -558,8 +827,8 @@ export function DashboardView({
             </h3>
             <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
               {tr(
-                'Fügen Sie Ihre Ziel-IPs unter „Meine Server (IPs)“ hinzu, um den 60-Sekunden-Ping-Status und die Sammelausführung zu nutzen.',
-                'Add your target IPs under "My Servers (IPs)" to enable 60-second ping monitoring and batch execution.'
+                `Fügen Sie Ihre Ziel-IPs unter „Meine Server (IPs)“ hinzu, um den ${intervalSec}-Sekunden-Ping-Status und die Sammelausführung zu nutzen.`,
+                `Add your target IPs under "My Servers (IPs)" to enable ${intervalSec}-second ping monitoring and batch execution.`
               )}
             </p>
             <button
@@ -705,7 +974,22 @@ export function DashboardView({
                         )}
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        {!st ? (
+                        {!globalPingAllowed ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-amber-800">
+                            <Ban className="w-3.5 h-3.5" />
+                            {tr('Global verboten', 'Globally off')}
+                          </span>
+                        ) : !userPingEnabled ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                            <Ban className="w-3.5 h-3.5" />
+                            {tr('Deaktiviert', 'Disabled')}
+                          </span>
+                        ) : srv.pingEnabled === false ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                            <Ban className="w-3.5 h-3.5" />
+                            {tr('IP-Ping aus', 'IP ping off')}
+                          </span>
+                        ) : !st ? (
                           <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                             <Clock className="w-3.5 h-3.5" />
                             {tr('Ausstehend', 'Pending')}
@@ -757,16 +1041,57 @@ export function DashboardView({
                         </select>
                       </td>
                       <td className="py-3 pl-4 pr-6 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => handleManualPingOne(srv.id)}
-                          disabled={isRowPinging}
-                          title={tr('Diese IP sofort pingen', 'Ping this IP now')}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-blue-700 disabled:opacity-40 cursor-pointer"
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 ${isRowPinging ? 'animate-spin' : ''}`} />
-                          {tr('Prüfen', 'Check')}
-                        </button>
+                        <div className="inline-flex items-center gap-3">
+                          {srv.userId === currentUser.id && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleServerPing(srv)}
+                              disabled={togglingServerPingId === srv.id}
+                              title={
+                                srv.pingEnabled !== false
+                                  ? tr('Anpingen für diese IP deaktivieren', 'Disable pinging for this IP')
+                                  : tr('Anpingen für diese IP aktivieren', 'Enable pinging for this IP')
+                              }
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded transition-colors cursor-pointer disabled:opacity-40 ${
+                                srv.pingEnabled !== false
+                                  ? 'text-slate-600 bg-slate-100 hover:bg-slate-200'
+                                  : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+                              }`}
+                            >
+                              {srv.pingEnabled !== false ? (
+                                <>
+                                  <Ban className="w-3 h-3" />
+                                  <span>{tr('Aus', 'Off')}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Activity className="w-3 h-3" />
+                                  <span>{tr('An', 'On')}</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleManualPingOne(srv.id)}
+                            disabled={
+                              isRowPinging || !effectivePingActive || srv.pingEnabled === false
+                            }
+                            title={
+                              !globalPingAllowed
+                                ? tr('Vom Administrator global deaktiviert', 'Globally disabled by admin')
+                                : !userPingEnabled
+                                ? tr('Anpingen ist für Ihr Konto deaktiviert', 'Pinging disabled for your account')
+                                : srv.pingEnabled === false
+                                ? tr('Anpingen für diese IP deaktiviert', 'Pinging disabled for this IP')
+                                : tr('Diese IP sofort pingen', 'Ping this IP now')
+                            }
+                            className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-blue-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isRowPinging ? 'animate-spin' : ''}`} />
+                            {tr('Prüfen', 'Check')}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

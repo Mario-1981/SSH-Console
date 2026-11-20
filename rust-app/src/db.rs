@@ -32,6 +32,7 @@ impl Database {
                 role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
                 default_ssh_user TEXT NOT NULL DEFAULT 'root',
                 active INTEGER NOT NULL DEFAULT 1,
+                ping_enabled INTEGER NOT NULL DEFAULT 1,
                 password_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
@@ -83,6 +84,7 @@ impl Database {
                 port INTEGER NOT NULL DEFAULT 22,
                 ssh_user TEXT NOT NULL DEFAULT 'root',
                 notes TEXT NOT NULL DEFAULT '',
+                ping_enabled INTEGER NOT NULL DEFAULT 1,
                 shared_with_all INTEGER NOT NULL DEFAULT 0,
                 shared_with_user_ids TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL
@@ -134,6 +136,14 @@ impl Database {
         // Migrationen für bestehende Datenbanken
         let _ = conn.execute(
             "ALTER TABLE user_servers ADD COLUMN bmc_ip_address TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE user_servers ADD COLUMN ping_enabled INTEGER NOT NULL DEFAULT 1",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE users ADD COLUMN ping_enabled INTEGER NOT NULL DEFAULT 1",
             [],
         );
         let _ = conn.execute(
@@ -225,6 +235,96 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_ping_allowed(&self) -> bool {
+        let Ok(conn) = self.conn.lock() else {
+            return true;
+        };
+        let raw: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'ping_allowed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "1".into());
+        raw != "0" && !raw.eq_ignore_ascii_case("false")
+    }
+
+    pub fn get_ping_interval_sec(&self) -> u64 {
+        let Ok(conn) = self.conn.lock() else {
+            return 60;
+        };
+        let raw: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'ping_interval_sec'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "60".into());
+        raw.parse::<u64>().unwrap_or(60).clamp(10, 3600)
+    }
+
+    pub fn set_global_ping_settings(
+        &self,
+        ping_allowed: Option<bool>,
+        ping_interval_sec: Option<i64>,
+    ) -> Result<(bool, u64), String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        if let Some(allowed) = ping_allowed {
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('ping_allowed', ?1)",
+                params![if allowed { "1" } else { "0" }],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        if let Some(sec) = ping_interval_sec {
+            if !(10..=3600).contains(&sec) {
+                return Err("Ping-Intervall muss zwischen 10 und 3600 Sekunden liegen.".into());
+            }
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('ping_interval_sec', ?1)",
+                params![sec.to_string()],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        drop(conn);
+        Ok((self.get_ping_allowed(), self.get_ping_interval_sec()))
+    }
+
+    pub fn set_user_ping_enabled(&self, user_id: &str, enabled: bool) -> Result<Option<UserPublic>, String> {
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            conn.execute(
+                "UPDATE users SET ping_enabled = ?1 WHERE id = ?2",
+                params![if enabled { 1i64 } else { 0i64 }, user_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        self.get_user_by_id(user_id)
+    }
+
+    pub fn should_ping_server(&self, server: &UserServer) -> bool {
+        if !self.get_ping_allowed() || !server.ping_enabled {
+            return false;
+        }
+        let Ok(users) = self.list_users() else {
+            return true;
+        };
+        if users.iter().any(|u| u.id == server.user_id && u.active && u.ping_enabled) {
+            return true;
+        }
+        if server.shared_with_all {
+            return users.iter().any(|u| u.active && u.ping_enabled);
+        }
+        if !server.shared_with_user_ids.is_empty() {
+            return users.iter().any(|u| {
+                u.active
+                    && u.ping_enabled
+                    && server.shared_with_user_ids.iter().any(|sid| sid == &u.id)
+            });
+        }
+        false
+    }
+
     pub fn create_user(
         &self,
         username: &str,
@@ -237,8 +337,8 @@ impl Database {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         conn.execute(
-            "INSERT INTO users (id, username, display_name, role, default_ssh_user, active, password_hash, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)",
+            "INSERT INTO users (id, username, display_name, role, default_ssh_user, active, ping_enabled, password_hash, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, ?6, ?7)",
             params![id, username, display_name, role, default_ssh_user, password_hash, now],
         )
         .map_err(|e| format!("Benutzer konnte nicht gespeichert werden: {e}"))?;
@@ -250,6 +350,7 @@ impl Database {
             role: role.to_string(),
             default_ssh_user: default_ssh_user.to_string(),
             active: true,
+            ping_enabled: true,
             created_at: now,
             last_login_at: None,
         })
@@ -258,7 +359,7 @@ impl Database {
     pub fn get_user_by_id(&self, id: &str) -> Result<Option<UserPublic>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         conn.query_row(
-            "SELECT id, username, display_name, role, default_ssh_user, active, created_at, last_login_at
+            "SELECT id, username, display_name, role, default_ssh_user, active, ping_enabled, created_at, last_login_at
              FROM users WHERE id = ?1",
             params![id],
             |r| {
@@ -269,8 +370,9 @@ impl Database {
                     role: r.get(3)?,
                     default_ssh_user: r.get(4)?,
                     active: r.get::<_, i64>(5)? == 1,
-                    created_at: r.get(6)?,
-                    last_login_at: r.get(7)?,
+                    ping_enabled: r.get::<_, i64>(6)? == 1,
+                    created_at: r.get(7)?,
+                    last_login_at: r.get(8)?,
                 })
             },
         )
@@ -327,7 +429,7 @@ impl Database {
     pub fn find_user_for_login(&self, username: &str) -> Result<Option<(UserPublic, String)>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         conn.query_row(
-            "SELECT id, username, display_name, role, default_ssh_user, active, created_at, last_login_at, password_hash
+            "SELECT id, username, display_name, role, default_ssh_user, active, ping_enabled, created_at, last_login_at, password_hash
              FROM users WHERE username = ?1",
             params![username],
             |r| {
@@ -338,10 +440,11 @@ impl Database {
                     role: r.get(3)?,
                     default_ssh_user: r.get(4)?,
                     active: r.get::<_, i64>(5)? == 1,
-                    created_at: r.get(6)?,
-                    last_login_at: r.get(7)?,
+                    ping_enabled: r.get::<_, i64>(6)? == 1,
+                    created_at: r.get(7)?,
+                    last_login_at: r.get(8)?,
                 };
-                let hash: String = r.get(8)?;
+                let hash: String = r.get(9)?;
                 Ok((user, hash))
             },
         )
@@ -370,7 +473,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let now = Utc::now().to_rfc3339();
         conn.query_row(
-            "SELECT u.id, u.username, u.display_name, u.role, u.default_ssh_user, u.active, u.created_at, u.last_login_at
+            "SELECT u.id, u.username, u.display_name, u.role, u.default_ssh_user, u.active, u.ping_enabled, u.created_at, u.last_login_at
              FROM sessions s
              JOIN users u ON u.id = s.user_id
              WHERE s.token = ?1 AND s.expires_at > ?2 AND u.active = 1",
@@ -383,8 +486,9 @@ impl Database {
                     role: r.get(3)?,
                     default_ssh_user: r.get(4)?,
                     active: r.get::<_, i64>(5)? == 1,
-                    created_at: r.get(6)?,
-                    last_login_at: r.get(7)?,
+                    ping_enabled: r.get::<_, i64>(6)? == 1,
+                    created_at: r.get(7)?,
+                    last_login_at: r.get(8)?,
                 })
             },
         )
@@ -459,7 +563,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let found: Option<(String, UserPublic)> = conn
             .query_row(
-                "SELECT k.id, u.id, u.username, u.display_name, u.role, u.default_ssh_user, u.active, u.created_at, u.last_login_at
+                "SELECT k.id, u.id, u.username, u.display_name, u.role, u.default_ssh_user, u.active, u.ping_enabled, u.created_at, u.last_login_at
                  FROM user_api_keys k
                  JOIN users u ON u.id = k.user_id
                  WHERE k.key_hash = ?1 AND u.active = 1",
@@ -473,8 +577,9 @@ impl Database {
                         role: r.get(4)?,
                         default_ssh_user: r.get(5)?,
                         active: r.get::<_, i64>(6)? == 1,
-                        created_at: r.get(7)?,
-                        last_login_at: r.get(8)?,
+                        ping_enabled: r.get::<_, i64>(7)? == 1,
+                        created_at: r.get(8)?,
+                        last_login_at: r.get(9)?,
                     };
                     Ok((key_id, user))
                 },
@@ -498,7 +603,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, username, display_name, role, default_ssh_user, active, created_at, last_login_at
+                "SELECT id, username, display_name, role, default_ssh_user, active, ping_enabled, created_at, last_login_at
                  FROM users ORDER BY created_at ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -511,8 +616,9 @@ impl Database {
                     role: r.get(3)?,
                     default_ssh_user: r.get(4)?,
                     active: r.get::<_, i64>(5)? == 1,
-                    created_at: r.get(6)?,
-                    last_login_at: r.get(7)?,
+                    ping_enabled: r.get::<_, i64>(6)? == 1,
+                    created_at: r.get(7)?,
+                    last_login_at: r.get(8)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -826,13 +932,13 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, port, ssh_user, notes, shared_with_all, shared_with_user_ids, created_at
+                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, port, ssh_user, notes, ping_enabled, shared_with_all, shared_with_user_ids, created_at
                  FROM user_servers ORDER BY label ASC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
-                let shared_json: String = r.get(10)?;
+                let shared_json: String = r.get(11)?;
                 let shared_with_user_ids: Vec<String> =
                     serde_json::from_str(&shared_json).unwrap_or_default();
                 Ok(UserServer {
@@ -845,9 +951,10 @@ impl Database {
                     port: r.get::<_, i64>(6)? as u16,
                     ssh_user: r.get(7)?,
                     notes: r.get(8)?,
-                    shared_with_all: r.get::<_, i64>(9)? == 1,
+                    ping_enabled: r.get::<_, i64>(9)? == 1,
+                    shared_with_all: r.get::<_, i64>(10)? == 1,
                     shared_with_user_ids,
-                    created_at: r.get(11)?,
+                    created_at: r.get(12)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -882,6 +989,7 @@ impl Database {
         port: u16,
         ssh_user: &str,
         notes: &str,
+        ping_enabled: bool,
         shared_with_all: bool,
         shared_with_user_ids: &[String],
     ) -> Result<UserServer, String> {
@@ -895,8 +1003,8 @@ impl Database {
         };
         let shared_json = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
         conn.execute(
-            "INSERT INTO user_servers (id, user_id, owner_username, label, ip_address, bmc_ip_address, port, ssh_user, notes, shared_with_all, shared_with_user_ids, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO user_servers (id, user_id, owner_username, label, ip_address, bmc_ip_address, port, ssh_user, notes, ping_enabled, shared_with_all, shared_with_user_ids, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 id,
                 user_id,
@@ -907,6 +1015,7 @@ impl Database {
                 port as i64,
                 ssh_user,
                 notes,
+                if ping_enabled { 1i64 } else { 0i64 },
                 if shared_with_all { 1i64 } else { 0i64 },
                 shared_json,
                 now
@@ -923,6 +1032,7 @@ impl Database {
             port,
             ssh_user: ssh_user.to_string(),
             notes: notes.to_string(),
+            ping_enabled,
             shared_with_all,
             shared_with_user_ids: clean_shared,
             created_at: now,
@@ -940,15 +1050,26 @@ impl Database {
         port: u16,
         ssh_user: &str,
         notes: &str,
+        ping_enabled: bool,
     ) -> Result<Option<UserServer>, String> {
         {
             let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
             let changed = conn
                 .execute(
                     "UPDATE user_servers
-                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, port = ?4, ssh_user = ?5, notes = ?6
-                     WHERE id = ?7 AND user_id = ?8",
-                    params![label, ip, bmc_ip, port as i64, ssh_user, notes, id, owner_user_id],
+                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, port = ?4, ssh_user = ?5, notes = ?6, ping_enabled = ?7
+                     WHERE id = ?8 AND user_id = ?9",
+                    params![
+                        label,
+                        ip,
+                        bmc_ip,
+                        port as i64,
+                        ssh_user,
+                        notes,
+                        if ping_enabled { 1i64 } else { 0i64 },
+                        id,
+                        owner_user_id
+                    ],
                 )
                 .map_err(|e| e.to_string())?;
             if changed == 0 {

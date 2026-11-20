@@ -9,6 +9,7 @@ pub struct UserPublic {
     pub role: String, // "admin" | "user"
     pub default_ssh_user: String,
     pub active: bool,
+    pub ping_enabled: bool,
     pub created_at: String,
     pub last_login_at: Option<String>,
 }
@@ -70,6 +71,7 @@ pub struct UserServer {
     pub port: u16,
     pub ssh_user: String,
     pub notes: String,
+    pub ping_enabled: bool,
     pub shared_with_all: bool,
     pub shared_with_user_ids: Vec<String>,
     pub created_at: String,
@@ -328,6 +330,8 @@ pub struct CreateServerRequest {
     #[serde(alias = "ssh_user")]
     pub ssh_user: Option<String>,
     pub notes: Option<String>,
+    #[serde(alias = "ping_enabled")]
+    pub ping_enabled: Option<bool>,
     #[serde(alias = "shared_with_all")]
     pub shared_with_all: Option<bool>,
     #[serde(alias = "shared_with_user_ids")]
@@ -346,6 +350,8 @@ pub struct UpdateServerRequest {
     #[serde(alias = "ssh_user")]
     pub ssh_user: Option<String>,
     pub notes: Option<String>,
+    #[serde(alias = "ping_enabled")]
+    pub ping_enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -419,6 +425,22 @@ pub struct ServerPingStatus {
 pub struct ManualPingRequest {
     #[serde(alias = "server_id")]
     pub server_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPingSettingsRequest {
+    #[serde(alias = "ping_enabled")]
+    pub ping_enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminPingSettingsRequest {
+    #[serde(alias = "ping_allowed")]
+    pub ping_allowed: Option<bool>,
+    #[serde(alias = "ping_interval_sec")]
+    pub ping_interval_sec: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

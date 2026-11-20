@@ -25,6 +25,7 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::Notify;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -35,6 +36,7 @@ struct AppState {
     db: Database,
     vault: Vault,
     ping: ping::SharedPingState,
+    ping_notify: Arc<Notify>,
 }
 
 type SharedState = Arc<AppState>;
@@ -142,7 +144,9 @@ async fn api_status(
         "initialized": initialized,
         "settings": {
             "instanceName": state.db.get_instance_name(),
-            "initializedAt": state.db.get_initialized_at()
+            "initializedAt": state.db.get_initialized_at(),
+            "pingAllowed": state.db.get_ping_allowed(),
+            "pingIntervalSec": state.db.get_ping_interval_sec()
         },
         "user": user,
         "opensshAvailable": Path::new("/usr/bin/ssh").exists()
@@ -193,7 +197,9 @@ async fn api_setup(
             "user": user,
             "settings": {
                 "instanceName": state.db.get_instance_name(),
-                "initializedAt": state.db.get_initialized_at()
+                "initializedAt": state.db.get_initialized_at(),
+                "pingAllowed": state.db.get_ping_allowed(),
+                "pingIntervalSec": state.db.get_ping_interval_sec()
             },
             "sessionToken": token
         })),
@@ -806,6 +812,7 @@ async fn api_create_server(
     } else {
         Vec::new()
     };
+    let ping_enabled = req.ping_enabled.unwrap_or(true);
     let server = state
         .db
         .create_server(
@@ -817,19 +824,24 @@ async fn api_create_server(
             req.port.unwrap_or(22),
             &ssh_user,
             req.notes.as_deref().unwrap_or(""),
+            ping_enabled,
             shared_all,
             &shared_ids,
         )
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    // Initial-Ping im Hintergrund auslösen
-    let bg_state = Arc::clone(&state);
-    let bg_srv = server.clone();
-    tokio::spawn(async move {
-        let st = ping::check_server_reachability(&bg_srv).await;
-        let mut guard = bg_state.ping.write().await;
-        guard.statuses.insert(bg_srv.id, st);
-    });
+    // Initial-Ping nur auslösen, wenn global, für Benutzer und für diese IP aktiviert
+    if server.ping_enabled && state.db.get_ping_allowed() && user.ping_enabled {
+        let bg_state = Arc::clone(&state);
+        let bg_srv = server.clone();
+        tokio::spawn(async move {
+            let st = ping::check_server_reachability(&bg_srv).await;
+            if bg_state.db.get_ping_allowed() && bg_srv.ping_enabled {
+                let mut guard = bg_state.ping.write().await;
+                guard.statuses.insert(bg_srv.id, st);
+            }
+        });
+    }
 
     Ok(Json(json!({ "server": server })))
 }
@@ -883,12 +895,39 @@ async fn api_update_server(
         .unwrap_or(existing.label);
     let port = req.port.unwrap_or(existing.port).clamp(1, 65535);
     let notes = req.notes.unwrap_or(existing.notes);
+    let ping_enabled = req.ping_enabled.unwrap_or(existing.ping_enabled);
 
     let updated = state
         .db
-        .update_server(&id, &user.id, &label, &ip, &bmc_ip, port, &ssh_user, notes.trim())
+        .update_server(
+            &id,
+            &user.id,
+            &label,
+            &ip,
+            &bmc_ip,
+            port,
+            &ssh_user,
+            notes.trim(),
+            ping_enabled,
+        )
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
         .ok_or_else(|| err_resp(StatusCode::FORBIDDEN, "Server konnte nicht aktualisiert werden."))?;
+
+    if !updated.ping_enabled {
+        let mut guard = state.ping.write().await;
+        guard.statuses.remove(&updated.id);
+    } else if state.db.get_ping_allowed() && user.ping_enabled {
+        let bg_state = Arc::clone(&state);
+        let bg_srv = updated.clone();
+        tokio::spawn(async move {
+            let st = ping::check_server_reachability(&bg_srv).await;
+            if bg_state.db.get_ping_allowed() && bg_srv.ping_enabled {
+                let mut guard = bg_state.ping.write().await;
+                guard.statuses.insert(bg_srv.id, st);
+            }
+        });
+    }
+
     Ok(Json(json!({ "server": updated })))
 }
 
@@ -1383,21 +1422,32 @@ async fn api_list_logs(
     Ok(Json(json!({ "logs": logs })))
 }
 
-async fn api_dashboard_status(
-    State(state): State<SharedState>,
-    jar: CookieJar,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+async fn build_dashboard_status_json(
+    state: &SharedState,
+    user: &UserPublic,
+) -> Result<serde_json::Value, ApiError> {
+    let global_ping_allowed = state.db.get_ping_allowed();
+    let interval_sec = state.db.get_ping_interval_sec();
+    let user_ping_enabled = user.ping_enabled;
+    let effective_active = global_ping_allowed && user_ping_enabled;
+
     let servers = state
         .db
         .list_accessible_servers(&user.id)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let guard = state.ping.read().await;
     let mut user_statuses = serde_json::Map::new();
-    for srv in servers {
-        if let Some(st) = guard.statuses.get(&srv.id) {
-            user_statuses.insert(srv.id, serde_json::to_value(st).unwrap_or(serde_json::Value::Null));
+    if effective_active {
+        for srv in servers {
+            if !srv.ping_enabled {
+                continue;
+            }
+            if let Some(st) = guard.statuses.get(&srv.id) {
+                user_statuses.insert(
+                    srv.id,
+                    serde_json::to_value(st).unwrap_or(serde_json::Value::Null),
+                );
+            }
         }
     }
     let ping_mode = if Path::new("/bin/ping").exists() || Path::new("/usr/bin/ping").exists() {
@@ -1405,13 +1455,24 @@ async fn api_dashboard_status(
     } else {
         "tcp-ping"
     };
-    Ok(Json(json!({
+    Ok(json!({
         "statuses": user_statuses,
-        "intervalSec": 60,
-        "lastCycleAt": guard.last_cycle_at,
-        "nextCycleAt": guard.next_cycle_at,
-        "pingMode": ping_mode
-    })))
+        "intervalSec": interval_sec,
+        "lastCycleAt": if effective_active { guard.last_cycle_at.clone() } else { None },
+        "nextCycleAt": if effective_active { guard.next_cycle_at.clone() } else { None },
+        "pingMode": ping_mode,
+        "globalPingAllowed": global_ping_allowed,
+        "userPingEnabled": user_ping_enabled
+    }))
+}
+
+async fn api_dashboard_status(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    Ok(Json(build_dashboard_status_json(&state, &user).await?))
 }
 
 async fn api_dashboard_ping(
@@ -1421,22 +1482,119 @@ async fn api_dashboard_ping(
     Json(req): Json<ManualPingRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_user(&state, &jar, &headers)?;
+    if !state.db.get_ping_allowed() {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Anpingen wurde vom Administrator global verboten.",
+        ));
+    }
+    if !user.ping_enabled {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Anpingen ist für Ihr Konto deaktiviert.",
+        ));
+    }
     let servers = state
         .db
         .list_accessible_servers(&user.id)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if let Some(ref id) = req.server_id {
+        if let Some(srv) = servers.iter().find(|s| s.id == *id) {
+            if !srv.ping_enabled {
+                return Err(err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Anpingen ist für diese IP deaktiviert.",
+                ));
+            }
+        }
+    }
     let targets: Vec<UserServer> = match req.server_id {
-        Some(ref id) => servers.into_iter().filter(|s| s.id == *id).collect(),
-        None => servers,
+        Some(ref id) => servers
+            .into_iter()
+            .filter(|s| s.id == *id && s.ping_enabled)
+            .collect(),
+        None => servers.into_iter().filter(|s| s.ping_enabled).collect(),
     };
 
     for srv in targets {
         let status = ping::check_server_reachability(&srv).await;
-        let mut guard = state.ping.write().await;
-        guard.statuses.insert(srv.id.clone(), status);
+        if state.db.get_ping_allowed() && srv.ping_enabled {
+            let mut guard = state.ping.write().await;
+            guard.statuses.insert(srv.id.clone(), status);
+        }
     }
 
-    api_dashboard_status(State(state), jar, headers).await
+    Ok(Json(build_dashboard_status_json(&state, &user).await?))
+}
+
+async fn api_user_ping_settings(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<UserPingSettingsRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let updated_user = state
+        .db
+        .set_user_ping_enabled(&user.id, req.ping_enabled)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Benutzer nicht gefunden."))?;
+    if req.ping_enabled && state.db.get_ping_allowed() {
+        let bg_state = Arc::clone(&state);
+        let uid = updated_user.id.clone();
+        tokio::spawn(async move {
+            if let Ok(servers) = bg_state.db.list_accessible_servers(&uid) {
+                for srv in servers.into_iter().filter(|s| s.ping_enabled) {
+                    let st = ping::check_server_reachability(&srv).await;
+                    if bg_state.db.get_ping_allowed() {
+                        let mut guard = bg_state.ping.write().await;
+                        guard.statuses.insert(srv.id, st);
+                    }
+                }
+            }
+        });
+    }
+    let dashboard_status = build_dashboard_status_json(&state, &updated_user).await?;
+    Ok(Json(json!({
+        "user": updated_user,
+        "dashboardStatus": dashboard_status
+    })))
+}
+
+async fn api_admin_ping_settings(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<AdminPingSettingsRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let admin = require_admin(&state, &jar, &headers)?;
+    let (ping_allowed, ping_interval_sec) = state
+        .db
+        .set_global_ping_settings(req.ping_allowed, req.ping_interval_sec)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    {
+        let mut guard = state.ping.write().await;
+        if !ping_allowed {
+            guard.statuses.clear();
+            guard.next_cycle_at = None;
+        } else {
+            guard.next_cycle_at =
+                Some((Utc::now() + chrono::Duration::seconds(ping_interval_sec as i64)).to_rfc3339());
+        }
+    }
+    state.ping_notify.notify_one();
+
+    let dashboard_status = build_dashboard_status_json(&state, &admin).await?;
+    Ok(Json(json!({
+        "settings": {
+            "instanceName": state.db.get_instance_name(),
+            "initializedAt": state.db.get_initialized_at(),
+            "pingAllowed": ping_allowed,
+            "pingIntervalSec": ping_interval_sec
+        },
+        "dashboardStatus": dashboard_status
+    })))
 }
 
 async fn api_execute_batch(
@@ -1572,36 +1730,72 @@ async fn main() {
 
     let db = Database::open(&data_dir.join("ssh-console.sqlite")).expect("SQLite-Datenbankfehler");
     let vault = Vault::load_or_create(&data_dir).expect("Vault-Initialisierungsfehler");
+    let initial_allowed = db.get_ping_allowed();
+    let initial_interval = db.get_ping_interval_sec();
     let ping_state = Arc::new(tokio::sync::RwLock::new(ping::PingState {
         statuses: std::collections::HashMap::new(),
         last_cycle_at: None,
-        next_cycle_at: (Utc::now() + chrono::Duration::seconds(60)).to_rfc3339(),
+        next_cycle_at: if initial_allowed {
+            Some((Utc::now() + chrono::Duration::seconds(initial_interval as i64)).to_rfc3339())
+        } else {
+            None
+        },
     }));
+    let ping_notify = Arc::new(Notify::new());
     let state = Arc::new(AppState {
         db,
         vault,
         ping: ping_state,
+        ping_notify,
     });
 
-    // Hintergrund-Task: Ping aller Server im 60-Sekunden-Takt
+    // Hintergrund-Task: Dynamisches Ping-Intervall mit Admin-Sperre & Pro-IP-Steuerung
     let bg_state = Arc::clone(&state);
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
-            ticker.tick().await;
+            let allowed = bg_state.db.get_ping_allowed();
+            let interval_sec = bg_state.db.get_ping_interval_sec();
+
+            if !allowed {
+                {
+                    let mut guard = bg_state.ping.write().await;
+                    guard.statuses.clear();
+                    guard.next_cycle_at = None;
+                }
+                bg_state.ping_notify.notified().await;
+                continue;
+            }
+
             if let Ok(servers) = bg_state.db.list_all_servers() {
                 let now = Utc::now();
-                let next = now + chrono::Duration::seconds(60);
+                let next = now + chrono::Duration::seconds(interval_sec as i64);
+                let active_ids: HashSet<String> = servers
+                    .iter()
+                    .filter(|s| bg_state.db.should_ping_server(s))
+                    .map(|s| s.id.clone())
+                    .collect();
                 {
                     let mut guard = bg_state.ping.write().await;
                     guard.last_cycle_at = Some(now.to_rfc3339());
-                    guard.next_cycle_at = next.to_rfc3339();
+                    guard.next_cycle_at = Some(next.to_rfc3339());
+                    guard.statuses.retain(|k, _| active_ids.contains(k));
                 }
-                for srv in servers {
+                for srv in servers.into_iter().filter(|s| active_ids.contains(&s.id)) {
+                    if !bg_state.db.get_ping_allowed() {
+                        break;
+                    }
                     let st = ping::check_server_reachability(&srv).await;
-                    let mut guard = bg_state.ping.write().await;
-                    guard.statuses.insert(srv.id, st);
+                    if bg_state.db.get_ping_allowed() && bg_state.db.should_ping_server(&srv) {
+                        let mut guard = bg_state.ping.write().await;
+                        guard.statuses.insert(srv.id, st);
+                    }
                 }
+            }
+
+            let sleep_sec = bg_state.db.get_ping_interval_sec();
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(sleep_sec)) => {}
+                _ = bg_state.ping_notify.notified() => {}
             }
         }
     });
@@ -1627,6 +1821,7 @@ async fn main() {
             "/api/admin/users/:id",
             patch(api_admin_update_user).delete(api_admin_delete_user),
         )
+        .route("/api/admin/ping-settings", patch(api_admin_ping_settings))
         .route("/api/commands", get(api_list_commands).post(api_create_command))
         .route("/api/commands/presets", post(api_load_presets))
         .route(
@@ -1653,6 +1848,7 @@ async fn main() {
         .route("/api/execute/batch", post(api_execute_batch))
         .route("/api/dashboard/status", get(api_dashboard_status))
         .route("/api/dashboard/ping", post(api_dashboard_ping))
+        .route("/api/dashboard/ping-settings", patch(api_user_ping_settings))
         .route("/api/logs", get(api_list_logs))
         .route("/api/rust-project/files", get(api_rust_project_files))
         .fallback_service(spa_service)

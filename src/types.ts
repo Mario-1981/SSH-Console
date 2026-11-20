@@ -7,6 +7,7 @@ export interface User {
   role: UserRole;
   defaultSshUser: string;
   active: boolean;
+  pingEnabled: boolean;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -22,6 +23,8 @@ export interface UserApiKey {
 export interface AppSettings {
   instanceName: string;
   initializedAt: string | null;
+  pingAllowed: boolean;
+  pingIntervalSec: number;
 }
 
 export interface AppStatus {
@@ -67,6 +70,7 @@ export interface UserServer {
   port: number;
   sshUser: string;
   notes: string;
+  pingEnabled: boolean;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   createdAt: string;
@@ -167,8 +171,10 @@ export interface DashboardPingResponse {
   statuses: Record<string, ServerPingStatus>;
   intervalSec: number;
   lastCycleAt: string | null;
-  nextCycleAt: string;
+  nextCycleAt: string | null;
   pingMode: 'icmp-ping' | 'tcp-ping';
+  globalPingAllowed: boolean;
+  userPingEnabled: boolean;
 }
 
 export type ActiveTab =

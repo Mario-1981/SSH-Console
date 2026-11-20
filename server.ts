@@ -123,6 +123,7 @@ function sanitizeUser(u: StoredUser) {
     role: u.role,
     defaultSshUser: u.defaultSshUser,
     active: u.active,
+    pingEnabled: u.pingEnabled !== false,
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt,
   };
@@ -582,7 +583,17 @@ async function startServer() {
   });
 
   app.post('/api/servers', requireAuth, (req: AuthedRequest, res) => {
-    const { label, ipAddress, bmcIpAddress, port, sshUser, notes, sharedWithAll, sharedWithUserIds } = req.body ?? {};
+    const {
+      label,
+      ipAddress,
+      bmcIpAddress,
+      port,
+      sshUser,
+      notes,
+      pingEnabled,
+      sharedWithAll,
+      sharedWithUserIds,
+    } = req.body ?? {};
     if (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress)) {
       res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
       return;
@@ -607,16 +618,19 @@ async function startServer() {
       port: Number(port) || 22,
       sshUser: cleanSshUser,
       notes: typeof notes === 'string' ? notes : '',
+      pingEnabled: pingEnabled !== undefined ? Boolean(pingEnabled) : true,
       sharedWithAll: isAdmin ? Boolean(sharedWithAll) : false,
       sharedWithUserIds: isAdmin && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
     });
-    // Trigger background initial ping for the newly added server
-    void pingMonitor.pingUserServers(req.user!.id, server.id);
+    // Trigger background initial ping only if allowed globally, for user, and for this server
+    if (server.pingEnabled && store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
+      void pingMonitor.pingUserServers(req.user!.id, server.id);
+    }
     res.status(201).json({ server });
   });
 
   app.patch('/api/servers/:id', requireAuth, (req: AuthedRequest, res) => {
-    const { label, ipAddress, bmcIpAddress, port, sshUser, notes } = req.body ?? {};
+    const { label, ipAddress, bmcIpAddress, port, sshUser, notes, pingEnabled } = req.body ?? {};
     if (ipAddress !== undefined && (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress))) {
       res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
       return;
@@ -644,8 +658,13 @@ async function startServer() {
         port: port !== undefined ? Number(port) : undefined,
         sshUser: typeof sshUser === 'string' ? sshUser : undefined,
         notes: typeof notes === 'string' ? notes : undefined,
+        pingEnabled: typeof pingEnabled === 'boolean' ? pingEnabled : undefined,
       });
-      void pingMonitor.pingUserServers(req.user!.id, updated.id);
+      if (!updated.pingEnabled) {
+        pingMonitor.clearServerStatus(updated.id);
+      } else if (store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
+        void pingMonitor.pingUserServers(req.user!.id, updated.id);
+      }
       res.json({ server: updated });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Server konnte nicht aktualisiert werden.';
@@ -1043,15 +1062,68 @@ async function startServer() {
     res.json({ results: logs });
   });
 
-  // Dashboard: 60-Second Ping Status & Manual Ping Trigger
+  // Dashboard: Ping Status, User & Admin Ping Settings, Manual Ping Trigger
   app.get('/api/dashboard/status', requireAuth, (req: AuthedRequest, res) => {
     res.json(pingMonitor.getUserStatuses(req.user!.id));
   });
 
   app.post('/api/dashboard/ping', requireAuth, async (req: AuthedRequest, res) => {
+    const settings = store.getSettings();
+    if (!settings.pingAllowed) {
+      res.status(403).json({ error: 'Anpingen wurde vom Administrator global verboten.' });
+      return;
+    }
+    if (req.user!.pingEnabled === false) {
+      res.status(400).json({ error: 'Anpingen ist für Ihr Konto deaktiviert.' });
+      return;
+    }
     const serverId = typeof req.body?.serverId === 'string' ? req.body.serverId : undefined;
+    if (serverId) {
+      const srv = store.getAccessibleServer(serverId, req.user!.id);
+      if (srv && srv.pingEnabled === false) {
+        res.status(400).json({ error: 'Anpingen ist für diese IP deaktiviert.' });
+        return;
+      }
+    }
     await pingMonitor.pingUserServers(req.user!.id, serverId);
     res.json(pingMonitor.getUserStatuses(req.user!.id));
+  });
+
+  app.patch('/api/dashboard/ping-settings', requireAuth, (req: AuthedRequest, res) => {
+    const { pingEnabled } = req.body ?? {};
+    if (typeof pingEnabled !== 'boolean') {
+      res.status(400).json({ error: 'Ungültiger Wert für pingEnabled.' });
+      return;
+    }
+    const updatedUser = store.setUserPingEnabled(req.user!.id, pingEnabled);
+    if (pingEnabled && store.getSettings().pingAllowed) {
+      void pingMonitor.pingUserServers(updatedUser.id);
+    }
+    res.json({
+      user: sanitizeUser(updatedUser),
+      dashboardStatus: pingMonitor.getUserStatuses(updatedUser.id),
+    });
+  });
+
+  app.patch('/api/admin/ping-settings', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
+    const { pingAllowed, pingIntervalSec } = req.body ?? {};
+    const prevAllowed = store.getSettings().pingAllowed;
+    try {
+      const settings = store.updateGlobalPingSettings({
+        pingAllowed: typeof pingAllowed === 'boolean' ? pingAllowed : undefined,
+        pingIntervalSec: pingIntervalSec !== undefined ? Number(pingIntervalSec) : undefined,
+      });
+      const becameEnabled = !prevAllowed && settings.pingAllowed;
+      pingMonitor.reschedule(becameEnabled);
+      res.json({
+        settings,
+        dashboardStatus: pingMonitor.getUserStatuses(req.user!.id),
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Ping-Einstellungen konnten nicht gespeichert werden.',
+      });
+    }
   });
 
   // Dashboard Batch Execution: Execute assigned commands across multiple IPs in one go
