@@ -8,7 +8,6 @@ import { CommandsAdminView } from './components/CommandsAdminView';
 import { DashboardView } from './components/DashboardView';
 import { ExecuteView } from './components/ExecuteView';
 import { LoginView } from './components/LoginView';
-import { RustDeployView } from './components/RustDeployView';
 import { ServersView } from './components/ServersView';
 import { SetupView } from './components/SetupView';
 import { Sidebar } from './components/Sidebar';
@@ -32,7 +31,6 @@ const TAB_BREADCRUMBS: Record<ActiveTab, { group: string; title: string }> = {
   account: { group: 'Konto', title: 'Passwort ändern' },
   'admin-commands': { group: 'Arbeitsbereich', title: 'SSH-Befehle' },
   'admin-users': { group: 'Administration', title: 'Benutzerverwaltung' },
-  'rust-deploy': { group: 'Bereitstellung', title: 'Debian-Paket (.deb) & Rust' },
 };
 
 export default function App() {
@@ -271,8 +269,6 @@ export default function App() {
                 }}
               />
             )}
-
-            {activeTab === 'rust-deploy' && <RustDeployView />}
           </div>
         </main>
       </div>

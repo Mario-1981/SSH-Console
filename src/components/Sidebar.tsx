@@ -7,7 +7,6 @@ import {
   History,
   SlidersHorizontal,
   Users,
-  FileCode2,
   LogOut,
   Lock,
   X,
@@ -128,29 +127,6 @@ export function Sidebar({
           </div>
         )}
 
-        <div>
-          <p className="px-2.5 mb-2 text-xs font-medium text-slate-500">Bereitstellung</p>
-          <ul className="space-y-0.5">
-            <li>
-              <button
-                type="button"
-                onClick={() => handleNav('rust-deploy')}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                  activeTab === 'rust-deploy'
-                    ? 'bg-blue-50 text-blue-800 font-medium'
-                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <FileCode2
-                  className={`w-4 h-4 shrink-0 ${
-                    activeTab === 'rust-deploy' ? 'text-blue-700' : 'text-slate-500'
-                  }`}
-                />
-                <span className="truncate">Debian-Paket (.deb)</span>
-              </button>
-            </li>
-          </ul>
-        </div>
       </nav>
 
       <div className="p-4 border-t border-slate-200 shrink-0 space-y-3">

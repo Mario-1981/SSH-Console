@@ -171,5 +171,4 @@ export type ActiveTab =
   | 'logs'
   | 'account'
   | 'admin-commands'
-  | 'admin-users'
-  | 'rust-deploy';
+  | 'admin-users';
