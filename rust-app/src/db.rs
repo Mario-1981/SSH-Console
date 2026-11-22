@@ -1687,28 +1687,26 @@ impl Database {
         }
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<StoredCertificateForEdit> {
-            let shared_json: String = r.get(12)?;
+            let shared_json: String = r.get(10)?;
             let shared_ids: Vec<String> = serde_json::from_str(&shared_json).unwrap_or_default();
             Ok(StoredCertificateForEdit {
                 id: r.get(0)?,
-                user_id: r.get(1)?,
-                owner_username: r.get(2)?,
-                name: r.get(3)?,
-                private_key_file_name: r.get(4)?,
-                public_key_file_name: r.get(5)?,
-                cert_file_name: r.get(6)?,
-                private_key_enc: r.get(7)?,
-                private_key_nonce: r.get(8)?,
-                public_key: r.get(9)?,
-                certificate: r.get(10)?,
-                shared_with_all: r.get::<_, i64>(11)? == 1,
+                name: r.get(1)?,
+                private_key_file_name: r.get(2)?,
+                public_key_file_name: r.get(3)?,
+                cert_file_name: r.get(4)?,
+                private_key_enc: r.get(5)?,
+                private_key_nonce: r.get(6)?,
+                public_key: r.get(7)?,
+                certificate: r.get(8)?,
+                shared_with_all: r.get::<_, i64>(9)? == 1,
                 shared_with_user_ids: shared_ids,
             })
         };
 
         if let Some(found) = conn
             .query_row(
-                "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file,
+                "SELECT id, name, private_key_file, public_key_file, cert_file,
                         private_key_enc, private_key_nonce, public_key, certificate, shared_with_all, shared_with_user_ids
                  FROM user_certificates
                  WHERE user_id = ?1 AND id = ?2
@@ -1723,7 +1721,7 @@ impl Database {
         }
 
         conn.query_row(
-            "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file,
+            "SELECT id, name, private_key_file, public_key_file, cert_file,
                     private_key_enc, private_key_nonce, public_key, certificate, shared_with_all, shared_with_user_ids
              FROM user_certificates
              WHERE user_id = ?1 AND LOWER(TRIM(name)) = LOWER(TRIM(?2))

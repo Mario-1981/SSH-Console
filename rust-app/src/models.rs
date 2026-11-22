@@ -483,8 +483,6 @@ pub struct UpdateCertBundleRequest {
 #[derive(Debug, Clone)]
 pub struct StoredCertificateForEdit {
     pub id: String,
-    pub user_id: String,
-    pub owner_username: String,
     pub name: String,
     pub private_key_file_name: String,
     pub public_key_file_name: String,
