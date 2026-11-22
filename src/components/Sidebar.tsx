@@ -43,7 +43,7 @@ export function Sidebar({
 
   const workspaceItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'execute', label: tr('Befehle ausführen', 'Run Commands'), icon: Terminal },
+    { id: 'shell', label: 'SSH-Shell', icon: Terminal },
     { id: 'admin-commands', label: tr('SSH-Befehle', 'SSH Commands'), icon: SlidersHorizontal },
     { id: 'servers', label: tr('Meine Server (IPs)', 'My Servers (IPs)'), icon: Server },
     { id: 'certificates', label: tr('SSH-Zertifikate', 'SSH Certificates'), icon: KeyRound },

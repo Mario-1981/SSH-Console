@@ -1063,6 +1063,80 @@ class Store {
     return { certificate: bundle, replaced: false };
   }
 
+  findUserCertificateByIdOrName(userId: string, idOrName: string): UserCertificateBundle | undefined {
+    const clean = idOrName.trim();
+    if (!clean) return undefined;
+    const byId = this.db.certificates.find((c) => c.userId === userId && c.id === clean);
+    if (byId) return byId;
+    const lower = clean.toLowerCase();
+    return this.db.certificates.find(
+      (c) => c.userId === userId && c.name.trim().toLowerCase() === lower
+    );
+  }
+
+  updateCertificate(
+    id: string,
+    ownerUserId: string,
+    patch: {
+      name?: string;
+      privateKeyFileName?: string;
+      publicKeyFileName?: string;
+      certFileName?: string;
+      privateKeyContent?: string;
+      publicKeyContent?: string;
+      certContent?: string;
+      metadata: ParsedCertMetadata;
+    }
+  ): UserCertificateBundle {
+    const cert = this.db.certificates.find((c) => c.id === id);
+    if (!cert) throw new Error('Zertifikatspaket nicht gefunden.');
+    if (cert.userId !== ownerUserId) {
+      throw new Error('Sie können nur selbst angelegte Zertifikatspakete bearbeiten.');
+    }
+
+    if (patch.name !== undefined) {
+      const nextName = patch.name.trim();
+      if (!nextName) {
+        throw new Error('Die Bezeichnung darf nicht leer sein.');
+      }
+      const conflict = this.db.certificates.find(
+        (c) =>
+          c.id !== id &&
+          c.userId === ownerUserId &&
+          c.name.trim().toLowerCase() === nextName.toLowerCase()
+      );
+      if (conflict) {
+        throw new Error(`Ein anderes Zertifikatspaket mit der Bezeichnung „${nextName}“ existiert bereits.`);
+      }
+      cert.name = nextName;
+    }
+
+    if (patch.privateKeyContent !== undefined) {
+      cert.privateKeyEncrypted = encryptSecret(patch.privateKeyContent);
+    }
+    if (patch.privateKeyFileName !== undefined) {
+      cert.privateKeyFileName = patch.privateKeyFileName || 'zertifikat';
+    }
+    if (patch.publicKeyContent !== undefined) {
+      cert.publicKeyContent = patch.publicKeyContent.trim() + '\n';
+    }
+    if (patch.publicKeyFileName !== undefined) {
+      cert.publicKeyFileName = patch.publicKeyFileName || 'zertifikat.pub';
+    }
+    if (patch.certContent !== undefined) {
+      const trimmedCert = patch.certContent.trim();
+      cert.certContent = trimmedCert ? trimmedCert + '\n' : '';
+      cert.certFileName = trimmedCert ? patch.certFileName || cert.certFileName || 'zertifikat-cert.pub' : '';
+    } else if (patch.certFileName !== undefined && cert.certContent.trim()) {
+      cert.certFileName = patch.certFileName || 'zertifikat-cert.pub';
+    }
+
+    cert.metadata = patch.metadata;
+    cert.uploadedAt = new Date().toISOString();
+    this.save();
+    return cert;
+  }
+
   updateCertificateSharing(
     id: string,
     ownerUserId: string,

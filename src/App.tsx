@@ -7,9 +7,9 @@ import { AuditLogView } from './components/AuditLogView';
 import { CertificatesView } from './components/CertificatesView';
 import { CommandsAdminView } from './components/CommandsAdminView';
 import { DashboardView } from './components/DashboardView';
-import { ExecuteView } from './components/ExecuteView';
 import { LoginView } from './components/LoginView';
 import { ServersView } from './components/ServersView';
+import { SshShellView } from './components/SshShellView';
 import { SetupView } from './components/SetupView';
 import { Sidebar } from './components/Sidebar';
 import { UsersAdminView } from './components/UsersAdminView';
@@ -130,7 +130,7 @@ export default function App() {
 
   const breadcrumbs: Record<ActiveTab, { group: string; title: string }> = {
     dashboard: { group: tr('Arbeitsbereich', 'Workspace'), title: 'Dashboard' },
-    execute: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Befehle ausführen', 'Run Commands') },
+    shell: { group: tr('Arbeitsbereich', 'Workspace'), title: 'SSH-Shell' },
     servers: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Meine Server (IPs)', 'My Servers (IPs)') },
     certificates: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('SSH-Zertifikate', 'SSH Certificates') },
     logs: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Ausführungsprotokoll', 'Execution Log') },
@@ -216,15 +216,14 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'execute' && (
-              <ExecuteView
+            {activeTab === 'shell' && (
+              <SshShellView
                 user={user}
                 opensshAvailable={opensshAvailable}
-                commands={commands}
                 servers={servers}
                 certificates={certificates}
                 onNavigate={setActiveTab}
-                onExecutionComplete={async () => {
+                onSessionEnded={async () => {
                   const res = await api.listLogs();
                   setLogs(res.logs);
                 }}

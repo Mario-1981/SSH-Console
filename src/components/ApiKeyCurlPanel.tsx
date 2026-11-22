@@ -18,7 +18,7 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<{ name: string; plainKey: string } | null>(
     null
   );
-  const [curlMode, setCurlMode] = useState<'cert' | 'keypair'>('cert');
+  const [curlMode, setCurlMode] = useState<'cert' | 'keypair' | 'replace-cert'>('cert');
   const [copiedTarget, setCopiedTarget] = useState<'key' | 'curl' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,7 +97,9 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
   const curlSnippet =
     curlMode === 'cert'
       ? `curl -X POST "${origin}/api/v1/certificates/upload" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "name=${defaultCertName}" \\\n  -F "private_key=@./zertifikat" \\\n  -F "public_key=@./zertifikat.pub" \\\n  -F "cert=@./zertifikat-cert.pub"`
-      : `curl -X POST "${origin}/api/v1/certificates/upload" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "name=${defaultCertName}" \\\n  -F "private_key=@./zertifikat" \\\n  -F "public_key=@./zertifikat.pub"`;
+      : curlMode === 'keypair'
+        ? `curl -X POST "${origin}/api/v1/certificates/upload" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "name=${defaultCertName}" \\\n  -F "private_key=@./zertifikat" \\\n  -F "public_key=@./zertifikat.pub"`
+        : `curl -X PATCH "${origin}/api/v1/certificates/${encodeURIComponent(defaultCertName)}" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "cert=@./zertifikat-cert.pub"`;
 
   return (
     <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">
@@ -109,16 +111,22 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
           </h2>
           <p className="text-xs text-slate-500 mt-1">
             {tr(
-              'Laden Sie SSH-Schlüsselpaare oder CA-Zertifikate per ',
-              'Upload SSH keypairs or CA-signed certificates via '
+              'Laden Sie komplette Schlüssel-/Zertifikatspakete per ',
+              'Upload complete key/certificate bundles via '
             )}
             <code className="font-mono">curl</code>
             {tr(
-              ' hoch. Existiert bereits ein Paket mit demselben ',
-              '. If an entry with the same '
+              ' hoch oder tauschen Sie einzelne Dateien (z. B. nur ',
+              ' or replace individual files (e.g. only '
             )}
-            <code className="font-mono">name</code>
-            {tr(' , wird es automatisch aktualisiert.', ' already exists, it is updated automatically.')}
+            <code className="font-mono">zertifikat-cert.pub</code>
+            {tr(') per ', ') via ')}
+            <code className="font-mono">PATCH /api/v1/certificates/&lt;name-oder-id&gt;</code>
+            {tr(' aus.', '.')}{' '}
+            {tr(
+              'Unveränderte Dateien bleiben erhalten.',
+              'Unchanged files remain intact.'
+            )}
           </p>
         </div>
       </div>
@@ -214,6 +222,17 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
             >
               {tr('2 Dateien (ohne CA-Zertifikat)', '2 Files (without CA Certificate)')}
             </button>
+            <button
+              type="button"
+              onClick={() => setCurlMode('replace-cert')}
+              className={`px-3 py-1 rounded font-medium transition-colors cursor-pointer ${
+                curlMode === 'replace-cert'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {tr('Nur cert.pub tauschen', 'Replace cert.pub only')}
+            </button>
           </div>
 
           <button
@@ -245,9 +264,12 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
           <code className="font-mono text-slate-700">Authorization: Bearer sshc_...</code> ·{' '}
           {tr('Felder:', 'Fields:')}{' '}
           <code className="font-mono text-slate-700">private_key</code>,{' '}
-          <code className="font-mono text-slate-700">public_key</code>, {tr('optional', 'optional')}{' '}
-          <code className="font-mono text-slate-700">cert</code> {tr('und', 'and')}{' '}
-          <code className="font-mono text-slate-700">name</code>.
+          <code className="font-mono text-slate-700">public_key</code>,{' '}
+          <code className="font-mono text-slate-700">cert</code>,{' '}
+          <code className="font-mono text-slate-700">name</code>,{' '}
+          <code className="font-mono text-slate-700">remove_cert=true</code> ·{' '}
+          {tr('Auflisten:', 'List:')}{' '}
+          <code className="font-mono text-slate-700">GET /api/v1/certificates</code>.
         </p>
       </div>
 

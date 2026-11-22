@@ -9,11 +9,13 @@ description = "SSH Console — SSH-Befehls-, Zertifikats- & BMC-Webinterface in 
 [dependencies]
 aes-gcm = "0.10"
 argon2 = "0.5"
-axum = { version = "0.7", features = ["macros", "multipart"] }
+axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
 axum-extra = { version = "0.9", features = ["cookie"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+futures-util = "0.3"
 hex = "0.4"
+libc = "0.2"
 rand = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }

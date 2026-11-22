@@ -9,6 +9,7 @@ Built with a React + TypeScript frontend and a native **Rust (Axum + SQLite)** b
 ## Features
 
 - **SSH Commands & Command Chains**: Define reusable single commands or multi-step chains with configurable `sleep` intervals and stop-on-error (`&&` vs `;`) execution within a single SSH session.
+- **Interactive Browser SSH Shell**: Select any saved server or custom IP address and an uploaded SSH certificate/keypair to open a live, passwordless interactive OpenSSH PTY terminal (`xterm.js` over WebSockets) directly in the browser.
 - **OpenSSH Certificates & Keypairs**: Supports both 3-file CA-signed OpenSSH certificate bundles (`zertifikat`, `zertifikat.pub`, `zertifikat-cert.pub`) and classic 2-file SSH keypairs (`zertifikat`, `zertifikat.pub` for `authorized_keys`). Cryptographic key-to-certificate matching and validity windows are verified on upload.
 - **Automated `curl` Upload API**: Generate personal API keys (`sshc_...`) and push short-lived or rotated SSH certificates directly from scripts or cron jobs via `POST /api/v1/certificates/upload` (supports `multipart/form-data` and JSON, automatically overwriting existing entries with the same name).
 - **60-Second Ping Dashboard & Batch Execution**: Monitors all target IPs every 60 seconds (ICMP ping with TCP fallback), displays live online/offline status and latency, and lets you assign commands per server or in bulk and execute them in parallel.
@@ -89,10 +90,13 @@ npm run build
 
 Each user can create and revoke personal API keys (`sshc_...`) in the UI under **Account & Password** or via the **Upload via curl & API Key** button on the **SSH Keys & Certificates** page.
 
-### Endpoint
+### Endpoints
 
 ```
-POST /api/v1/certificates/upload
+GET    /api/v1/certificates
+POST   /api/v1/certificates/upload
+PATCH  /api/v1/certificates/<name-or-id>
+PUT    /api/v1/certificates/<name-or-id>
 ```
 
 ### Authentication
@@ -123,16 +127,37 @@ curl -X POST "https://your-server/api/v1/certificates/upload" \
   -F "public_key=@./zertifikat.pub"
 ```
 
+### Replace only `zertifikat-cert.pub` (partial update / cert rotation)
+
+Keep the stored private and public keys untouched and rotate only the signed certificate (by bundle `name` or `id`):
+
+```bash
+curl -X PATCH "https://your-server/api/v1/certificates/prod-ed25519" \
+  -H "X-API-Key: sshc_YOUR_API_KEY" \
+  -F "cert=@./zertifikat-cert.pub"
+```
+
+You can also rename a bundle (`-F "name=new-name"`), remove the CA certificate (`-F "remove_cert=true"`), or send a partial `POST /api/v1/certificates/upload` with `name` + `cert` for an existing bundle. All changes are cryptographically re-verified against the stored keypair before saving.
+
+### List your certificates
+
+```bash
+curl -H "X-API-Key: sshc_YOUR_API_KEY" \
+  "https://your-server/api/v1/certificates"
+```
+
 ### Form Fields & Behavior
 
 | Field | Required | Aliases | Description |
 | --- | --- | --- | --- |
-| `private_key` | Yes | `privateKey`, `zertifikat`, `key` | Private OpenSSH/PEM key file |
-| `public_key` | Yes | `publicKey`, `zertifikat_pub`, `pub` | Matching public key file (`.pub`) |
+| `private_key` | On create | `privateKey`, `zertifikat`, `key` | Private OpenSSH/PEM key file |
+| `public_key` | On create | `publicKey`, `zertifikat_pub`, `pub` | Matching public key file (`.pub`) |
 | `cert` | No | `certificate`, `cert_pub`, `zertifikat_cert` | Optional CA-signed OpenSSH certificate (`-cert.pub`) |
 | `name` | No | `label` | Bundle label (defaults to certificate `keyId` or filename) |
+| `remove_cert` | No | `removeCert` | Set to `true` on `PATCH`/`PUT` to remove `cert` and convert to a 2-file keypair |
 
-- If the authenticated user already has a bundle with the same `name`, it is validated and overwritten in place (`HTTP 200`, `"replaced": true`). Otherwise a new entry is created (`HTTP 201`, `"replaced": false`).
+- On `POST /api/v1/certificates/upload`, if the authenticated user already has a bundle with the same `name`, it is validated and updated in place (`HTTP 200`, `"replaced": true`). Otherwise a new entry is created (`HTTP 201`, `"replaced": false`).
+- On `PATCH` / `PUT /api/v1/certificates/<name-or-id>`, only supplied fields are updated while unchanged files, bundle ID, and sharing settings are preserved.
 - `application/json` payloads are also supported using the same field names.
 
 ---

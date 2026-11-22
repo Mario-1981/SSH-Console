@@ -316,6 +316,27 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  updateCertificate: (
+    id: string,
+    payload: {
+      name?: string;
+      privateKeyFileName?: string;
+      publicKeyFileName?: string;
+      certFileName?: string;
+      privateKeyContent?: string;
+      publicKeyContent?: string;
+      certContent?: string;
+      removeCert?: boolean;
+    }
+  ) =>
+    request<{ ok: boolean; certificate: UserCertificate }>(
+      `/api/certificates/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }
+    ),
+
   shareCertificate: (id: string, payload: { sharedWithAll: boolean; sharedWithUserIds: string[] }) =>
     request<{ certificate: UserCertificate }>(`/api/certificates/${encodeURIComponent(id)}/share`, {
       method: 'PATCH',
@@ -359,6 +380,29 @@ export const api = {
     dryRun?: boolean;
   }) =>
     request<{ results: ExecutionLog[] }>('/api/execute/batch', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // Interactive SSH Shell
+  createShellTicket: (payload: {
+    serverId?: string;
+    ipAddress?: string;
+    port?: number;
+    sshUser?: string;
+    certificateId: string;
+    cols: number;
+    rows: number;
+  }) =>
+    request<{
+      ticket: string;
+      targetIp: string;
+      targetPort: number;
+      sshUser: string;
+      serverLabel: string;
+      certificateName: string;
+      opensshAvailable: boolean;
+    }>('/api/shell/ticket', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

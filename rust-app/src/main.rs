@@ -3,13 +3,17 @@ mod crypto;
 mod db;
 mod models;
 mod ping;
+mod shell;
 mod ssh;
 
 use axum::{
-    extract::{FromRequest, Multipart, Path as AxumPath, Query, Request as AxumRequest, State},
+    extract::{
+        FromRequest, Multipart, Path as AxumPath, Query, Request as AxumRequest, State,
+        WebSocketUpgrade,
+    },
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
@@ -32,11 +36,12 @@ use uuid::Uuid;
 
 const SESSION_COOKIE: &str = "ssh_console_session";
 
-struct AppState {
-    db: Database,
+pub(crate) struct AppState {
+    pub(crate) db: Database,
     vault: Vault,
     ping: ping::SharedPingState,
     ping_notify: Arc<Notify>,
+    shell_tickets: shell::ShellTicketStore,
 }
 
 type SharedState = Arc<AppState>;
@@ -1160,38 +1165,25 @@ async fn api_delete_cert(
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn api_v1_upload_cert(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
+#[derive(Default)]
+struct ParsedCertPayload {
+    id: Option<String>,
+    name: Option<String>,
+    private_key_content: Option<String>,
+    private_key_file_name: Option<String>,
+    public_key_content: Option<String>,
+    public_key_file_name: Option<String>,
+    cert_content: Option<String>,
+    cert_file_name: Option<String>,
+    remove_cert: bool,
+}
+
+async fn parse_cert_payload(
+    headers: &HeaderMap,
     req: AxumRequest,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let api_key = extract_api_key(&headers).ok_or_else(|| {
-        err_resp(
-            StatusCode::UNAUTHORIZED,
-            "Ungültiger oder fehlender API-Schlüssel. Senden Sie ihn als Header \"X-API-Key: sshc_...\" oder \"Authorization: Bearer sshc_...\".",
-        )
-    })?;
-    if !api_key.starts_with("sshc_") || api_key.len() < 20 {
-        return Err(err_resp(
-            StatusCode::UNAUTHORIZED,
-            "Ungültiger API-Schlüssel.",
-        ));
-    }
-    let key_hash = hash_api_key(&api_key);
-    let user = state
-        .db
-        .user_by_api_key_hash(&key_hash)
-        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
-        .ok_or_else(|| err_resp(StatusCode::UNAUTHORIZED, "Ungültiger oder widerrufener API-Schlüssel."))?;
-
-    let mut bundle_name = String::new();
-    let mut priv_file = "zertifikat".to_string();
-    let mut pub_file = "zertifikat.pub".to_string();
-    let mut cert_file = "zertifikat-cert.pub".to_string();
-    let mut priv_content = String::new();
-    let mut pub_content = String::new();
-    let mut cert_content = String::new();
-
+    state: &SharedState,
+) -> Result<ParsedCertPayload, ApiError> {
+    let mut out = ParsedCertPayload::default();
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -1199,7 +1191,7 @@ async fn api_v1_upload_cert(
         .to_lowercase();
 
     if content_type.contains("multipart/form-data") {
-        let mut multipart = Multipart::from_request(req, &state)
+        let mut multipart = Multipart::from_request(req, state)
             .await
             .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("Ungültige Multipart-Anfrage: {e}")))?;
         while let Some(field) = multipart
@@ -1221,73 +1213,303 @@ async fn api_v1_upload_cert(
                 .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("Ungültige UTF-8-Datei: {e}")))?;
 
             match field_name.as_str() {
-                "name" | "label" => {
+                "id" | "certificate_id" | "certificateId" => {
                     if !text.trim().is_empty() {
-                        bundle_name = text.trim().to_string();
+                        out.id = Some(text.trim().to_string());
                     }
                 }
-                "private_key" | "privateKey" | "zertifikat" | "key" => {
+                "name" | "label" => {
                     if !text.trim().is_empty() {
-                        priv_content = text;
-                        if let Some(f) = file_name {
-                            if !f.is_empty() {
-                                priv_file = f;
-                            }
+                        out.name = Some(text.trim().to_string());
+                    }
+                }
+                "remove_cert" | "removeCert" => {
+                    let v = text.trim().to_lowercase();
+                    if v == "true" || v == "1" || v == "yes" {
+                        out.remove_cert = true;
+                    }
+                }
+                "private_key" | "privateKey" | "privateKeyContent" | "zertifikat" | "key" => {
+                    if !text.trim().is_empty() {
+                        out.private_key_content = Some(text);
+                        if let Some(f) = file_name.filter(|f| !f.is_empty()) {
+                            out.private_key_file_name = Some(f);
                         }
                     }
                 }
-                "public_key" | "publicKey" | "zertifikat_pub" | "pub" => {
+                "public_key" | "publicKey" | "publicKeyContent" | "zertifikat_pub" | "pub" => {
                     if !text.trim().is_empty() {
-                        pub_content = text;
-                        if let Some(f) = file_name {
-                            if !f.is_empty() {
-                                pub_file = f;
-                            }
+                        out.public_key_content = Some(text);
+                        if let Some(f) = file_name.filter(|f| !f.is_empty()) {
+                            out.public_key_file_name = Some(f);
                         }
                     }
                 }
                 "cert" | "certificate" | "cert_pub" | "zertifikat_cert" | "certContent" => {
                     if !text.trim().is_empty() {
-                        cert_content = text;
-                        if let Some(f) = file_name {
-                            if !f.is_empty() {
-                                cert_file = f;
-                            }
+                        out.cert_content = Some(text);
+                        if let Some(f) = file_name.filter(|f| !f.is_empty()) {
+                            out.cert_file_name = Some(f);
                         }
                     }
                 }
                 _ => {}
             }
         }
-    } else {
-        let Json(body) = Json::<UploadCertBundleRequest>::from_request(req, &state)
-            .await
-            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("Ungültige JSON-Anfrage: {e}")))?;
-        bundle_name = body.name.unwrap_or_default().trim().to_string();
-        if let Some(f) = body.private_key_file_name {
-            if !f.trim().is_empty() {
-                priv_file = f.trim().to_string();
-            }
-        }
-        if let Some(f) = body.public_key_file_name {
-            if !f.trim().is_empty() {
-                pub_file = f.trim().to_string();
-            }
-        }
-        if let Some(f) = body.cert_file_name {
-            if !f.trim().is_empty() {
-                cert_file = f.trim().to_string();
-            }
-        }
-        priv_content = body.private_key_content;
-        pub_content = body.public_key_content;
-        cert_content = body.cert_content.unwrap_or_default();
+        return Ok(out);
     }
 
-    if priv_content.trim().is_empty() || pub_content.trim().is_empty() {
+    let Json(body) = Json::<UpdateCertBundleRequest>::from_request(req, state)
+        .await
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("Ungültige JSON-Anfrage: {e}")))?;
+
+    out.id = body.id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    out.name = body.name.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    out.private_key_file_name = body
+        .private_key_file_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    out.public_key_file_name = body
+        .public_key_file_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    out.cert_file_name = body
+        .cert_file_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    out.private_key_content = body.private_key_content.filter(|s| !s.trim().is_empty());
+    out.public_key_content = body.public_key_content.filter(|s| !s.trim().is_empty());
+    out.cert_content = body.cert_content.filter(|s| !s.trim().is_empty());
+    out.remove_cert = body.remove_cert.unwrap_or(false);
+    Ok(out)
+}
+
+async fn apply_partial_cert_update(
+    state: &SharedState,
+    user: &UserPublic,
+    existing: &StoredCertificateForEdit,
+    payload: &ParsedCertPayload,
+    allow_rename: bool,
+) -> Result<UserCertificatePublic, ApiError> {
+    let effective_rename = if allow_rename {
+        payload.name.as_deref()
+    } else {
+        None
+    };
+
+    let has_any_change = effective_rename.is_some()
+        || payload.private_key_content.is_some()
+        || payload.public_key_content.is_some()
+        || payload.cert_content.is_some()
+        || payload.remove_cert;
+
+    if !has_any_change {
         return Err(err_resp(
             StatusCode::BAD_REQUEST,
-            "Erforderliche Felder fehlen: \"private_key\" (zertifikat) und \"public_key\" (zertifikat.pub). Optional: \"cert\" (zertifikat-cert.pub) und \"name\".",
+            "Keine Änderungen übermittelt. Senden Sie mindestens eines der Felder: \"name\", \"cert\", \"private_key\", \"public_key\" oder \"remove_cert\".",
+        ));
+    }
+
+    let (effective_priv, next_priv_enc, next_priv_nonce) = match payload.private_key_content.as_deref() {
+        Some(new_priv) => {
+            let (enc, nonce) = state
+                .vault
+                .encrypt(new_priv.as_bytes())
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            (new_priv.to_string(), enc, nonce)
+        }
+        None => {
+            let plain_bytes = state
+                .vault
+                .decrypt(&existing.private_key_enc, &existing.private_key_nonce)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            let plain = String::from_utf8(plain_bytes)
+                .map_err(|_| err_resp(StatusCode::INTERNAL_SERVER_ERROR, "Gespeicherter Schlüssel ungültig."))?;
+            (
+                plain,
+                existing.private_key_enc.clone(),
+                existing.private_key_nonce.clone(),
+            )
+        }
+    };
+
+    let effective_pub = payload
+        .public_key_content
+        .as_deref()
+        .unwrap_or(&existing.public_key)
+        .trim()
+        .to_string();
+
+    let effective_cert = if payload.remove_cert {
+        String::new()
+    } else if let Some(new_cert) = payload.cert_content.as_deref() {
+        new_cert.trim().to_string()
+    } else {
+        existing.certificate.trim().to_string()
+    };
+
+    let inspection = ssh::inspect_certificate_bundle(
+        &effective_priv,
+        &effective_pub,
+        if effective_cert.is_empty() {
+            None
+        } else {
+            Some(effective_cert.as_str())
+        },
+    )
+    .await
+    .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    let next_name = effective_rename.unwrap_or(&existing.name);
+    let next_priv_file = payload
+        .private_key_file_name
+        .as_deref()
+        .unwrap_or(&existing.private_key_file_name);
+    let next_pub_file = payload
+        .public_key_file_name
+        .as_deref()
+        .unwrap_or(&existing.public_key_file_name);
+    let next_cert_file = if effective_cert.is_empty() {
+        ""
+    } else if let Some(f) = payload.cert_file_name.as_deref() {
+        f
+    } else if !existing.cert_file_name.trim().is_empty() {
+        existing.cert_file_name.as_str()
+    } else {
+        "zertifikat-cert.pub"
+    };
+
+    state
+        .db
+        .update_certificate_bundle(
+            &existing.id,
+            &user.id,
+            &user.username,
+            next_name,
+            next_priv_file,
+            next_pub_file,
+            next_cert_file,
+            &next_priv_enc,
+            &next_priv_nonce,
+            &effective_pub,
+            &effective_cert,
+            &inspection,
+            existing.shared_with_all,
+            &existing.shared_with_user_ids,
+        )
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))
+}
+
+async fn api_update_cert(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+    req: AxumRequest,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let owner = state
+        .db
+        .get_certificate_owner(&id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    match owner {
+        None => return Err(err_resp(StatusCode::NOT_FOUND, "Zertifikatspaket nicht gefunden.")),
+        Some(owner_id) if owner_id != user.id => {
+            return Err(err_resp(
+                StatusCode::FORBIDDEN,
+                "Sie können nur selbst angelegte Zertifikatspakete bearbeiten.",
+            ));
+        }
+        _ => {}
+    }
+
+    let existing = state
+        .db
+        .get_owned_certificate_by_id_or_name(&user.id, &id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Zertifikatspaket nicht gefunden."))?;
+
+    let payload = parse_cert_payload(&headers, req, &state).await?;
+    let updated = apply_partial_cert_update(&state, &user, &existing, &payload, true).await?;
+    Ok(Json(json!({ "ok": true, "certificate": updated })))
+}
+
+fn require_api_key_user(state: &SharedState, headers: &HeaderMap) -> Result<UserPublic, ApiError> {
+    let api_key = extract_api_key(headers).ok_or_else(|| {
+        err_resp(
+            StatusCode::UNAUTHORIZED,
+            "Ungültiger oder fehlender API-Schlüssel. Senden Sie ihn als Header \"X-API-Key: sshc_...\" oder \"Authorization: Bearer sshc_...\".",
+        )
+    })?;
+    if !api_key.starts_with("sshc_") || api_key.len() < 20 {
+        return Err(err_resp(StatusCode::UNAUTHORIZED, "Ungültiger API-Schlüssel."));
+    }
+    let key_hash = hash_api_key(&api_key);
+    state
+        .db
+        .user_by_api_key_hash(&key_hash)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::UNAUTHORIZED, "Ungültiger oder widerrufener API-Schlüssel."))
+}
+
+async fn api_v1_list_certs(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let user = require_api_key_user(&state, &headers)?;
+    let certs: Vec<UserCertificatePublic> = state
+        .db
+        .list_accessible_certificates(&user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .into_iter()
+        .filter(|c| c.user_id == user.id)
+        .collect();
+    Ok(Json(json!({ "ok": true, "certificates": certs })))
+}
+
+async fn api_v1_upload_cert(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    req: AxumRequest,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let user = require_api_key_user(&state, &headers)?;
+    let payload = parse_cert_payload(&headers, req, &state).await?;
+
+    let priv_content = payload.private_key_content.clone().unwrap_or_default();
+    let pub_content = payload.public_key_content.clone().unwrap_or_default();
+    let priv_file = payload
+        .private_key_file_name
+        .clone()
+        .unwrap_or_else(|| "zertifikat".to_string());
+    let pub_file = payload
+        .public_key_file_name
+        .clone()
+        .unwrap_or_else(|| "zertifikat.pub".to_string());
+    let cert_file = payload
+        .cert_file_name
+        .clone()
+        .unwrap_or_else(|| "zertifikat-cert.pub".to_string());
+    let cert_content = payload.cert_content.clone().unwrap_or_default();
+
+    // Smart partial update: if private_key or public_key is omitted, update matching existing bundle by id or name
+    if priv_content.trim().is_empty() || pub_content.trim().is_empty() {
+        let lookup = payload.id.as_deref().or(payload.name.as_deref()).unwrap_or("");
+        if !lookup.is_empty() {
+            if let Some(existing) = state
+                .db
+                .get_owned_certificate_by_id_or_name(&user.id, lookup)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            {
+                let updated = apply_partial_cert_update(&state, &user, &existing, &payload, false).await?;
+                return Ok((
+                    StatusCode::OK,
+                    Json(json!({ "ok": true, "replaced": true, "updated": true, "certificate": updated })),
+                ));
+            }
+        }
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Für ein neues Paket sind \"private_key\" (zertifikat) und \"public_key\" (zertifikat.pub) erforderlich. Um nur zertifikat-cert.pub eines bestehenden Pakets zu tauschen, geben Sie dessen \"name\" an oder nutzen Sie PATCH /api/v1/certificates/<name-oder-id>.",
         ));
     }
 
@@ -1309,8 +1531,8 @@ async fn api_v1_upload_cert(
         .encrypt(priv_content.as_bytes())
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    let effective_name = if !bundle_name.is_empty() {
-        bundle_name
+    let effective_name = if let Some(n) = payload.name.filter(|s| !s.is_empty()) {
+        n
     } else if !inspection.key_id.is_empty() {
         inspection.key_id.clone()
     } else {
@@ -1354,6 +1576,180 @@ async fn api_v1_upload_cert(
         status,
         Json(json!({ "ok": true, "replaced": replaced, "certificate": saved })),
     ))
+}
+
+async fn api_v1_update_cert(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    AxumPath(id_or_name): AxumPath<String>,
+    req: AxumRequest,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let user = require_api_key_user(&state, &headers)?;
+    let existing = state
+        .db
+        .get_owned_certificate_by_id_or_name(&user.id, &id_or_name)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| {
+            err_resp(
+                StatusCode::NOT_FOUND,
+                format!("Zertifikatspaket „{id_or_name}“ nicht gefunden (nur eigene Pakete können bearbeitet werden)."),
+            )
+        })?;
+
+    let payload = parse_cert_payload(&headers, req, &state).await?;
+    let updated = apply_partial_cert_update(&state, &user, &existing, &payload, true).await?;
+    Ok(Json(json!({ "ok": true, "updated": true, "certificate": updated })))
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ShellWsQuery {
+    ticket: Option<String>,
+}
+
+fn is_ws_origin_allowed(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) else {
+        return true;
+    };
+    let expected = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(header::HOST))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or("").trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    if expected.is_empty() {
+        return true;
+    }
+    let origin_host = origin
+        .strip_prefix("https://")
+        .or_else(|| origin.strip_prefix("http://"))
+        .unwrap_or(origin)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    origin_host == expected
+}
+
+async fn api_shell_ticket(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<shell::ShellTicketRequest>,
+) -> Result<Json<shell::ShellTicketResponse>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let cert = state
+        .db
+        .get_accessible_certificate_secret(&req.certificate_id, &user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| {
+            err_resp(
+                StatusCode::BAD_REQUEST,
+                "Zertifikatspaket nicht gefunden oder keine Berechtigung.",
+            )
+        })?;
+
+    let (target_ip, target_port, ssh_user, server_label) = if let Some(server_id) = req
+        .server_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let srv = state
+            .db
+            .get_accessible_server(server_id, &user.id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .ok_or_else(|| {
+                err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Ausgewählter Server nicht gefunden oder keine Berechtigung.",
+                )
+            })?;
+        let user_override = req
+            .ssh_user
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let effective_user = match user_override {
+            Some(u) => ssh::validate_ssh_user(u).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?,
+            None => srv.ssh_user.clone(),
+        };
+        (srv.ip_address, srv.port, effective_user, srv.label)
+    } else {
+        let raw_ip = req.ip_address.as_deref().unwrap_or("");
+        let ip = ssh::validate_ip(raw_ip).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        let port = req.port.unwrap_or(22).clamp(1, 65535);
+        let raw_user = req
+            .ssh_user
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(&user.default_ssh_user);
+        let valid_user =
+            ssh::validate_ssh_user(raw_user).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        (ip.clone(), port, valid_user, ip)
+    };
+
+    let token = state
+        .shell_tickets
+        .issue(shell::ShellTicket {
+            user_id: user.id,
+            username: user.username,
+            server_label: server_label.clone(),
+            ip_address: target_ip.clone(),
+            port: target_port,
+            ssh_user: ssh_user.clone(),
+            certificate_id: cert.id,
+            cols: req.cols.unwrap_or(100),
+            rows: req.rows.unwrap_or(30),
+            expires_at: std::time::Instant::now(),
+        })
+        .await;
+
+    Ok(Json(shell::ShellTicketResponse {
+        ticket: token,
+        target_ip,
+        target_port,
+        ssh_user,
+        server_label,
+        certificate_name: cert.name,
+        openssh_available: Path::new("/usr/bin/ssh").exists(),
+    }))
+}
+
+async fn api_ws_shell(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Query(query): Query<ShellWsQuery>,
+    ws: WebSocketUpgrade,
+) -> Result<impl IntoResponse, ApiError> {
+    if !is_ws_origin_allowed(&headers) {
+        return Err(err_resp(StatusCode::FORBIDDEN, "Ungültiger WebSocket-Origin."));
+    }
+    let token = query.ticket.unwrap_or_default();
+    let ticket = state
+        .shell_tickets
+        .consume(&token)
+        .await
+        .ok_or_else(|| err_resp(StatusCode::UNAUTHORIZED, "Ungültiges oder abgelaufenes Shell-Ticket."))?;
+
+    let cert = state
+        .db
+        .get_accessible_certificate_secret(&ticket.certificate_id, &ticket.user_id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| {
+            err_resp(
+                StatusCode::FORBIDDEN,
+                "Zertifikatspaket nicht gefunden oder keine Berechtigung.",
+            )
+        })?;
+
+    let private_key_plain = state
+        .vault
+        .decrypt(&cert.private_key_enc, &cert.private_key_nonce)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(ws.on_upgrade(move |socket| {
+        shell::handle_ssh_websocket(socket, state, ticket, cert, private_key_plain)
+    }))
 }
 
 async fn api_execute(
@@ -1780,6 +2176,7 @@ async fn main() {
         vault,
         ping: ping_state,
         ping_notify,
+        shell_tickets: shell::ShellTicketStore::default(),
     });
 
     // Hintergrund-Task: Dynamisches Ping-Intervall mit Admin-Sperre & Pro-IP-Steuerung
@@ -1874,11 +2271,21 @@ async fn main() {
         .route("/api/servers/:id/share", patch(api_share_server))
         .route("/api/certificates", get(api_list_certs).post(api_upload_cert))
         .route("/api/certificates/generate-test", post(api_generate_test_cert))
-        .route("/api/certificates/:id", delete(api_delete_cert))
+        .route(
+            "/api/certificates/:id",
+            patch(api_update_cert).delete(api_delete_cert),
+        )
         .route("/api/certificates/:id/share", patch(api_share_cert))
+        .route("/api/v1/certificates", get(api_v1_list_certs))
         .route("/api/v1/certificates/upload", post(api_v1_upload_cert))
+        .route(
+            "/api/v1/certificates/:id_or_name",
+            patch(api_v1_update_cert).put(api_v1_update_cert),
+        )
         .route("/api/execute", post(api_execute))
         .route("/api/execute/batch", post(api_execute_batch))
+        .route("/api/shell/ticket", post(api_shell_ticket))
+        .route("/api/ws/shell", get(api_ws_shell))
         .route("/api/dashboard/status", get(api_dashboard_status))
         .route("/api/dashboard/ping", post(api_dashboard_ping))
         .route("/api/dashboard/ping-settings", patch(api_user_ping_settings))

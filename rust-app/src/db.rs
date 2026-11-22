@@ -1426,6 +1426,161 @@ impl Database {
         }))
     }
 
+    pub fn get_certificate_owner(&self, id: &str) -> Result<Option<String>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT user_id FROM user_certificates WHERE id = ?1",
+            params![id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn get_owned_certificate_by_id_or_name(
+        &self,
+        user_id: &str,
+        id_or_name: &str,
+    ) -> Result<Option<StoredCertificateForEdit>, String> {
+        let clean = id_or_name.trim();
+        if clean.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<StoredCertificateForEdit> {
+            let shared_json: String = r.get(12)?;
+            let shared_ids: Vec<String> = serde_json::from_str(&shared_json).unwrap_or_default();
+            Ok(StoredCertificateForEdit {
+                id: r.get(0)?,
+                user_id: r.get(1)?,
+                owner_username: r.get(2)?,
+                name: r.get(3)?,
+                private_key_file_name: r.get(4)?,
+                public_key_file_name: r.get(5)?,
+                cert_file_name: r.get(6)?,
+                private_key_enc: r.get(7)?,
+                private_key_nonce: r.get(8)?,
+                public_key: r.get(9)?,
+                certificate: r.get(10)?,
+                shared_with_all: r.get::<_, i64>(11)? == 1,
+                shared_with_user_ids: shared_ids,
+            })
+        };
+
+        if let Some(found) = conn
+            .query_row(
+                "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file,
+                        private_key_enc, private_key_nonce, public_key, certificate, shared_with_all, shared_with_user_ids
+                 FROM user_certificates
+                 WHERE user_id = ?1 AND id = ?2
+                 LIMIT 1",
+                params![user_id, clean],
+                map_row,
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+        {
+            return Ok(Some(found));
+        }
+
+        conn.query_row(
+            "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file,
+                    private_key_enc, private_key_nonce, public_key, certificate, shared_with_all, shared_with_user_ids
+             FROM user_certificates
+             WHERE user_id = ?1 AND LOWER(TRIM(name)) = LOWER(TRIM(?2))
+             ORDER BY uploaded_at DESC
+             LIMIT 1",
+            params![user_id, clean],
+            map_row,
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_certificate_bundle(
+        &self,
+        id: &str,
+        owner_user_id: &str,
+        owner_username: &str,
+        name: &str,
+        priv_file: &str,
+        pub_file: &str,
+        cert_file: &str,
+        priv_enc: &[u8],
+        priv_nonce: &[u8],
+        pub_key: &str,
+        cert: &str,
+        inspection: &CertInspection,
+        shared_with_all: bool,
+        shared_with_user_ids: &[String],
+    ) -> Result<UserCertificatePublic, String> {
+        let clean_name = name.trim();
+        if clean_name.is_empty() {
+            return Err("Die Bezeichnung darf nicht leer sein.".to_string());
+        }
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let conflict: Option<String> = conn
+            .query_row(
+                "SELECT id FROM user_certificates
+                 WHERE user_id = ?1 AND id != ?2 AND LOWER(TRIM(name)) = LOWER(TRIM(?3))
+                 LIMIT 1",
+                params![owner_user_id, id, clean_name],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if conflict.is_some() {
+            return Err(format!(
+                "Ein anderes Zertifikatspaket mit der Bezeichnung „{clean_name}“ existiert bereits."
+            ));
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let inspection_json = serde_json::to_string(inspection).map_err(|e| e.to_string())?;
+        let changed = conn
+            .execute(
+                "UPDATE user_certificates
+                 SET owner_username = ?1, name = ?2, private_key_file = ?3, public_key_file = ?4, cert_file = ?5,
+                     private_key_enc = ?6, private_key_nonce = ?7, public_key = ?8, certificate = ?9,
+                     inspection_json = ?10, uploaded_at = ?11
+                 WHERE id = ?12 AND user_id = ?13",
+                params![
+                    owner_username,
+                    clean_name,
+                    priv_file,
+                    pub_file,
+                    cert_file,
+                    priv_enc,
+                    priv_nonce,
+                    pub_key,
+                    cert,
+                    inspection_json,
+                    now,
+                    id,
+                    owner_user_id
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Err("Zertifikatspaket nicht gefunden oder keine Berechtigung.".to_string());
+        }
+
+        Ok(UserCertificatePublic {
+            id: id.to_string(),
+            user_id: owner_user_id.to_string(),
+            owner_username: owner_username.to_string(),
+            name: clean_name.to_string(),
+            private_key_file_name: priv_file.to_string(),
+            public_key_file_name: pub_file.to_string(),
+            cert_file_name: cert_file.to_string(),
+            metadata: inspection.clone(),
+            shared_with_all,
+            shared_with_user_ids: shared_with_user_ids.to_vec(),
+            uploaded_at: now,
+        })
+    }
+
     pub fn delete_certificate(&self, id: &str, user_id: &str) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         conn.execute(

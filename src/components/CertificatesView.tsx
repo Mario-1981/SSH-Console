@@ -10,6 +10,8 @@ import {
   FileText,
   Share2,
   Terminal,
+  Pencil,
+  X,
 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
@@ -65,10 +67,29 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Inline edit state for an existing owned certificate bundle
+  const [editingCertId, setEditingCertId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPrivFile, setEditPrivFile] = useState('');
+  const [editPrivContent, setEditPrivContent] = useState('');
+  const [editPubFile, setEditPubFile] = useState('');
+  const [editPubContent, setEditPubContent] = useState('');
+  const [editCertFile, setEditCertFile] = useState('');
+  const [editCertContent, setEditCertContent] = useState('');
+  const [editRemoveCert, setEditRemoveCert] = useState(false);
+  const [editShowText, setEditShowText] = useState(false);
+  const [editDragging, setEditDragging] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+
   const multiInputRef = useRef<HTMLInputElement | null>(null);
   const privInputRef = useRef<HTMLInputElement | null>(null);
   const pubInputRef = useRef<HTMLInputElement | null>(null);
   const certInputRef = useRef<HTMLInputElement | null>(null);
+
+  const editMultiInputRef = useRef<HTMLInputElement | null>(null);
+  const editPrivInputRef = useRef<HTMLInputElement | null>(null);
+  const editPubInputRef = useRef<HTMLInputElement | null>(null);
+  const editCertInputRef = useRef<HTMLInputElement | null>(null);
 
   async function classifyAndLoadFiles(fileList: FileList | File[]) {
     setError(null);
@@ -244,6 +265,9 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
     setError(null);
     try {
       await api.deleteCertificate(id);
+      if (editingCertId === id) {
+        cancelEdit();
+      }
       await onRefresh();
     } catch (err) {
       setError(
@@ -253,6 +277,190 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
       );
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  function startEdit(cert: UserCertificate) {
+    setError(null);
+    setSuccess(null);
+    setEditingCertId(cert.id);
+    setEditName(cert.name);
+    setEditPrivFile('');
+    setEditPrivContent('');
+    setEditPubFile('');
+    setEditPubContent('');
+    setEditCertFile('');
+    setEditCertContent('');
+    setEditRemoveCert(false);
+    setEditShowText(false);
+    setEditDragging(false);
+  }
+
+  function cancelEdit() {
+    setEditingCertId(null);
+    setEditName('');
+    setEditPrivFile('');
+    setEditPrivContent('');
+    setEditPubFile('');
+    setEditPubContent('');
+    setEditCertFile('');
+    setEditCertContent('');
+    setEditRemoveCert(false);
+    setEditShowText(false);
+    setEditDragging(false);
+  }
+
+  async function classifyAndLoadEditFiles(fileList: FileList | File[]) {
+    setError(null);
+    const files = Array.from(fileList);
+    let loaded = 0;
+
+    for (const file of files) {
+      const text = await file.text();
+      const lower = file.name.toLowerCase();
+
+      if (lower.endsWith('-cert.pub') || text.includes('-cert-v01@openssh.com')) {
+        setEditCertFile(file.name);
+        setEditCertContent(text);
+        setEditRemoveCert(false);
+        loaded++;
+      } else if (
+        lower.endsWith('.pub') ||
+        /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-|sk-ssh-)/.test(text.trim())
+      ) {
+        setEditPubFile(file.name);
+        setEditPubContent(text);
+        loaded++;
+      } else if (text.includes('PRIVATE KEY')) {
+        setEditPrivFile(file.name);
+        setEditPrivContent(text);
+        loaded++;
+      }
+    }
+
+    if (loaded === 0) {
+      setError(
+        tr(
+          'Dateien konnten nicht automatisch zugeordnet werden. Bitte wählen Sie zertifikat, zertifikat.pub oder zertifikat-cert.pub.',
+          'Could not classify files automatically. Please choose zertifikat, zertifikat.pub, or zertifikat-cert.pub.'
+        )
+      );
+    }
+  }
+
+  async function handleEditSingleFile(
+    e: React.ChangeEvent<HTMLInputElement>,
+    slot: 'priv' | 'pub' | 'cert'
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    if (slot === 'priv') {
+      setEditPrivFile(file.name);
+      setEditPrivContent(text);
+    } else if (slot === 'pub') {
+      setEditPubFile(file.name);
+      setEditPubContent(text);
+    } else {
+      setEditCertFile(file.name);
+      setEditCertContent(text);
+      setEditRemoveCert(false);
+    }
+    e.target.value = '';
+  }
+
+  async function handleSaveEdit(e: React.FormEvent, cert: UserCertificate) {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    const payload: {
+      name?: string;
+      privateKeyFileName?: string;
+      publicKeyFileName?: string;
+      certFileName?: string;
+      privateKeyContent?: string;
+      publicKeyContent?: string;
+      certContent?: string;
+      removeCert?: boolean;
+    } = {};
+
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      setError(tr('Bitte eine Bezeichnung angeben.', 'Please enter a bundle label.'));
+      return;
+    }
+    if (trimmedName !== cert.name) {
+      payload.name = trimmedName;
+    }
+    if (editPrivContent.trim()) {
+      payload.privateKeyContent = editPrivContent;
+      if (editPrivFile) payload.privateKeyFileName = editPrivFile;
+    }
+    if (editPubContent.trim()) {
+      payload.publicKeyContent = editPubContent;
+      if (editPubFile) payload.publicKeyFileName = editPubFile;
+    }
+    if (editRemoveCert) {
+      payload.removeCert = true;
+    } else if (editCertContent.trim()) {
+      payload.certContent = editCertContent;
+      payload.certFileName = editCertFile || cert.certFileName || 'zertifikat-cert.pub';
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setError(
+        tr(
+          'Es wurden keine Änderungen vorgenommen. Ändern Sie den Namen oder wählen Sie mindestens eine auszutauschende Datei.',
+          'No changes were made. Update the label or choose at least one file to replace.'
+        )
+      );
+      return;
+    }
+
+    setEditSaving(true);
+    try {
+      const res = await api.updateCertificate(cert.id, payload);
+      await onRefresh();
+      cancelEdit();
+
+      const updatedPartsDe: string[] = [];
+      const updatedPartsEn: string[] = [];
+      if (payload.name) {
+        updatedPartsDe.push('Bezeichnung');
+        updatedPartsEn.push('label');
+      }
+      if (payload.privateKeyContent) {
+        updatedPartsDe.push('zertifikat');
+        updatedPartsEn.push('zertifikat');
+      }
+      if (payload.publicKeyContent) {
+        updatedPartsDe.push('zertifikat.pub');
+        updatedPartsEn.push('zertifikat.pub');
+      }
+      if (payload.certContent) {
+        updatedPartsDe.push('zertifikat-cert.pub');
+        updatedPartsEn.push('zertifikat-cert.pub');
+      }
+      if (payload.removeCert) {
+        updatedPartsDe.push('CA-Zertifikat entfernt');
+        updatedPartsEn.push('CA certificate removed');
+      }
+
+      setSuccess(
+        tr(
+          `Paket „${res.certificate.name}“ erfolgreich aktualisiert und kryptografisch verifiziert (${updatedPartsDe.join(', ')}).`,
+          `Bundle "${res.certificate.name}" updated and cryptographically verified (${updatedPartsEn.join(', ')}).`
+        )
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Änderungen konnten nicht gespeichert werden.', 'Could not save changes.')
+      );
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -813,7 +1021,28 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                     </div>
 
                     {isOwner ? (
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => (editingCertId === cert.id ? cancelEdit() : startEdit(cert))}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                            editingCertId === cert.id
+                              ? 'text-slate-900 bg-slate-100 hover:bg-slate-200'
+                              : 'text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          {editingCertId === cert.id ? (
+                            <>
+                              <X className="w-3.5 h-3.5" />
+                              {tr('Abbrechen', 'Cancel')}
+                            </>
+                          ) : (
+                            <>
+                              <Pencil className="w-3.5 h-3.5" />
+                              {tr('Bearbeiten', 'Edit')}
+                            </>
+                          )}
+                        </button>
                         {isAdmin && (
                           <button
                             type="button"
@@ -842,6 +1071,381 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
                       </span>
                     )}
                   </div>
+
+                  {editingCertId === cert.id && isOwner && (
+                    <form
+                      onSubmit={(e) => handleSaveEdit(e, cert)}
+                      className="rounded-md border border-blue-200 bg-slate-50/70 p-4 space-y-4"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
+                        <div>
+                          <h4 className="text-xs font-semibold text-slate-900">
+                            {tr(
+                              'Paket bearbeiten (einzelne Dateien gezielt austauschen)',
+                              'Edit Bundle (replace individual files selectively)'
+                            )}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {tr(
+                              'Nicht geänderte Dateien bleiben unverändert erhalten. Ideal, um z. B. nur ein neues zertifikat-cert.pub einzuspielen.',
+                              'Unchanged files are kept as-is. Ideal for rotating only zertifikat-cert.pub without re-uploading your private key.'
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEditShowText((v) => !v)}
+                          className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap shrink-0 self-start sm:self-auto"
+                        >
+                          {editShowText
+                            ? tr('Textfelder ausblenden', 'Hide text fields')
+                            : tr('Inhalte manuell einfügen', 'Paste contents manually')}
+                        </button>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor={`edit-cert-name-${cert.id}`}
+                          className="block text-xs font-medium text-slate-700 mb-1"
+                        >
+                          {tr('Bezeichnung', 'Bundle Label')}
+                        </label>
+                        <input
+                          id={`edit-cert-name-${cert.id}`}
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="w-full sm:max-w-md px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setEditDragging(true);
+                        }}
+                        onDragLeave={() => setEditDragging(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setEditDragging(false);
+                          if (e.dataTransfer.files?.length) {
+                            void classifyAndLoadEditFiles(e.dataTransfer.files);
+                          }
+                        }}
+                        className={`border border-dashed rounded-md px-4 py-3 text-center transition-colors ${
+                          editDragging
+                            ? 'border-blue-600 bg-blue-50/70'
+                            : 'border-slate-300 bg-white'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-xs text-slate-600">
+                          <Upload className="w-4 h-4 text-slate-400 shrink-0" />
+                          <span>
+                            {tr(
+                              'Neue Datei(en) hierher ziehen (z. B. nur zertifikat-cert.pub)',
+                              'Drag replacement file(s) here (e.g. only zertifikat-cert.pub)'
+                            )}
+                          </span>
+                          <input
+                            ref={editMultiInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files?.length) {
+                                void classifyAndLoadEditFiles(e.target.files);
+                              }
+                              e.target.value = '';
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => editMultiInputRef.current?.click()}
+                            className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition-colors cursor-pointer whitespace-nowrap"
+                          >
+                            {tr('Dateien wählen', 'Browse Files')}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {/* Edit Slot 1: private key */}
+                        <div className="border border-slate-200 rounded-md p-3 bg-white flex flex-col justify-between gap-2.5">
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs font-semibold text-slate-900">
+                                1. zertifikat
+                              </span>
+                              <span
+                                className={`text-[11px] font-medium ${
+                                  editPrivContent.trim() ? 'text-blue-700' : 'text-slate-500'
+                                }`}
+                              >
+                                {editPrivContent.trim()
+                                  ? tr('Wird ersetzt', 'Will replace')
+                                  : tr('Unverändert', 'Unchanged')}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] font-mono text-slate-600 truncate">
+                              {editPrivContent.trim()
+                                ? editPrivFile || 'zertifikat'
+                                : tr(
+                                    `Beibehalten: ${cert.privateKeyFileName}`,
+                                    `Keeping: ${cert.privateKeyFileName}`
+                                  )}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              ref={editPrivInputRef}
+                              type="file"
+                              className="hidden"
+                              onChange={(e) => handleEditSingleFile(e, 'priv')}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => editPrivInputRef.current?.click()}
+                              className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer whitespace-nowrap"
+                            >
+                              {tr('Austauschen', 'Replace')}
+                            </button>
+                            {editPrivContent.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditPrivContent('');
+                                  setEditPrivFile('');
+                                }}
+                                className="text-xs text-slate-500 hover:text-red-700 cursor-pointer"
+                              >
+                                {tr('Zurücksetzen', 'Reset')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Edit Slot 2: public key */}
+                        <div className="border border-slate-200 rounded-md p-3 bg-white flex flex-col justify-between gap-2.5">
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs font-semibold text-slate-900">
+                                2. zertifikat.pub
+                              </span>
+                              <span
+                                className={`text-[11px] font-medium ${
+                                  editPubContent.trim() ? 'text-blue-700' : 'text-slate-500'
+                                }`}
+                              >
+                                {editPubContent.trim()
+                                  ? tr('Wird ersetzt', 'Will replace')
+                                  : tr('Unverändert', 'Unchanged')}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] font-mono text-slate-600 truncate">
+                              {editPubContent.trim()
+                                ? editPubFile || 'zertifikat.pub'
+                                : tr(
+                                    `Beibehalten: ${cert.publicKeyFileName}`,
+                                    `Keeping: ${cert.publicKeyFileName}`
+                                  )}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              ref={editPubInputRef}
+                              type="file"
+                              accept=".pub,text/plain"
+                              className="hidden"
+                              onChange={(e) => handleEditSingleFile(e, 'pub')}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => editPubInputRef.current?.click()}
+                              className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer whitespace-nowrap"
+                            >
+                              {tr('Austauschen', 'Replace')}
+                            </button>
+                            {editPubContent.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditPubContent('');
+                                  setEditPubFile('');
+                                }}
+                                className="text-xs text-slate-500 hover:text-red-700 cursor-pointer"
+                              >
+                                {tr('Zurücksetzen', 'Reset')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Edit Slot 3: signed cert */}
+                        <div className="border border-blue-200 rounded-md p-3 bg-white flex flex-col justify-between gap-2.5">
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs font-semibold text-slate-900">
+                                3. zertifikat-cert.pub
+                              </span>
+                              <span
+                                className={`text-[11px] font-medium ${
+                                  editRemoveCert
+                                    ? 'text-red-700'
+                                    : editCertContent.trim()
+                                      ? 'text-blue-700'
+                                      : 'text-slate-500'
+                                }`}
+                              >
+                                {editRemoveCert
+                                  ? tr('Wird entfernt', 'Will remove')
+                                  : editCertContent.trim()
+                                    ? hasCert
+                                      ? tr('Wird ersetzt', 'Will replace')
+                                      : tr('Wird hinzugefügt', 'Will add')
+                                    : hasCert
+                                      ? tr('Unverändert', 'Unchanged')
+                                      : tr('Nicht vorhanden', 'Not set')}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] font-mono text-slate-600 truncate">
+                              {editRemoveCert
+                                ? tr(
+                                    'Umstellung auf 2-Dateien-Schlüsselpaar',
+                                    'Switching to 2-file keypair'
+                                  )
+                                : editCertContent.trim()
+                                  ? editCertFile || 'zertifikat-cert.pub'
+                                  : hasCert
+                                    ? tr(
+                                        `Aktuell: ${cert.certFileName}`,
+                                        `Current: ${cert.certFileName}`
+                                      )
+                                    : tr(
+                                        'Optionales CA-Zertifikat nachreichen',
+                                        'Optionally add a signed CA certificate'
+                                      )}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              ref={editCertInputRef}
+                              type="file"
+                              accept=".pub,text/plain"
+                              className="hidden"
+                              onChange={(e) => handleEditSingleFile(e, 'cert')}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => editCertInputRef.current?.click()}
+                              className="px-2.5 py-1 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 rounded cursor-pointer whitespace-nowrap"
+                            >
+                              {hasCert ? tr('cert.pub tauschen', 'Replace cert.pub') : tr('Hinzufügen', 'Add cert.pub')}
+                            </button>
+                            {editCertContent.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditCertContent('');
+                                  setEditCertFile('');
+                                }}
+                                className="text-xs text-slate-500 hover:text-red-700 cursor-pointer"
+                              >
+                                {tr('Zurücksetzen', 'Reset')}
+                              </button>
+                            )}
+                            {hasCert && !editCertContent.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => setEditRemoveCert((v) => !v)}
+                                className={`text-xs cursor-pointer ${
+                                  editRemoveCert
+                                    ? 'text-slate-700 hover:text-slate-900 font-medium'
+                                    : 'text-red-700 hover:text-red-900'
+                                }`}
+                              >
+                                {editRemoveCert
+                                  ? tr('Behalten', 'Keep cert')
+                                  : tr('Entfernen', 'Remove')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {editShowText && (
+                        <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-200">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                              {tr(
+                                'Neuer Inhalt für zertifikat-cert.pub (leer lassen = unverändert)',
+                                'New contents for zertifikat-cert.pub (leave empty = unchanged)'
+                              )}
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={editCertContent}
+                              onChange={(e) => {
+                                setEditCertContent(e.target.value);
+                                if (e.target.value.trim()) setEditRemoveCert(false);
+                              }}
+                              placeholder="ssh-ed25519-cert-v01@openssh.com AAAA..."
+                              className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                              {tr(
+                                'Neuer Inhalt für zertifikat.pub (leer lassen = unverändert)',
+                                'New contents for zertifikat.pub (leave empty = unchanged)'
+                              )}
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={editPubContent}
+                              onChange={(e) => setEditPubContent(e.target.value)}
+                              placeholder="ssh-ed25519 AAAA..."
+                              className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                              {tr(
+                                'Neuer Inhalt für zertifikat (leer lassen = unverändert)',
+                                'New contents for zertifikat (leave empty = unchanged)'
+                              )}
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={editPrivContent}
+                              onChange={(e) => setEditPrivContent(e.target.value)}
+                              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                              className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={editSaving}
+                          className="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+                        >
+                          {tr('Abbrechen', 'Cancel')}
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={editSaving}
+                          className="px-4 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                        >
+                          {editSaving
+                            ? tr('Wird geprüft & gespeichert...', 'Verifying & saving...')
+                            : tr('Änderungen prüfen & speichern', 'Verify & Save Changes')}
+                        </button>
+                      </div>
+                    </form>
+                  )}
 
                   {hasCert ? (
                     <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 text-xs">

@@ -181,7 +181,7 @@ export interface DashboardPingResponse {
 
 export type ActiveTab =
   | 'dashboard'
-  | 'execute'
+  | 'shell'
   | 'servers'
   | 'certificates'
   | 'logs'

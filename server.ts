@@ -1,5 +1,6 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import { generateTestOpenSshCertBundle } from './server/certGen.ts';
@@ -11,10 +12,12 @@ import {
   validateTargetIp,
 } from './server/sshRunner.ts';
 import {
+  decryptSecret,
   store,
   verifyPassword,
   type StoredApiKey,
   type StoredUser,
+  type UserCertificateBundle,
   type UserRole,
 } from './server/store.ts';
 import { parseMultipartFormData } from './server/multipart.ts';
@@ -22,6 +25,7 @@ import { buildRustProjectTarGz } from './server/tarBuilder.ts';
 import { buildDebianPackage } from './server/debBuilder.ts';
 import { pingMonitor } from './server/pingMonitor.ts';
 import { checkBmcHttps } from './server/bmcCheck.ts';
+import { attachSshShellWebSocket, issueShellTicket } from './server/sshShell.ts';
 
 const COOKIE_NAME = 'trixiessh_session';
 const RUST_APP_DIR = path.resolve(process.cwd(), 'rust-app');
@@ -829,6 +833,188 @@ async function startServer() {
     }
   });
 
+  interface ParsedCertUpdatePayload {
+    id?: string;
+    name?: string;
+    privateKeyContent?: string;
+    privateKeyFileName?: string;
+    publicKeyContent?: string;
+    publicKeyFileName?: string;
+    certContent?: string;
+    certFileName?: string;
+    removeCert: boolean;
+  }
+
+  async function parseIncomingCertificatePayload(req: Request): Promise<ParsedCertUpdatePayload> {
+    const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
+    const result: ParsedCertUpdatePayload = { removeCert: false };
+
+    if (contentType.includes('multipart/form-data')) {
+      const parsed = await parseMultipartFormData(req);
+      const pickPart = (
+        names: string[]
+      ): { content: string; filename?: string } | undefined => {
+        for (const n of names) {
+          if (parsed.files[n] && parsed.files[n].content.trim()) {
+            return { content: parsed.files[n].content, filename: parsed.files[n].filename };
+          }
+          if (parsed.fields[n] && parsed.fields[n].trim()) {
+            return { content: parsed.fields[n] };
+          }
+        }
+        return undefined;
+      };
+
+      const idField = (parsed.fields.id ?? parsed.fields.certificate_id ?? '').trim();
+      if (idField) result.id = idField;
+
+      const nameField = (parsed.fields.name ?? parsed.fields.label ?? '').trim();
+      if (nameField) result.name = nameField;
+
+      const removeFlag = (parsed.fields.remove_cert ?? parsed.fields.removeCert ?? '').trim().toLowerCase();
+      if (removeFlag === 'true' || removeFlag === '1' || removeFlag === 'yes') {
+        result.removeCert = true;
+      }
+
+      const priv = pickPart(['private_key', 'privateKey', 'privateKeyContent', 'zertifikat', 'key']);
+      const pub = pickPart(['public_key', 'publicKey', 'publicKeyContent', 'zertifikat_pub', 'pub']);
+      const cert = pickPart(['cert', 'certificate', 'cert_pub', 'zertifikat_cert', 'certContent']);
+
+      if (priv) {
+        result.privateKeyContent = priv.content;
+        result.privateKeyFileName = priv.filename ? path.basename(priv.filename) : undefined;
+      }
+      if (pub) {
+        result.publicKeyContent = pub.content;
+        result.publicKeyFileName = pub.filename ? path.basename(pub.filename) : undefined;
+      }
+      if (cert) {
+        result.certContent = cert.content;
+        result.certFileName = cert.filename ? path.basename(cert.filename) : undefined;
+      }
+      return result;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const readStr = (...keys: string[]): string | undefined => {
+      for (const k of keys) {
+        if (typeof body[k] === 'string' && (body[k] as string).trim()) {
+          return body[k] as string;
+        }
+      }
+      return undefined;
+    };
+
+    const idVal = readStr('id', 'certificate_id', 'certificateId');
+    if (idVal) result.id = idVal.trim();
+
+    const nameVal = readStr('name', 'label');
+    if (nameVal) result.name = nameVal.trim();
+
+    const removeRaw = body.removeCert ?? body.remove_cert;
+    if (removeRaw === true || removeRaw === 'true' || removeRaw === '1' || removeRaw === 1) {
+      result.removeCert = true;
+    }
+
+    result.privateKeyContent = readStr('private_key', 'privateKey', 'privateKeyContent', 'zertifikat', 'key');
+    result.publicKeyContent = readStr('public_key', 'publicKey', 'publicKeyContent', 'zertifikat_pub', 'pub');
+    result.certContent = readStr('cert', 'certificate', 'certContent', 'cert_pub', 'zertifikat_cert');
+    result.privateKeyFileName = readStr('privateKeyFileName', 'private_key_file');
+    result.publicKeyFileName = readStr('publicKeyFileName', 'public_key_file');
+    result.certFileName = readStr('certFileName', 'cert_file');
+    return result;
+  }
+
+  function applyPartialCertificateUpdate(
+    existing: UserCertificateBundle,
+    ownerUserId: string,
+    payload: ParsedCertUpdatePayload
+  ): UserCertificateBundle {
+    if (existing.userId !== ownerUserId) {
+      throw new Error('Sie können nur selbst angelegte Zertifikatspakete bearbeiten.');
+    }
+
+    const hasAnyChange =
+      payload.name !== undefined ||
+      payload.privateKeyContent !== undefined ||
+      payload.publicKeyContent !== undefined ||
+      payload.certContent !== undefined ||
+      payload.removeCert;
+
+    if (!hasAnyChange) {
+      throw new Error(
+        'Keine Änderungen übermittelt. Senden Sie mindestens eines der Felder: "name", "cert", "private_key", "public_key" oder "remove_cert".'
+      );
+    }
+
+    const effectivePriv =
+      payload.privateKeyContent !== undefined
+        ? payload.privateKeyContent
+        : decryptSecret(existing.privateKeyEncrypted);
+    const effectivePub =
+      payload.publicKeyContent !== undefined ? payload.publicKeyContent : existing.publicKeyContent;
+    const effectiveCert = payload.removeCert
+      ? ''
+      : payload.certContent !== undefined
+        ? payload.certContent
+        : existing.certContent;
+
+    const metadata = validateAndParseCertificateBundle(
+      effectivePriv,
+      effectivePub,
+      effectiveCert
+    );
+
+    return store.updateCertificate(existing.id, ownerUserId, {
+      name: payload.name,
+      privateKeyContent: payload.privateKeyContent,
+      privateKeyFileName: payload.privateKeyFileName,
+      publicKeyContent: payload.publicKeyContent,
+      publicKeyFileName: payload.publicKeyFileName,
+      certContent: payload.removeCert ? '' : payload.certContent,
+      certFileName: payload.removeCert
+        ? ''
+        : payload.certContent !== undefined
+          ? payload.certFileName || existing.certFileName || 'zertifikat-cert.pub'
+          : undefined,
+      metadata,
+    });
+  }
+
+  app.patch('/api/certificates/:id', requireAuth, async (req: AuthedRequest, res) => {
+    const existing = store.getCertificateById(req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: 'Zertifikatspaket nicht gefunden.' });
+      return;
+    }
+    if (existing.userId !== req.user!.id) {
+      res.status(403).json({ error: 'Sie können nur selbst angelegte Zertifikatspakete bearbeiten.' });
+      return;
+    }
+
+    let payload: ParsedCertUpdatePayload;
+    try {
+      payload = await parseIncomingCertificatePayload(req);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Anfrage konnte nicht verarbeitet werden.',
+      });
+      return;
+    }
+
+    try {
+      const updated = applyPartialCertificateUpdate(existing, req.user!.id, payload);
+      res.json({
+        ok: true,
+        certificate: serializeCertificate(updated),
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
+      });
+    }
+  });
+
   app.patch('/api/certificates/:id/share', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
     const { sharedWithAll, sharedWithUserIds } = req.body ?? {};
     try {
@@ -872,7 +1058,24 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  // Simple API-Key Upload Endpoint for curl (supports multipart/form-data and JSON)
+  // Simple API-Key Endpoints for curl (list, upload, and partial update e.g. cert-only replacement)
+  app.get('/api/v1/certificates', (req: Request, res: Response) => {
+    const apiKey = extractApiKey(req);
+    const user = store.getUserByApiKey(apiKey);
+    if (!user) {
+      res.status(401).json({
+        error:
+          'Ungültiger oder fehlender API-Schlüssel. Senden Sie ihn als Header "X-API-Key: sshc_..." oder "Authorization: Bearer sshc_...".',
+      });
+      return;
+    }
+    const list = store
+      .listAccessibleCertificates(user.id)
+      .filter((c) => c.userId === user.id)
+      .map(serializeCertificate);
+    res.json({ ok: true, certificates: list });
+  });
+
   app.post('/api/v1/certificates/upload', async (req: Request, res: Response) => {
     const apiKey = extractApiKey(req);
     const user = store.getUserByApiKey(apiKey);
@@ -884,69 +1087,9 @@ async function startServer() {
       return;
     }
 
-    let bundleName = '';
-    let privateKeyFileName = 'zertifikat';
-    let publicKeyFileName = 'zertifikat.pub';
-    let certFileName = 'zertifikat-cert.pub';
-    let privateKeyContent = '';
-    let publicKeyContent = '';
-    let certContent = '';
-
-    const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
+    let payload: ParsedCertUpdatePayload;
     try {
-      if (contentType.includes('multipart/form-data')) {
-        const parsed = await parseMultipartFormData(req);
-        const pickPart = (
-          names: string[]
-        ): { content: string; filename?: string } | undefined => {
-          for (const n of names) {
-            if (parsed.files[n] && parsed.files[n].content.trim()) {
-              return { content: parsed.files[n].content, filename: parsed.files[n].filename };
-            }
-            if (parsed.fields[n] && parsed.fields[n].trim()) {
-              return { content: parsed.fields[n] };
-            }
-          }
-          return undefined;
-        };
-
-        const priv = pickPart(['private_key', 'privateKey', 'zertifikat', 'key']);
-        const pub = pickPart(['public_key', 'publicKey', 'zertifikat_pub', 'pub']);
-        const cert = pickPart(['cert', 'certificate', 'cert_pub', 'zertifikat_cert', 'certContent']);
-
-        bundleName = (parsed.fields.name ?? parsed.fields.label ?? '').trim();
-        if (priv) {
-          privateKeyContent = priv.content;
-          if (priv.filename) privateKeyFileName = path.basename(priv.filename);
-        }
-        if (pub) {
-          publicKeyContent = pub.content;
-          if (pub.filename) publicKeyFileName = path.basename(pub.filename);
-        }
-        if (cert) {
-          certContent = cert.content;
-          if (cert.filename) certFileName = path.basename(cert.filename);
-        }
-      } else {
-        const body = (req.body ?? {}) as Record<string, unknown>;
-        const readStr = (...keys: string[]): string => {
-          for (const k of keys) {
-            if (typeof body[k] === 'string' && (body[k] as string).trim()) {
-              return body[k] as string;
-            }
-          }
-          return '';
-        };
-        bundleName = readStr('name', 'label').trim();
-        privateKeyContent = readStr('private_key', 'privateKey', 'privateKeyContent', 'zertifikat');
-        publicKeyContent = readStr('public_key', 'publicKey', 'publicKeyContent', 'zertifikat_pub');
-        certContent = readStr('cert', 'certificate', 'certContent', 'cert_pub', 'zertifikat_cert');
-        privateKeyFileName =
-          readStr('privateKeyFileName', 'private_key_file') || privateKeyFileName;
-        publicKeyFileName =
-          readStr('publicKeyFileName', 'public_key_file') || publicKeyFileName;
-        certFileName = readStr('certFileName', 'cert_file') || certFileName;
-      }
+      payload = await parseIncomingCertificatePayload(req);
     } catch (err) {
       res.status(400).json({
         error: err instanceof Error ? err.message : 'Anfrage konnte nicht verarbeitet werden.',
@@ -954,15 +1097,45 @@ async function startServer() {
       return;
     }
 
+    const privateKeyContent = payload.privateKeyContent ?? '';
+    const publicKeyContent = payload.publicKeyContent ?? '';
+    const privateKeyFileName = payload.privateKeyFileName || 'zertifikat';
+    const publicKeyFileName = payload.publicKeyFileName || 'zertifikat.pub';
+    const certFileName = payload.certFileName || 'zertifikat-cert.pub';
+    const cleanCertContent = (payload.certContent ?? '').trim();
+
+    // Smart partial update: if private_key or public_key is omitted, allow updating an existing bundle by id or name
     if (!privateKeyContent.trim() || !publicKeyContent.trim()) {
+      const lookupKey = payload.id || payload.name || '';
+      const existing = lookupKey ? store.findUserCertificateByIdOrName(user.id, lookupKey) : undefined;
+      if (existing) {
+        try {
+          const updated = applyPartialCertificateUpdate(existing, user.id, {
+            ...payload,
+            name: undefined, // keep matched name unless changed via PATCH /api/v1/certificates/:idOrName
+          });
+          res.status(200).json({
+            ok: true,
+            replaced: true,
+            updated: true,
+            certificate: serializeCertificate(updated),
+          });
+          return;
+        } catch (err) {
+          res.status(400).json({
+            error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
+          });
+          return;
+        }
+      }
+
       res.status(400).json({
         error:
-          'Erforderliche Felder fehlen: "private_key" (zertifikat) und "public_key" (zertifikat.pub). Optional: "cert" (zertifikat-cert.pub) und "name".',
+          'Für ein neues Paket sind "private_key" (zertifikat) und "public_key" (zertifikat.pub) erforderlich. Um nur zertifikat-cert.pub eines bestehenden Pakets zu tauschen, geben Sie dessen "name" an oder nutzen Sie PATCH /api/v1/certificates/<name-oder-id>.',
       });
       return;
     }
 
-    const cleanCertContent = certContent.trim();
     try {
       const metadata = validateAndParseCertificateBundle(
         privateKeyContent,
@@ -970,7 +1143,7 @@ async function startServer() {
         cleanCertContent
       );
       const effectiveName =
-        bundleName ||
+        payload.name ||
         metadata.keyId ||
         privateKeyFileName.replace(/\.(pem|key)$/i, '') ||
         'SSH-Zertifikat';
@@ -999,6 +1172,53 @@ async function startServer() {
       });
     }
   });
+
+  const handleApiV1UpdateCert = async (req: Request, res: Response) => {
+    const apiKey = extractApiKey(req);
+    const user = store.getUserByApiKey(apiKey);
+    if (!user) {
+      res.status(401).json({
+        error:
+          'Ungültiger oder fehlender API-Schlüssel. Senden Sie ihn als Header "X-API-Key: sshc_..." oder "Authorization: Bearer sshc_...".',
+      });
+      return;
+    }
+
+    const idOrName = decodeURIComponent(req.params.idOrName || '').trim();
+    const existing = store.findUserCertificateByIdOrName(user.id, idOrName);
+    if (!existing) {
+      res.status(404).json({
+        error: `Zertifikatspaket „${idOrName}“ nicht gefunden (nur eigene Pakete können bearbeitet werden).`,
+      });
+      return;
+    }
+
+    let payload: ParsedCertUpdatePayload;
+    try {
+      payload = await parseIncomingCertificatePayload(req);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Anfrage konnte nicht verarbeitet werden.',
+      });
+      return;
+    }
+
+    try {
+      const updated = applyPartialCertificateUpdate(existing, user.id, payload);
+      res.json({
+        ok: true,
+        updated: true,
+        certificate: serializeCertificate(updated),
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
+      });
+    }
+  };
+
+  app.patch('/api/v1/certificates/:idOrName', handleApiV1UpdateCert);
+  app.put('/api/v1/certificates/:idOrName', handleApiV1UpdateCert);
 
   // Execute SSH Command on One or Multiple Target IPs (own or admin-shared)
   app.post('/api/execute', requireAuth, async (req: AuthedRequest, res) => {
@@ -1236,6 +1456,88 @@ async function startServer() {
     res.json({ results: logs });
   });
 
+  // Interactive SSH Shell: issue short-lived one-time WebSocket ticket
+  app.post('/api/shell/ticket', requireAuth, (req: AuthedRequest, res) => {
+    const { serverId, ipAddress, port, sshUser, certificateId, cols, rows } = req.body ?? {};
+    if (typeof certificateId !== 'string' || !certificateId.trim()) {
+      res.status(400).json({ error: 'Bitte ein SSH-Zertifikatspaket auswählen.' });
+      return;
+    }
+    const certificate = store.getAccessibleCertificate(certificateId, req.user!.id);
+    if (!certificate) {
+      res.status(400).json({ error: 'Zertifikatspaket nicht gefunden oder keine Berechtigung.' });
+      return;
+    }
+
+    let targetIp = '';
+    let targetPort = 22;
+    let targetSshUser = req.user!.defaultSshUser || 'root';
+    let serverLabel = '';
+
+    if (typeof serverId === 'string' && serverId.trim()) {
+      const server = store.getAccessibleServer(serverId.trim(), req.user!.id);
+      if (!server) {
+        res.status(400).json({ error: 'Ausgewählter Server nicht gefunden oder keine Berechtigung.' });
+        return;
+      }
+      targetIp = server.ipAddress;
+      targetPort = server.port;
+      targetSshUser = server.sshUser;
+      serverLabel = server.label;
+      if (typeof sshUser === 'string' && sshUser.trim()) {
+        if (!validateSshUsername(sshUser)) {
+          res.status(400).json({ error: `Ungültiger SSH-Benutzername: ${sshUser}` });
+          return;
+        }
+        targetSshUser = sshUser.trim();
+      }
+    } else {
+      const rawIp = typeof ipAddress === 'string' ? ipAddress.trim() : '';
+      if (!validateTargetIp(rawIp)) {
+        res.status(400).json({ error: `Ungültige Ziel-IP-Adresse: ${rawIp || '(leer)'}` });
+        return;
+      }
+      const rawUser =
+        typeof sshUser === 'string' && sshUser.trim()
+          ? sshUser.trim()
+          : req.user!.defaultSshUser || 'root';
+      if (!validateSshUsername(rawUser)) {
+        res.status(400).json({ error: `Ungültiger SSH-Benutzername: ${rawUser}` });
+        return;
+      }
+      const parsedPort = Number(port);
+      targetIp = rawIp;
+      targetPort =
+        Number.isFinite(parsedPort) && parsedPort >= 1 && parsedPort <= 65535
+          ? Math.floor(parsedPort)
+          : 22;
+      targetSshUser = rawUser;
+      serverLabel = rawIp;
+    }
+
+    const ticket = issueShellTicket({
+      userId: req.user!.id,
+      username: req.user!.username,
+      serverLabel,
+      ipAddress: targetIp,
+      port: targetPort,
+      sshUser: targetSshUser,
+      certificateId: certificate.id,
+      cols: Number(cols) || 100,
+      rows: Number(rows) || 30,
+    });
+
+    res.json({
+      ticket,
+      targetIp,
+      targetPort,
+      sshUser: targetSshUser,
+      serverLabel,
+      certificateName: certificate.name,
+      opensshAvailable: Boolean(findOpenSshBinary()),
+    });
+  });
+
   // Execution History / Audit Logs
   app.get('/api/logs', requireAuth, (req: AuthedRequest, res) => {
     res.json({ logs: store.listLogs(req.user!) });
@@ -1290,7 +1592,9 @@ async function startServer() {
 
   pingMonitor.start();
   const PORT = 3000;
-  app.listen(PORT, '0.0.0.0', () => {
+  const httpServer = http.createServer(app);
+  attachSshShellWebSocket(httpServer);
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`SSH Console server listening on http://0.0.0.0:${PORT}`);
   });
 }

@@ -390,6 +390,46 @@ pub struct UploadCertBundleRequest {
     pub shared_with_user_ids: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCertBundleRequest {
+    #[serde(default, alias = "certificate_id", alias = "certificateId")]
+    pub id: Option<String>,
+    #[serde(default, alias = "label")]
+    pub name: Option<String>,
+    #[serde(default, alias = "private_key_file")]
+    pub private_key_file_name: Option<String>,
+    #[serde(default, alias = "public_key_file")]
+    pub public_key_file_name: Option<String>,
+    #[serde(default, alias = "cert_file")]
+    pub cert_file_name: Option<String>,
+    #[serde(default, alias = "private_key_content", alias = "private_key", alias = "privateKey", alias = "zertifikat", alias = "key")]
+    pub private_key_content: Option<String>,
+    #[serde(default, alias = "public_key_content", alias = "public_key", alias = "publicKey", alias = "zertifikat_pub", alias = "pub")]
+    pub public_key_content: Option<String>,
+    #[serde(default, alias = "cert_content", alias = "cert", alias = "certificate", alias = "cert_pub", alias = "zertifikat_cert")]
+    pub cert_content: Option<String>,
+    #[serde(default, alias = "remove_cert")]
+    pub remove_cert: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredCertificateForEdit {
+    pub id: String,
+    pub user_id: String,
+    pub owner_username: String,
+    pub name: String,
+    pub private_key_file_name: String,
+    pub public_key_file_name: String,
+    pub cert_file_name: String,
+    pub private_key_enc: Vec<u8>,
+    pub private_key_nonce: Vec<u8>,
+    pub public_key: String,
+    pub certificate: String,
+    pub shared_with_all: bool,
+    pub shared_with_user_ids: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerateTestCertRequest {
