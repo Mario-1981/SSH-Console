@@ -14,9 +14,13 @@ Built with a React + TypeScript frontend and a native **Rust (Axum + SQLite)** b
 - **Automated `curl` Upload API**: Generate personal API keys (`sshc_...`) and push short-lived or rotated SSH certificates directly from scripts or cron jobs via `POST /api/v1/certificates/upload` (supports `multipart/form-data` and JSON, automatically overwriting existing entries with the same name).
 - **60-Second Ping Dashboard & Batch Execution**: Monitors all target IPs every 60 seconds (ICMP ping with TCP fallback), displays live online/offline status and latency, and lets you assign commands per server or in bulk and execute them in parallel.
 - **BMC Management Support**: Store an optional BMC/IPMI/iDRAC/iLO IP per server with a direct `https://` link and one-click HTTPS Port `443` TLS reachability check.
-- **Privacy & Admin Sharing**: Accounts are created exclusively by administrators (no public self-registration). Commands, servers, and certificates are private to their creator by default; administrators can share their entries with all users or selected accounts without exposing encrypted private keys.
+- **Privacy, SSO, 2FA & Passkeys**:
+  - **OIDC / OAuth 2.0 SSO (PKCE S256)**: Connect any OIDC/OAuth 2.0 identity provider (Keycloak, Authentik, Microsoft Entra ID, Google Workspace, Okta, GitLab, etc.) with auto-discovery, optional automatic provisioning of new accounts with the standard `user` role, and an anti-lockout connection test gate required before disabling local login.
+  - **2FA for Local Login**: Administrators can enable and optionally enforce Two-Factor Authentication using **Authenticator Apps (TOTP + one-time recovery codes)** and/or **Hardware Security Keys (FIDO2 / WebAuthn)**.
+  - **Passkeys**: Administrators can enable and optionally enforce passwordless **Passkey (discoverable WebAuthn)** sign-in, with self-service management per user and one-click admin 2FA/Passkey reset.
+  - **Admin Sharing**: Commands, servers, and certificates are private to their creator by default; administrators can share their entries with all users or selected accounts without exposing encrypted private keys.
 - **Bilingual UI (German & English)**: Instant `DE / EN` switcher available on every screen.
-- **Audit Log**: Complete execution history with target, user, certificate key ID, OpenSSH invocation parameters, exit code, duration, `stdout`, and `stderr`.
+- **Audit Log**: Complete execution history with target, user, certificate key ID, OpenSSH invocation parameters, exit code, duration, `stdout`, and `stderr`. Users see only their own executions while administrators can view all logs.
 
 ---
 

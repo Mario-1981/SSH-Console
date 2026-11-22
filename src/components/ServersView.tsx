@@ -7,6 +7,7 @@ import {
   Share2,
   ExternalLink,
   ShieldCheck,
+  ShieldAlert,
   RefreshCw,
   CheckCircle2,
   XCircle,
@@ -18,13 +19,15 @@ import {
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
-import type { BmcCheckResult, User, UserServer } from '../types';
+import type { AppSettings, BmcCheckResult, User, UserServer } from '../types';
 
 interface ServersViewProps {
   user: User;
   users: User[];
   servers: UserServer[];
   globalPingAllowed?: boolean;
+  allowInsecureHostKey?: boolean;
+  onUpdateSettings?: (settings: AppSettings) => void;
   onRefresh: () => Promise<void>;
 }
 
@@ -39,6 +42,8 @@ export function ServersView({
   users,
   servers,
   globalPingAllowed = true,
+  allowInsecureHostKey = false,
+  onUpdateSettings,
   onRefresh,
 }: ServersViewProps) {
   const { locale, tr } = useI18n();
@@ -52,11 +57,14 @@ export function ServersView({
   const [sshUser, setSshUser] = useState(user.defaultSshUser || 'root');
   const [notes, setNotes] = useState('');
   const [pingEnabled, setPingEnabled] = useState(true);
+  const [ignoreHostKey, setIgnoreHostKey] = useState(false);
   const [shareOnCreate, setShareOnCreate] = useState(false);
   const [sharingServer, setSharingServer] = useState<UserServer | null>(null);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [togglingPingId, setTogglingPingId] = useState<string | null>(null);
+  const [togglingHostKeyId, setTogglingHostKeyId] = useState<string | null>(null);
+  const [togglingGlobalHostKey, setTogglingGlobalHostKey] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [checkingBmcKey, setCheckingBmcKey] = useState<string | null>(null);
   const [bmcResults, setBmcResults] = useState<Record<string, BmcCheckResult>>({});
@@ -86,6 +94,7 @@ export function ServersView({
     setSshUser(user.defaultSshUser || 'root');
     setNotes('');
     setPingEnabled(true);
+    setIgnoreHostKey(false);
     setShareOnCreate(false);
   }
 
@@ -100,6 +109,7 @@ export function ServersView({
     setSshUser(srv.sshUser);
     setNotes(srv.notes || '');
     setPingEnabled(srv.pingEnabled !== false);
+    setIgnoreHostKey(Boolean(srv.ignoreHostKey));
     setShareOnCreate(false);
   }
 
@@ -118,6 +128,7 @@ export function ServersView({
           sshUser: sshUser.trim() || 'root',
           notes: notes.trim(),
           pingEnabled,
+          ignoreHostKey,
         });
         // Clear stale BMC check results when IPs changed
         setBmcResults((prev) => {
@@ -136,6 +147,7 @@ export function ServersView({
           sshUser: sshUser.trim() || 'root',
           notes: notes.trim(),
           pingEnabled,
+          ignoreHostKey: allowInsecureHostKey ? ignoreHostKey : false,
           ...(isAdmin && shareOnCreate ? { sharedWithAll: true, sharedWithUserIds: [] } : {}),
         });
       }
@@ -187,6 +199,48 @@ export function ServersView({
     }
   }
 
+  async function handleToggleHostKey(srv: UserServer) {
+    setTogglingHostKeyId(srv.id);
+    setError(null);
+    try {
+      await api.updateServer(srv.id, { ignoreHostKey: !srv.ignoreHostKey });
+      await onRefresh();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr(
+              'Host-Key-Einstellung konnte nicht geändert werden.',
+              'Could not update host key setting.'
+            )
+      );
+    } finally {
+      setTogglingHostKeyId(null);
+    }
+  }
+
+  async function handleToggleGlobalHostKey() {
+    setTogglingGlobalHostKey(true);
+    setError(null);
+    try {
+      const res = await api.updateAdminAuthSettings({
+        allowInsecureHostKey: !allowInsecureHostKey,
+      });
+      onUpdateSettings?.(res.settings);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr(
+              'Globale Host-Key-Richtlinie konnte nicht geändert werden.',
+              'Could not update global host key policy.'
+            )
+      );
+    } finally {
+      setTogglingGlobalHostKey(false);
+    }
+  }
+
   async function handleDelete(id: string) {
     setDeletingId(id);
     setError(null);
@@ -227,6 +281,60 @@ export function ServersView({
       {error && (
         <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
           {error}
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="bg-white border border-slate-200 rounded-lg px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <ShieldAlert
+              className={`w-4 h-4 shrink-0 mt-0.5 ${
+                allowInsecureHostKey ? 'text-amber-600' : 'text-slate-500'
+              }`}
+            />
+            <div className="text-xs">
+              <p className="font-semibold text-slate-900">
+                {tr(
+                  'Admin-Richtlinie: Host-Key-Prüfung pro IP deaktivierbar',
+                  'Admin Policy: Allow disabling Host Key Checking per IP'
+                )}
+              </p>
+              <p className="text-slate-500 mt-0.5">
+                {allowInsecureHostKey
+                  ? tr(
+                      'Zugelassen: Benutzer dürfen pro IP „StrictHostKeyChecking=no“ und „UserKnownHostsFile=/dev/null“ aktivieren.',
+                      'Allowed: Users may enable StrictHostKeyChecking=no and UserKnownHostsFile=/dev/null per IP.'
+                    )
+                  : tr(
+                      'Verboten (Standard): Die Host-Key-Prüfung wird global für alle Benutzer und IPs erzwungen.',
+                      'Prohibited (default): Host key verification is globally enforced for all users and IPs.'
+                    )}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleToggleGlobalHostKey}
+            disabled={togglingGlobalHostKey}
+            className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 ${
+              allowInsecureHostKey
+                ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            {allowInsecureHostKey ? (
+              <>
+                <ShieldAlert className="w-3.5 h-3.5 text-amber-700" />
+                {tr('Global zugelassen (Verbieten)', 'Globally Allowed (Prohibit)')}
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                {tr('Global verboten (Zulassen)', 'Globally Prohibited (Allow)')}
+              </>
+            )}
+          </button>
         </div>
       )}
 
@@ -394,6 +502,36 @@ export function ServersView({
             </span>
           </label>
 
+          <label
+            className={`inline-flex items-center gap-2 text-xs ${
+              allowInsecureHostKey || ignoreHostKey
+                ? 'text-slate-700 cursor-pointer'
+                : 'text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={ignoreHostKey}
+              disabled={!allowInsecureHostKey && !ignoreHostKey}
+              onChange={(e) => setIgnoreHostKey(e.target.checked)}
+              className="rounded border-slate-300 text-amber-600 focus:ring-amber-600 disabled:opacity-50"
+            />
+            <span>
+              {tr(
+                'Host-Key-Prüfung deaktivieren',
+                'Disable Host Key Checking'
+              )}{' '}
+              <code className="font-mono text-[11px] text-slate-500">
+                (StrictHostKeyChecking=no, UserKnownHostsFile=/dev/null)
+              </code>
+              {!allowInsecureHostKey && (
+                <span className="text-amber-700 ml-1.5">
+                  ({tr('vom Admin global verboten', 'globally prohibited by admin')})
+                </span>
+              )}
+            </span>
+          </label>
+
           {isAdmin && !editingId && (
             <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
               <input
@@ -457,6 +595,7 @@ export function ServersView({
                   <th className="py-2.5 px-4">{tr('Server-IP · SSH', 'Server IP · SSH')}</th>
                   <th className="py-2.5 px-4">BMC (HTTPS :443)</th>
                   <th className="py-2.5 px-4">Ping</th>
+                  <th className="py-2.5 px-4">Host-Key</th>
                   <th className="py-2.5 px-4">{tr('Sichtbarkeit', 'Visibility')}</th>
                   <th className="py-2.5 px-4">{tr('Notiz', 'Notes')}</th>
                   <th className="py-2.5 px-6 text-right">{tr('Aktionen', 'Actions')}</th>
@@ -615,6 +754,68 @@ export function ServersView({
                                 {tr('Aus', 'Off')}
                               </>
                             )}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-xs whitespace-nowrap">
+                        {isOwner && allowInsecureHostKey ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleHostKey(srv)}
+                            disabled={togglingHostKeyId === srv.id}
+                            title={
+                              srv.ignoreHostKey
+                                ? tr(
+                                    'StrictHostKeyChecking=no & UserKnownHostsFile=/dev/null aktiv – klicken zum Aktivieren der Host-Key-Prüfung',
+                                    'StrictHostKeyChecking=no & UserKnownHostsFile=/dev/null active — click to re-enable host key checking'
+                                  )
+                                : tr(
+                                    'Host-Key-Prüfung aktiv (accept-new) – klicken für StrictHostKeyChecking=no & UserKnownHostsFile=/dev/null',
+                                    'Host key checking active (accept-new) — click to set StrictHostKeyChecking=no & UserKnownHostsFile=/dev/null'
+                                  )
+                            }
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
+                              srv.ignoreHostKey
+                                ? 'text-amber-900 bg-amber-100 hover:bg-amber-200'
+                                : 'text-slate-700 bg-slate-100 hover:bg-slate-200'
+                            }`}
+                          >
+                            {srv.ignoreHostKey ? (
+                              <>
+                                <ShieldAlert className="w-3 h-3 shrink-0 text-amber-700" />
+                                <span>{tr('Ignorieren', 'Bypass')}</span>
+                              </>
+                            ) : (
+                              <>
+                                <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-700" />
+                                <span>{tr('Prüfen', 'Verify')}</span>
+                              </>
+                            )}
+                          </button>
+                        ) : srv.ignoreHostKey && allowInsecureHostKey ? (
+                          <span
+                            title="StrictHostKeyChecking=no, UserKnownHostsFile=/dev/null"
+                            className="inline-flex items-center gap-1 font-medium text-amber-800"
+                          >
+                            <ShieldAlert className="w-3 h-3 shrink-0 text-amber-700" />
+                            {tr('Ignorieren', 'Bypass')}
+                          </span>
+                        ) : (
+                          <span
+                            title={
+                              srv.ignoreHostKey && !allowInsecureHostKey
+                                ? tr(
+                                    'Für diese IP vorgemerkt, aber global vom Admin verboten',
+                                    'Configured on this IP, but globally prohibited by admin'
+                                  )
+                                : 'StrictHostKeyChecking=accept-new'
+                            }
+                            className="inline-flex items-center gap-1 font-medium text-slate-600"
+                          >
+                            <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-700" />
+                            {srv.ignoreHostKey && !allowInsecureHostKey
+                              ? tr('Prüfen (Admin)', 'Verify (Admin)')
+                              : tr('Prüfen', 'Verify')}
                           </span>
                         )}
                       </td>

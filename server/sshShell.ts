@@ -18,6 +18,7 @@ export interface ShellTicketPayload {
   port: number;
   sshUser: string;
   certificateId: string;
+  ignoreHostKey: boolean;
   cols: number;
   rows: number;
 }
@@ -291,6 +292,10 @@ async function runSandboxPreviewShell(
   const principalAllowed =
     !hasCert || meta.principals.length === 0 || meta.principals.includes(ticket.sshUser);
 
+  const hostKeyArgs = ticket.ignoreHostKey
+    ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
+    : ['-o', 'StrictHostKeyChecking=accept-new'];
+
   const displayInvocation = [
     'ssh',
     '-tt',
@@ -303,8 +308,7 @@ async function runSandboxPreviewShell(
     'PasswordAuthentication=no',
     '-o',
     'KbdInteractiveAuthentication=no',
-    '-o',
-    'StrictHostKeyChecking=accept-new',
+    ...hostKeyArgs,
     '-o',
     'ConnectTimeout=10',
     '-p',
@@ -397,6 +401,9 @@ function startLiveOpenSshShell(
   let logged = false;
 
   const hasCert = Boolean(certificate.certContent && certificate.certContent.trim());
+  const hostKeyArgs = ticket.ignoreHostKey
+    ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
+    : ['-o', 'StrictHostKeyChecking=accept-new'];
   const displayInvocation = [
     'ssh',
     '-tt',
@@ -409,8 +416,7 @@ function startLiveOpenSshShell(
     'PasswordAuthentication=no',
     '-o',
     'KbdInteractiveAuthentication=no',
-    '-o',
-    'StrictHostKeyChecking=accept-new',
+    ...hostKeyArgs,
     '-o',
     'ConnectTimeout=10',
     '-p',
@@ -483,8 +489,7 @@ function startLiveOpenSshShell(
       'PasswordAuthentication=no',
       '-o',
       'KbdInteractiveAuthentication=no',
-      '-o',
-      'StrictHostKeyChecking=accept-new',
+      ...hostKeyArgs,
       '-o',
       'ConnectTimeout=10',
       '-o',

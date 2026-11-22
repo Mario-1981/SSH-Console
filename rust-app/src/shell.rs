@@ -27,6 +27,7 @@ pub struct ShellTicket {
     pub port: u16,
     pub ssh_user: String,
     pub certificate_id: String,
+    pub ignore_host_key: bool,
     pub cols: u16,
     pub rows: u16,
     pub expires_at: Instant,
@@ -72,6 +73,8 @@ pub struct ShellTicketRequest {
     pub ip_address: Option<String>,
     pub port: Option<u16>,
     pub ssh_user: Option<String>,
+    #[serde(alias = "ignore_host_key")]
+    pub ignore_host_key: Option<bool>,
     pub certificate_id: String,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
@@ -260,14 +263,20 @@ pub async fn handle_ssh_websocket(
         }
     };
 
+    let host_key_display = if ticket.ignore_host_key {
+        "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    } else {
+        "-o StrictHostKeyChecking=accept-new"
+    };
+
     let ssh_invocation = if has_cert {
         format!(
-            "ssh -tt -i zertifikat -o CertificateFile=zertifikat-cert.pub -o IdentitiesOnly=yes -p {} {}@{}",
+            "ssh -tt -i zertifikat -o CertificateFile=zertifikat-cert.pub -o IdentitiesOnly=yes {host_key_display} -p {} {}@{}",
             ticket.port, ticket.ssh_user, ticket.ip_address
         )
     } else {
         format!(
-            "ssh -tt -i zertifikat -o IdentitiesOnly=yes -p {} {}@{}",
+            "ssh -tt -i zertifikat -o IdentitiesOnly=yes {host_key_display} -p {} {}@{}",
             ticket.port, ticket.ssh_user, ticket.ip_address
         )
     };
@@ -292,10 +301,19 @@ pub async fn handle_ssh_websocket(
         .arg("-o")
         .arg("PasswordAuthentication=no")
         .arg("-o")
-        .arg("KbdInteractiveAuthentication=no")
-        .arg("-o")
-        .arg("StrictHostKeyChecking=accept-new")
-        .arg("-o")
+        .arg("KbdInteractiveAuthentication=no");
+
+    if ticket.ignore_host_key {
+        cmd.arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null");
+    } else {
+        cmd.arg("-o")
+            .arg("StrictHostKeyChecking=accept-new");
+    }
+
+    cmd.arg("-o")
         .arg("ConnectTimeout=10")
         .arg("-o")
         .arg("ServerAliveInterval=30")

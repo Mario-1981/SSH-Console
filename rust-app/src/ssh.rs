@@ -430,6 +430,7 @@ pub async fn run_ssh_command(
     command: &SshCommand,
     cert: &UserCertificateSecret,
     private_key_plain: Zeroizing<Vec<u8>>,
+    ignore_host_key: bool,
 ) -> Result<SshRunOutput, String> {
     let started = Instant::now();
     let tmp_dir = TempDir::new().map_err(|e| format!("TempDir-Fehler: {e}"))?;
@@ -452,14 +453,20 @@ pub async fn run_ssh_command(
             .map_err(|e| format!("Schreiben von zertifikat-cert.pub fehlgeschlagen: {e}"))?;
     }
 
+    let host_key_display = if ignore_host_key {
+        "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    } else {
+        "-o StrictHostKeyChecking=accept-new"
+    };
+
     let ssh_invocation = if has_cert {
         format!(
-            "ssh -i zertifikat -o CertificateFile=zertifikat-cert.pub -o IdentitiesOnly=yes -o BatchMode=yes -p {port} {ssh_user}@{ip} -- {}",
+            "ssh -i zertifikat -o CertificateFile=zertifikat-cert.pub -o IdentitiesOnly=yes -o BatchMode=yes {host_key_display} -p {port} {ssh_user}@{ip} -- {}",
             command.command
         )
     } else {
         format!(
-            "ssh -i zertifikat -o IdentitiesOnly=yes -o BatchMode=yes -p {port} {ssh_user}@{ip} -- {}",
+            "ssh -i zertifikat -o IdentitiesOnly=yes -o BatchMode=yes {host_key_display} -p {port} {ssh_user}@{ip} -- {}",
             command.command
         )
     };
@@ -483,10 +490,19 @@ pub async fn run_ssh_command(
         .arg("-o")
         .arg("PasswordAuthentication=no")
         .arg("-o")
-        .arg("KbdInteractiveAuthentication=no")
-        .arg("-o")
-        .arg("StrictHostKeyChecking=accept-new")
-        .arg("-o")
+        .arg("KbdInteractiveAuthentication=no");
+
+    if ignore_host_key {
+        cmd.arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null");
+    } else {
+        cmd.arg("-o")
+            .arg("StrictHostKeyChecking=accept-new");
+    }
+
+    cmd.arg("-o")
         .arg("ConnectTimeout=10")
         .arg("-p")
         .arg(port.to_string())

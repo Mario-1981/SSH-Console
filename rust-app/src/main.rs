@@ -1,4 +1,5 @@
 mod auth;
+mod auth_extra;
 mod crypto;
 mod db;
 mod models;
@@ -12,7 +13,7 @@ use axum::{
         WebSocketUpgrade,
     },
     http::{header, HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{Html, IntoResponse},
     routing::{delete, get, patch, post},
     Json, Router,
 };
@@ -42,6 +43,7 @@ pub(crate) struct AppState {
     ping: ping::SharedPingState,
     ping_notify: Arc<Notify>,
     shell_tickets: shell::ShellTicketStore,
+    auth_challenges: auth_extra::AuthChallengeStore,
 }
 
 type SharedState = Arc<AppState>;
@@ -50,6 +52,19 @@ type ApiError = (StatusCode, Json<serde_json::Value>);
 #[derive(Debug, Deserialize, Default)]
 struct ListCommandsQuery {
     all: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SsoUrlQuery {
+    mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SsoCallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
 }
 
 fn err_resp(status: StatusCode, msg: impl Into<String>) -> ApiError {
@@ -118,6 +133,199 @@ fn current_user(
     Ok((user, token))
 }
 
+fn require_security_compliant(user: &UserPublic) -> Result<(), ApiError> {
+    if user.must_setup_two_factor || user.must_setup_passkey {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Bitte richten Sie zuerst die vom Administrator vorgeschriebene 2FA bzw. den Passkey in Ihren Kontoeinstellungen ein.",
+                "code": "SECURITY_SETUP_REQUIRED",
+                "mustSetupTwoFactor": user.must_setup_two_factor,
+                "mustSetupPasskey": user.must_setup_passkey
+            })),
+        ));
+    }
+    Ok(())
+}
+
+fn current_compliant_user(
+    state: &SharedState,
+    jar: &CookieJar,
+    headers: &HeaderMap,
+) -> Result<(UserPublic, String), ApiError> {
+    let (user, token) = current_user(state, jar, headers)?;
+    require_security_compliant(&user)?;
+    Ok((user, token))
+}
+
+fn get_public_origin(headers: &HeaderMap) -> String {
+    if let Ok(env_url) = std::env::var("SSH_CONSOLE_PUBLIC_URL")
+        .or_else(|_| std::env::var("APP_URL"))
+    {
+        let clean = env_url.trim().trim_end_matches('/');
+        if clean.starts_with("http://") || clean.starts_with("https://") {
+            return clean.to_string();
+        }
+    }
+    if let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| s.starts_with("http://") || s.starts_with("https://"))
+    {
+        return origin.trim_end_matches('/').to_string();
+    }
+    let proto = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(str::trim)
+        .filter(|s| *s == "http" || *s == "https")
+        .unwrap_or("http");
+    let host = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(header::HOST))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("localhost:3000");
+    format!("{proto}://{host}")
+}
+
+fn get_sso_callback_url(headers: &HeaderMap) -> String {
+    format!("{}/api/auth/sso/callback", get_public_origin(headers))
+}
+
+fn get_webauthn_context(headers: &HeaderMap) -> (String, String) {
+    let origin = get_public_origin(headers);
+    let after_scheme = origin
+        .strip_prefix("https://")
+        .or_else(|| origin.strip_prefix("http://"))
+        .unwrap_or("localhost");
+    let host_port = after_scheme.split('/').next().unwrap_or("localhost");
+    let rp_id = if host_port.starts_with('[') {
+        host_port
+            .trim_start_matches('[')
+            .split(']')
+            .next()
+            .unwrap_or("localhost")
+            .to_lowercase()
+    } else {
+        host_port
+            .split(':')
+            .next()
+            .unwrap_or("localhost")
+            .to_lowercase()
+    };
+    (origin, rp_id)
+}
+
+fn serialize_public_settings(state: &SharedState) -> serde_json::Value {
+    let policy = state.db.get_auth_policy();
+    let sso_configured = policy.is_sso_configured();
+    let local_disabled =
+        policy.local_login_disabled && policy.sso_enabled && sso_configured && policy.sso_tested_at.is_some();
+    json!({
+        "instanceName": state.db.get_instance_name(),
+        "initializedAt": state.db.get_initialized_at(),
+        "pingAllowed": state.db.get_ping_allowed(),
+        "pingIntervalSec": state.db.get_ping_interval_sec(),
+        "ssoEnabled": policy.sso_enabled,
+        "ssoProviderName": policy.sso_provider_name,
+        "ssoAutoCreateUsers": policy.sso_auto_create_users,
+        "ssoConfigured": sso_configured,
+        "ssoTestedAt": policy.sso_tested_at,
+        "localLoginDisabled": local_disabled,
+        "twoFactorEnabled": policy.two_factor_enabled,
+        "twoFactorEnforced": policy.two_factor_enabled && policy.two_factor_enforced,
+        "passkeyEnabled": policy.passkey_enabled,
+        "passkeyEnforced": policy.passkey_enabled && policy.passkey_enforced,
+        "allowInsecureHostKey": policy.allow_insecure_host_key
+    })
+}
+
+fn serialize_admin_auth_settings(state: &SharedState, headers: &HeaderMap) -> serde_json::Value {
+    let policy = state.db.get_auth_policy();
+    let sso_configured = policy.is_sso_configured();
+    let local_disabled =
+        policy.local_login_disabled && policy.sso_enabled && sso_configured && policy.sso_tested_at.is_some();
+    json!({
+        "ssoEnabled": policy.sso_enabled,
+        "ssoProviderName": policy.sso_provider_name,
+        "ssoIssuerUrl": policy.sso_issuer_url,
+        "ssoAuthUrl": policy.sso_auth_url,
+        "ssoTokenUrl": policy.sso_token_url,
+        "ssoUserinfoUrl": policy.sso_userinfo_url,
+        "ssoClientId": policy.sso_client_id,
+        "ssoHasClientSecret": policy.sso_client_secret_enc.is_some(),
+        "ssoScopes": policy.sso_scopes,
+        "ssoAutoCreateUsers": policy.sso_auto_create_users,
+        "ssoConfigured": sso_configured,
+        "ssoTestedAt": policy.sso_tested_at,
+        "localLoginDisabled": local_disabled,
+        "twoFactorEnabled": policy.two_factor_enabled,
+        "twoFactorEnforced": policy.two_factor_enabled && policy.two_factor_enforced,
+        "passkeyEnabled": policy.passkey_enabled,
+        "passkeyEnforced": policy.passkey_enabled && policy.passkey_enforced,
+        "allowInsecureHostKey": policy.allow_insecure_host_key,
+        "callbackUrl": get_sso_callback_url(headers)
+    })
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn render_sso_callback_html(payload: serde_json::Value, title: &str, msg: &str) -> Html<String> {
+    let safe_json = serde_json::to_string(&payload)
+        .unwrap_or_else(|_| "{}".into())
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026");
+    let t = escape_html(title);
+    let m = escape_html(msg);
+    Html(format!(
+        r#"<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{t}</title>
+  <style>
+    body {{ font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 24px; }}
+    .card {{ background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px 28px; max-width: 460px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.4); }}
+    h1 {{ font-size: 18px; margin: 0 0 8px 0; }}
+    p {{ font-size: 14px; color: #94a3b8; margin: 0; line-height: 1.5; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>{t}</h1>
+    <p>{m}</p>
+  </div>
+  <script>
+    (function () {{
+      var data = {safe_json};
+      try {{
+        if (window.opener && !window.opener.closed) {{
+          window.opener.postMessage(data, window.location.origin);
+          window.close();
+          return;
+        }}
+      }} catch (e) {{}}
+      setTimeout(function () {{ window.location.replace('/'); }}, 900);
+    }})();
+  </script>
+</body>
+</html>"#
+    ))
+}
+
 fn require_admin(
     state: &SharedState,
     jar: &CookieJar,
@@ -147,12 +355,7 @@ async fn api_status(
     let user = current_user(&state, &jar, &headers).ok().map(|(u, _)| u);
     Json(json!({
         "initialized": initialized,
-        "settings": {
-            "instanceName": state.db.get_instance_name(),
-            "initializedAt": state.db.get_initialized_at(),
-            "pingAllowed": state.db.get_ping_allowed(),
-            "pingIntervalSec": state.db.get_ping_interval_sec()
-        },
+        "settings": serialize_public_settings(&state),
         "user": user,
         "opensshAvailable": Path::new("/usr/bin/ssh").exists()
     }))
@@ -200,12 +403,7 @@ async fn api_setup(
         jar.add(build_session_cookie(token.clone())),
         Json(json!({
             "user": user,
-            "settings": {
-                "instanceName": state.db.get_instance_name(),
-                "initializedAt": state.db.get_initialized_at(),
-                "pingAllowed": state.db.get_ping_allowed(),
-                "pingIntervalSec": state.db.get_ping_interval_sec()
-            },
+            "settings": serialize_public_settings(&state),
             "sessionToken": token
         })),
     ))
@@ -214,8 +412,21 @@ async fn api_setup(
 async fn api_login(
     State(state): State<SharedState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<(CookieJar, Json<serde_json::Value>), ApiError> {
+    let policy = state.db.get_auth_policy();
+    let local_disabled = policy.local_login_disabled
+        && policy.sso_enabled
+        && policy.is_sso_configured()
+        && policy.sso_tested_at.is_some();
+    if local_disabled {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Die lokale Anmeldung wurde vom Administrator deaktiviert. Bitte melden Sie sich über SSO an.",
+        ));
+    }
+
     let clean = req.username.trim().to_lowercase();
     let Some((user, hash)) = state
         .db
@@ -225,11 +436,72 @@ async fn api_login(
         return Err(err_resp(StatusCode::UNAUTHORIZED, "Ungültige Zugangsdaten."));
     };
 
+    if user.auth_provider == "sso" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Dieses Konto nutzt SSO. Bitte melden Sie sich über den SSO-Anbieter an.",
+        ));
+    }
+
     if !auth::verify_password(&req.password, &hash) {
         return Err(err_resp(StatusCode::UNAUTHORIZED, "Ungültige Zugangsdaten."));
     }
     if !user.active {
         return Err(err_resp(StatusCode::FORBIDDEN, "Benutzerkonto ist deaktiviert."));
+    }
+
+    if policy.passkey_enabled && policy.passkey_enforced && user.passkey_count > 0 {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Passkey-Anmeldung ist vorgeschrieben. Bitte nutzen Sie die Schaltfläche „Mit Passkey anmelden“.",
+                "code": "PASSKEY_REQUIRED"
+            })),
+        ));
+    }
+
+    if policy.two_factor_enabled && user.has_two_factor {
+        let sec_keys = state
+            .db
+            .list_webauthn_credentials(&user.id, Some("security-key"))
+            .unwrap_or_default();
+        let has_totp = user.totp_enabled;
+        let has_security_key = !sec_keys.is_empty();
+        let (origin, rp_id) = get_webauthn_context(&headers);
+        let (webauthn_challenge, webauthn_options) = if has_security_key {
+            let (_cid, challenge) = state.auth_challenges.store_webauthn_challenge(
+                Some(user.id.clone()),
+                "security-key",
+                "",
+                &rp_id,
+                &origin,
+            );
+            let allow_ids: Vec<String> = sec_keys.iter().map(|c| c.credential_id.clone()).collect();
+            let opts = auth_extra::build_webauthn_auth_options(
+                &rp_id,
+                &challenge,
+                Some(&allow_ids),
+                false,
+            );
+            (Some(challenge), Some(opts))
+        } else {
+            (None, None)
+        };
+        let ticket = state
+            .auth_challenges
+            .create_2fa_ticket(&user.id, webauthn_challenge);
+        return Ok((
+            jar,
+            Json(json!({
+                "requiresTwoFactor": true,
+                "ticket": ticket,
+                "methods": {
+                    "totp": has_totp,
+                    "securityKey": has_security_key
+                },
+                "webauthnOptions": webauthn_options
+            })),
+        ));
     }
 
     let token = state
@@ -243,6 +515,501 @@ async fn api_login(
     ))
 }
 
+async fn api_login_2fa(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<TwoFactorLoginRequest>,
+) -> Result<(CookieJar, Json<serde_json::Value>), ApiError> {
+    let ticket_clean = req.ticket.trim();
+    if ticket_clean.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "2FA-Anmeldeticket fehlt oder ist abgelaufen.",
+        ));
+    }
+    let Some(pending) = state.auth_challenges.peek_2fa_ticket(ticket_clean) else {
+        return Err(err_resp(
+            StatusCode::UNAUTHORIZED,
+            "Die 2FA-Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+        ));
+    };
+    let Some(user) = state
+        .db
+        .get_user_by_id(&pending.user_id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+    else {
+        state.auth_challenges.consume_2fa_ticket(ticket_clean);
+        return Err(err_resp(StatusCode::FORBIDDEN, "Benutzerkonto ist nicht verfügbar."));
+    };
+    if !user.active {
+        state.auth_challenges.consume_2fa_ticket(ticket_clean);
+        return Err(err_resp(StatusCode::FORBIDDEN, "Benutzerkonto ist deaktiviert."));
+    }
+
+    match req.method.as_str() {
+        "totp" => {
+            let code = req.code.as_deref().unwrap_or("");
+            let Some((enc, nonce)) = state
+                .db
+                .get_user_totp_secret_enc(&user.id)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            else {
+                return Err(err_resp(
+                    StatusCode::UNAUTHORIZED,
+                    "Authenticator-App ist nicht eingerichtet.",
+                ));
+            };
+            let plain_bytes = state
+                .vault
+                .decrypt(&enc, &nonce)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            let secret = String::from_utf8(plain_bytes.to_vec())
+                .map_err(|_| err_resp(StatusCode::INTERNAL_SERVER_ERROR, "TOTP-Schlüssel defekt."))?;
+            if !auth_extra::verify_totp_code(&secret, code) {
+                return Err(err_resp(
+                    StatusCode::UNAUTHORIZED,
+                    "Ungültiger Authenticator-Code. Bitte erneut versuchen.",
+                ));
+            }
+        }
+        "recovery" => {
+            let code = req.code.as_deref().unwrap_or("").trim();
+            if code.is_empty() {
+                return Err(err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Bitte geben Sie einen Wiederherstellungscode ein.",
+                ));
+            }
+            let hash = auth_extra::hash_recovery_code(code);
+            let ok = state
+                .db
+                .consume_recovery_code(&user.id, &hash)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            if !ok {
+                return Err(err_resp(
+                    StatusCode::UNAUTHORIZED,
+                    "Ungültiger oder bereits verwendeter Wiederherstellungscode.",
+                ));
+            }
+        }
+        "security-key" => {
+            let Some(expected_challenge) = pending.webauthn_challenge.as_deref() else {
+                return Err(err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Keine Sicherheitsschlüssel-Anfrage aktiv.",
+                ));
+            };
+            let Some(assertion) = req.assertion.as_ref() else {
+                return Err(err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Ungültige Sicherheitsschlüssel-Antwort.",
+                ));
+            };
+            let cred_id = assertion
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if cred_id.is_empty() {
+                return Err(err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Sicherheitsschlüssel-ID fehlt.",
+                ));
+            }
+            let Some(cred) = state
+                .db
+                .find_webauthn_by_cred_id(cred_id)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            else {
+                return Err(err_resp(
+                    StatusCode::UNAUTHORIZED,
+                    "Unbekannter Sicherheitsschlüssel.",
+                ));
+            };
+            if cred.user_id != user.id || cred.kind != "security-key" {
+                return Err(err_resp(
+                    StatusCode::UNAUTHORIZED,
+                    "Sicherheitsschlüssel gehört nicht zu diesem Benutzerkonto.",
+                ));
+            }
+            let (origin, rp_id) = get_webauthn_context(&headers);
+            let new_counter = auth_extra::verify_webauthn_authentication(
+                assertion,
+                expected_challenge,
+                &origin,
+                &rp_id,
+                &cred.public_key,
+                cred.counter,
+                false,
+            )
+            .await
+            .map_err(|e| err_resp(StatusCode::UNAUTHORIZED, e))?;
+            state.db.update_webauthn_usage(&cred.id, new_counter);
+        }
+        _ => {
+            return Err(err_resp(StatusCode::BAD_REQUEST, "Unbekannte 2FA-Methode."));
+        }
+    }
+
+    state.auth_challenges.consume_2fa_ticket(ticket_clean);
+    let token = state
+        .db
+        .create_session(&user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok((
+        jar.add(build_session_cookie(token.clone())),
+        Json(json!({ "user": user, "sessionToken": token })),
+    ))
+}
+
+async fn api_passkey_login_options(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if !state.db.is_initialized().unwrap_or(false) {
+        return Err(err_resp(
+            StatusCode::CONFLICT,
+            "Bitte schließen Sie zuerst die Admin-Ersteinrichtung ab.",
+        ));
+    }
+    let policy = state.db.get_auth_policy();
+    let local_disabled = policy.local_login_disabled
+        && policy.sso_enabled
+        && policy.is_sso_configured()
+        && policy.sso_tested_at.is_some();
+    if local_disabled {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Die lokale Anmeldung wurde deaktiviert. Bitte nutzen Sie SSO.",
+        ));
+    }
+    if !policy.passkey_enabled {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Passkey-Anmeldung ist vom Administrator nicht aktiviert.",
+        ));
+    }
+    let (origin, rp_id) = get_webauthn_context(&headers);
+    let (challenge_id, challenge) = state.auth_challenges.store_webauthn_challenge(
+        None,
+        "passkey-login",
+        "",
+        &rp_id,
+        &origin,
+    );
+    let options = auth_extra::build_webauthn_auth_options(&rp_id, &challenge, None, true);
+    Ok(Json(json!({
+        "challengeId": challenge_id,
+        "options": options
+    })))
+}
+
+async fn api_passkey_login_verify(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    Json(req): Json<PasskeyLoginVerifyRequest>,
+) -> Result<(CookieJar, Json<serde_json::Value>), ApiError> {
+    let policy = state.db.get_auth_policy();
+    let local_disabled = policy.local_login_disabled
+        && policy.sso_enabled
+        && policy.is_sso_configured()
+        && policy.sso_tested_at.is_some();
+    if local_disabled {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Die lokale Anmeldung wurde deaktiviert. Bitte nutzen Sie SSO.",
+        ));
+    }
+    if !policy.passkey_enabled {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Passkey-Anmeldung ist nicht aktiviert.",
+        ));
+    }
+    let Some(entry) = state
+        .auth_challenges
+        .consume_webauthn_challenge(req.challenge_id.trim())
+    else {
+        return Err(err_resp(
+            StatusCode::UNAUTHORIZED,
+            "Passkey-Anfrage ist abgelaufen. Bitte erneut versuchen.",
+        ));
+    };
+    if entry.kind != "passkey-login" {
+        return Err(err_resp(StatusCode::BAD_REQUEST, "Ungültige Passkey-Anfrage."));
+    }
+    let cred_id = req
+        .response
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let Some(cred) = state
+        .db
+        .find_webauthn_by_cred_id(cred_id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+    else {
+        return Err(err_resp(
+            StatusCode::UNAUTHORIZED,
+            "Dieser Passkey ist auf diesem Server nicht bekannt.",
+        ));
+    };
+    if cred.kind != "passkey" {
+        return Err(err_resp(
+            StatusCode::UNAUTHORIZED,
+            "Dieser Schlüssel ist kein Passkey.",
+        ));
+    }
+    let Some(user) = state
+        .db
+        .get_user_by_id(&cred.user_id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+    else {
+        return Err(err_resp(StatusCode::FORBIDDEN, "Benutzerkonto nicht gefunden."));
+    };
+    if !user.active {
+        return Err(err_resp(StatusCode::FORBIDDEN, "Benutzerkonto ist deaktiviert."));
+    }
+    let new_counter = auth_extra::verify_webauthn_authentication(
+        &req.response,
+        &entry.challenge,
+        &entry.origin,
+        &entry.rp_id,
+        &cred.public_key,
+        cred.counter,
+        true,
+    )
+    .await
+    .map_err(|e| err_resp(StatusCode::UNAUTHORIZED, e))?;
+
+    state.db.update_webauthn_usage(&cred.id, new_counter);
+    let token = state
+        .db
+        .create_session(&user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok((
+        jar.add(build_session_cookie(token.clone())),
+        Json(json!({ "user": user, "sessionToken": token })),
+    ))
+}
+
+async fn api_sso_url(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Query(q): Query<SsoUrlQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let mode = if q.mode.as_deref() == Some("test") {
+        "test"
+    } else {
+        "login"
+    };
+    let policy = state.db.get_auth_policy();
+    if mode == "test" {
+        let _admin = require_admin(&state, &jar, &headers)?;
+    } else if !policy.sso_enabled {
+        return Err(err_resp(StatusCode::FORBIDDEN, "SSO ist nicht aktiviert."));
+    }
+    if !policy.is_sso_configured() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "SSO ist nicht vollständig konfiguriert (Authorization-URL, Token-URL und Client-ID erforderlich).",
+        ));
+    }
+    let auth_ep = auth_extra::validate_external_url(&policy.sso_auth_url)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    let redirect_uri = get_sso_callback_url(&headers);
+    let (sso_state, code_challenge) = state
+        .auth_challenges
+        .create_sso_state(mode, &redirect_uri);
+
+    let sep = if auth_ep.contains('?') { '&' } else { '?' };
+    let scopes = if policy.sso_scopes.trim().is_empty() {
+        "openid profile email"
+    } else {
+        policy.sso_scopes.trim()
+    };
+    let full_url = format!(
+        "{auth_ep}{sep}response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method=S256",
+        auth_extra::url_encode(&policy.sso_client_id),
+        auth_extra::url_encode(&redirect_uri),
+        auth_extra::url_encode(scopes),
+        auth_extra::url_encode(&sso_state),
+        auth_extra::url_encode(&code_challenge),
+    );
+    Ok(Json(json!({
+        "url": full_url,
+        "callbackUrl": redirect_uri
+    })))
+}
+
+async fn api_sso_callback(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    Query(q): Query<SsoCallbackQuery>,
+) -> (CookieJar, Html<String>) {
+    if let Some(err_code) = q.error.as_deref().filter(|s| !s.is_empty()) {
+        let msg = q.error_description.as_deref().unwrap_or(err_code);
+        return (
+            jar,
+            render_sso_callback_html(
+                json!({ "type": "SSO_ERROR", "error": format!("SSO-Anbieter meldete Fehler: {msg}") }),
+                "SSO-Anmeldung fehlgeschlagen",
+                msg,
+            ),
+        );
+    }
+
+    let code = q.code.as_deref().unwrap_or("");
+    let st = q.state.as_deref().unwrap_or("");
+    if code.is_empty() || st.is_empty() {
+        return (
+            jar,
+            render_sso_callback_html(
+                json!({ "type": "SSO_ERROR", "error": "Ungültige SSO-Callback-Parameter (code/state fehlt)." }),
+                "SSO-Callback ungültig",
+                "Fehlende Parameter.",
+            ),
+        );
+    }
+
+    let Some(state_entry) = state.auth_challenges.consume_sso_state(st) else {
+        return (
+            jar,
+            render_sso_callback_html(
+                json!({ "type": "SSO_ERROR", "error": "SSO-Anfrage ist abgelaufen oder wurde bereits verwendet." }),
+                "SSO-Sitzung abgelaufen",
+                "Bitte starten Sie die Anmeldung erneut.",
+            ),
+        );
+    };
+
+    let policy = state.db.get_auth_policy();
+    let client_secret = match policy.sso_client_secret_enc {
+        Some((ref enc, ref nonce)) => match state.vault.decrypt(enc, nonce) {
+            Ok(bytes) => String::from_utf8(bytes.to_vec()).unwrap_or_default(),
+            Err(_) => String::new(),
+        },
+        None => String::new(),
+    };
+
+    let profile = match auth_extra::exchange_sso_code_for_profile(
+        &policy.sso_token_url,
+        &policy.sso_userinfo_url,
+        &policy.sso_client_id,
+        &client_secret,
+        code,
+        &state_entry.code_verifier,
+        &state_entry.redirect_uri,
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                jar,
+                render_sso_callback_html(
+                    json!({ "type": "SSO_ERROR", "error": e }),
+                    "SSO fehlgeschlagen",
+                    &e,
+                ),
+            );
+        }
+    };
+
+    if state_entry.mode == "test" {
+        match state.db.mark_sso_tested() {
+            Ok(updated) => {
+                let info = format!(
+                    "Verbindung bestätigt für {} ({}). Dieses Fenster schließt sich automatisch.",
+                    profile.display_name,
+                    if profile.email.is_empty() {
+                        &profile.username
+                    } else {
+                        &profile.email
+                    }
+                );
+                return (
+                    jar,
+                    render_sso_callback_html(
+                        json!({
+                            "type": "SSO_TEST_SUCCESS",
+                            "testedAt": updated.sso_tested_at,
+                            "profile": {
+                                "username": profile.username,
+                                "displayName": profile.display_name,
+                                "email": profile.email
+                            }
+                        }),
+                        "SSO-Test erfolgreich",
+                        &info,
+                    ),
+                );
+            }
+            Err(e) => {
+                return (
+                    jar,
+                    render_sso_callback_html(
+                        json!({ "type": "SSO_ERROR", "error": e }),
+                        "SSO-Test fehlgeschlagen",
+                        &e,
+                    ),
+                );
+            }
+        }
+    }
+
+    let mut rand_pw = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut rand_pw);
+    let dummy_hash = auth::hash_password(&hex::encode(rand_pw)).unwrap_or_default();
+    let (user, created) = match state.db.find_or_create_sso_user(
+        &profile.sub,
+        &profile.username,
+        &profile.display_name,
+        &profile.email,
+        &dummy_hash,
+    ) {
+        Ok(res) => res,
+        Err(e) => {
+            return (
+                jar,
+                render_sso_callback_html(
+                    json!({ "type": "SSO_ERROR", "error": e }),
+                    "SSO-Anmeldung abgelehnt",
+                    &e,
+                ),
+            );
+        }
+    };
+
+    match state.db.create_session(&user.id) {
+        Ok(token) => (
+            jar.add(build_session_cookie(token.clone())),
+            render_sso_callback_html(
+                json!({
+                    "type": "SSO_LOGIN_SUCCESS",
+                    "sessionToken": token,
+                    "created": created
+                }),
+                "SSO-Anmeldung erfolgreich",
+                &format!(
+                    "Angemeldet als {}. Dieses Fenster schließt sich automatisch.",
+                    user.display_name
+                ),
+            ),
+        ),
+        Err(e) => (
+            jar,
+            render_sso_callback_html(
+                json!({ "type": "SSO_ERROR", "error": e }),
+                "Sitzungsfehler",
+                &e,
+            ),
+        ),
+    }
+}
+
 async fn api_logout(
     State(state): State<SharedState>,
     jar: CookieJar,
@@ -254,6 +1021,410 @@ async fn api_logout(
     (jar.remove(Cookie::from(SESSION_COOKIE)), Json(json!({ "ok": true })))
 }
 
+async fn api_user_security(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let sec_keys: Vec<WebAuthnCredentialPublic> = state
+        .db
+        .list_webauthn_credentials(&user.id, Some("security-key"))
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .into_iter()
+        .map(|c| WebAuthnCredentialPublic {
+            id: c.id,
+            kind: c.kind,
+            name: c.name,
+            transports: c.transports,
+            created_at: c.created_at,
+            last_used_at: c.last_used_at,
+        })
+        .collect();
+    let passkeys: Vec<WebAuthnCredentialPublic> = state
+        .db
+        .list_webauthn_credentials(&user.id, Some("passkey"))
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .into_iter()
+        .map(|c| WebAuthnCredentialPublic {
+            id: c.id,
+            kind: c.kind,
+            name: c.name,
+            transports: c.transports,
+            created_at: c.created_at,
+            last_used_at: c.last_used_at,
+        })
+        .collect();
+    let remaining = state.db.get_user_recovery_count(&user.id);
+    Ok(Json(json!({
+        "totpEnabled": user.totp_enabled,
+        "recoveryCodesRemaining": remaining,
+        "securityKeys": sec_keys,
+        "passkeys": passkeys
+    })))
+}
+
+async fn api_totp_setup(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let policy = state.db.get_auth_policy();
+    if !policy.two_factor_enabled {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "2FA wurde vom Administrator nicht aktiviert.",
+        ));
+    }
+    if user.auth_provider == "sso" {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Lokale 2FA gilt nur für lokale Konten.",
+        ));
+    }
+    let secret = auth_extra::generate_totp_secret();
+    state.auth_challenges.store_pending_totp(&user.id, &secret);
+    let issuer = state.db.get_instance_name();
+    let uri = auth_extra::build_otpauth_uri(&issuer, &user.username, &secret);
+    Ok(Json(json!({
+        "secret": secret,
+        "otpauthUri": uri
+    })))
+}
+
+async fn api_totp_verify(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<TotpVerifyRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let Some(secret) = state.auth_challenges.consume_pending_totp(&user.id) else {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Die 2FA-Einrichtung ist abgelaufen. Bitte starten Sie den Vorgang erneut.",
+        ));
+    };
+    if !auth_extra::verify_totp_code(&secret, &req.code) {
+        // Put secret back so user can retry without rescanning
+        state.auth_challenges.store_pending_totp(&user.id, &secret);
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Der eingegebene 6-stellige Code ist ungültig.",
+        ));
+    }
+    let (enc, nonce) = state
+        .vault
+        .encrypt(secret.as_bytes())
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let (plain_codes, hashes) = auth_extra::generate_recovery_codes(8);
+    let updated = state
+        .db
+        .set_user_totp(&user.id, &enc, &nonce, &hashes)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Benutzer nicht gefunden."))?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "recoveryCodes": plain_codes,
+        "user": updated
+    })))
+}
+
+async fn api_totp_disable(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let policy = state.db.get_auth_policy();
+    if policy.two_factor_enabled && policy.two_factor_enforced && user.security_key_count == 0 {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "2FA ist vom Administrator vorgeschrieben. Registrieren Sie zuerst einen Sicherheitsschlüssel, bevor Sie die Authenticator-App entfernen.",
+        ));
+    }
+    let updated = state
+        .db
+        .disable_user_totp(&user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Benutzer nicht gefunden."))?;
+    Ok(Json(json!({ "ok": true, "user": updated })))
+}
+
+async fn api_webauthn_register_options(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<WebAuthnRegisterOptionsRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let policy = state.db.get_auth_policy();
+    let kind = if req.kind.as_deref() == Some("passkey") {
+        "passkey"
+    } else {
+        "security-key"
+    };
+    if kind == "security-key" && !policy.two_factor_enabled {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "2FA ist vom Administrator nicht aktiviert.",
+        ));
+    }
+    if kind == "passkey" && !policy.passkey_enabled {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Passkeys sind vom Administrator nicht aktiviert.",
+        ));
+    }
+    if user.auth_provider == "sso" {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Hardware-Schlüssel und Passkeys stehen nur für lokale Konten zur Verfügung.",
+        ));
+    }
+    let (origin, rp_id) = get_webauthn_context(&headers);
+    let existing = state
+        .db
+        .list_webauthn_credentials(&user.id, None)
+        .unwrap_or_default();
+    let exclude_ids: Vec<String> = existing.iter().map(|c| c.credential_id.clone()).collect();
+    let default_name = if kind == "passkey" {
+        "Passkey"
+    } else {
+        "Sicherheitsschlüssel"
+    };
+    let clean_name = req
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(default_name);
+    let (challenge_id, challenge) = state.auth_challenges.store_webauthn_challenge(
+        Some(user.id.clone()),
+        kind,
+        clean_name,
+        &rp_id,
+        &origin,
+    );
+    let rp_name = state.db.get_instance_name();
+    let options = auth_extra::build_webauthn_register_options(
+        &rp_name,
+        &rp_id,
+        &user.id,
+        &user.username,
+        &user.display_name,
+        &challenge,
+        kind,
+        &exclude_ids,
+    );
+    Ok(Json(json!({
+        "challengeId": challenge_id,
+        "options": options
+    })))
+}
+
+async fn api_webauthn_register_verify(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<WebAuthnRegisterVerifyRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let Some(entry) = state
+        .auth_challenges
+        .consume_webauthn_challenge(req.challenge_id.trim())
+    else {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Die Registrierungsanfrage ist abgelaufen. Bitte starten Sie erneut.",
+        ));
+    };
+    if entry.user_id.as_deref() != Some(user.id.as_str()) {
+        return Err(err_resp(StatusCode::FORBIDDEN, "Ungültige Challenge-Zuordnung."));
+    }
+    let is_passkey = entry.kind == "passkey";
+    let verified = auth_extra::verify_webauthn_registration(
+        &req.response,
+        &entry.challenge,
+        &entry.origin,
+        &entry.rp_id,
+        is_passkey,
+    )
+    .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    let final_name: String = req
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&entry.name)
+        .chars()
+        .take(64)
+        .collect();
+
+    let saved = state
+        .db
+        .add_webauthn_credential(
+            &user.id,
+            &entry.kind,
+            &final_name,
+            &verified.credential_id,
+            &verified.public_key_b64,
+            verified.counter,
+            &verified.transports,
+        )
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    let updated_user = state
+        .db
+        .get_user_by_id(&user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .unwrap_or(user);
+
+    Ok(Json(json!({
+        "ok": true,
+        "credential": saved,
+        "user": updated_user
+    })))
+}
+
+async fn api_webauthn_delete(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_user(&state, &jar, &headers)?;
+    let policy = state.db.get_auth_policy();
+    let creds = state
+        .db
+        .list_webauthn_credentials(&user.id, None)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let Some(target) = creds.iter().find(|c| c.id == id) else {
+        return Err(err_resp(StatusCode::NOT_FOUND, "Schlüssel nicht gefunden."));
+    };
+    if target.kind == "security-key"
+        && policy.two_factor_enabled
+        && policy.two_factor_enforced
+        && !user.totp_enabled
+        && user.security_key_count <= 1
+    {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "2FA ist vorgeschrieben. Der letzte Sicherheitsschlüssel kann nicht entfernt werden, solange keine Authenticator-App aktiv ist.",
+        ));
+    }
+    if target.kind == "passkey"
+        && policy.passkey_enabled
+        && policy.passkey_enforced
+        && user.passkey_count <= 1
+    {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Passkeys sind vorgeschrieben. Der letzte Passkey kann nicht entfernt werden.",
+        ));
+    }
+    let removed = state
+        .db
+        .delete_webauthn_credential(&id, &user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !removed {
+        return Err(err_resp(StatusCode::NOT_FOUND, "Schlüssel nicht gefunden."));
+    }
+    let updated_user = state
+        .db
+        .get_user_by_id(&user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .unwrap_or(user);
+    Ok(Json(json!({ "ok": true, "user": updated_user })))
+}
+
+async fn api_admin_reset_user_auth(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _admin = require_admin(&state, &jar, &headers)?;
+    let Some(updated) = state
+        .db
+        .reset_user_second_factors(&id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+    else {
+        return Err(err_resp(StatusCode::NOT_FOUND, "Benutzer nicht gefunden."));
+    };
+    Ok(Json(json!({ "ok": true, "user": updated })))
+}
+
+async fn api_admin_get_auth_settings(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _admin = require_admin(&state, &jar, &headers)?;
+    Ok(Json(json!({
+        "authSettings": serialize_admin_auth_settings(&state, &headers),
+        "settings": serialize_public_settings(&state)
+    })))
+}
+
+async fn api_admin_patch_auth_settings(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<AdminAuthSettingsPatchRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let admin = require_admin(&state, &jar, &headers)?;
+    for url_opt in [
+        req.sso_issuer_url.as_deref(),
+        req.sso_auth_url.as_deref(),
+        req.sso_token_url.as_deref(),
+        req.sso_userinfo_url.as_deref(),
+    ] {
+        if let Some(u) = url_opt {
+            if !u.trim().is_empty() {
+                auth_extra::validate_external_url(u)
+                    .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+            }
+        }
+    }
+    let encrypted_secret = match req.sso_client_secret.as_deref() {
+        Some(secret) if !secret.is_empty() => Some(
+            state
+                .vault
+                .encrypt(secret.as_bytes())
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?,
+        ),
+        _ => None,
+    };
+    state
+        .db
+        .update_auth_policy(&req, encrypted_secret)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    let refreshed_user = state.db.get_user_by_id(&admin.id).ok().flatten();
+    Ok(Json(json!({
+        "authSettings": serialize_admin_auth_settings(&state, &headers),
+        "settings": serialize_public_settings(&state),
+        "user": refreshed_user
+    })))
+}
+
+async fn api_admin_sso_discover(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<OidcDiscoverRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _admin = require_admin(&state, &jar, &headers)?;
+    let discovered = auth_extra::discover_oidc(&req.issuer_url)
+        .await
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(json!({ "discovered": discovered })))
+}
+
 async fn api_change_password(
     State(state): State<SharedState>,
     jar: CookieJar,
@@ -261,6 +1432,12 @@ async fn api_change_password(
     Json(req): Json<ChangePasswordRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, token) = current_user(&state, &jar, &headers)?;
+    if user.auth_provider == "sso" {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Für SSO-Konten wird das Passwort beim Identity-Provider verwaltet.",
+        ));
+    }
     let Some((_u, current_hash)) = state
         .db
         .find_user_for_login(&user.username)
@@ -453,7 +1630,7 @@ async fn api_list_commands(
     headers: HeaderMap,
     Query(query): Query<ListCommandsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let include_disabled_own = query.all.as_deref() == Some("1");
     let commands = state
         .db
@@ -468,7 +1645,7 @@ async fn api_create_command(
     headers: HeaderMap,
     Json(req): Json<CreateCommandRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     if req.name.trim().is_empty() {
         return Err(err_resp(StatusCode::BAD_REQUEST, "Bezeichnung ist ein Pflichtfeld."));
     }
@@ -528,7 +1705,7 @@ async fn api_update_command(
     AxumPath(id): AxumPath<String>,
     Json(req): Json<UpdateCommandRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let Some(existing) = state
         .db
         .get_command(&id)
@@ -612,7 +1789,7 @@ async fn api_load_presets(
     jar: CookieJar,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let own = state
         .db
         .list_own_commands(&user.id)
@@ -757,7 +1934,7 @@ async fn api_delete_command(
     headers: HeaderMap,
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     if let Some(existing) = state
         .db
         .get_command(&id)
@@ -782,7 +1959,7 @@ async fn api_list_servers(
     jar: CookieJar,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let servers = state
         .db
         .list_accessible_servers(&user.id)
@@ -796,7 +1973,7 @@ async fn api_create_server(
     headers: HeaderMap,
     Json(req): Json<CreateServerRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let ip = ssh::validate_ip(&req.ip_address).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
     let bmc_ip = match req.bmc_ip_address.as_deref().map(str::trim) {
         Some(v) if !v.is_empty() => {
@@ -824,6 +2001,14 @@ async fn api_create_server(
         Vec::new()
     };
     let ping_enabled = req.ping_enabled.unwrap_or(true);
+    let policy = state.db.get_auth_policy();
+    if req.ignore_host_key == Some(true) && !policy.allow_insecure_host_key {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Das Deaktivieren der Host-Key-Prüfung (StrictHostKeyChecking=no) ist global vom Administrator verboten.",
+        ));
+    }
+    let ignore_host_key = policy.allow_insecure_host_key && req.ignore_host_key.unwrap_or(false);
     let server = state
         .db
         .create_server(
@@ -837,6 +2022,7 @@ async fn api_create_server(
             &ssh_user,
             req.notes.as_deref().unwrap_or(""),
             ping_enabled,
+            ignore_host_key,
             shared_all,
             &shared_ids,
         )
@@ -865,7 +2051,7 @@ async fn api_update_server(
     AxumPath(id): AxumPath<String>,
     Json(req): Json<UpdateServerRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let Some(existing) = state
         .db
         .get_accessible_server(&id, &user.id)
@@ -915,6 +2101,17 @@ async fn api_update_server(
     let port = req.port.unwrap_or(existing.port).clamp(1, 65535);
     let notes = req.notes.unwrap_or(existing.notes);
     let ping_enabled = req.ping_enabled.unwrap_or(existing.ping_enabled);
+    let policy = state.db.get_auth_policy();
+    if req.ignore_host_key == Some(true)
+        && !existing.ignore_host_key
+        && !policy.allow_insecure_host_key
+    {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Das Deaktivieren der Host-Key-Prüfung (StrictHostKeyChecking=no) ist global vom Administrator verboten.",
+        ));
+    }
+    let ignore_host_key = req.ignore_host_key.unwrap_or(existing.ignore_host_key);
 
     let updated = state
         .db
@@ -929,6 +2126,7 @@ async fn api_update_server(
             &ssh_user,
             notes.trim(),
             ping_enabled,
+            ignore_host_key,
         )
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
         .ok_or_else(|| err_resp(StatusCode::FORBIDDEN, "Server konnte nicht aktualisiert werden."))?;
@@ -958,7 +2156,7 @@ async fn api_check_bmc(
     AxumPath(id): AxumPath<String>,
     body: Option<Json<CheckBmcRequest>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let Some(server) = state
         .db
         .get_accessible_server(&id, &user.id)
@@ -1015,7 +2213,7 @@ async fn api_delete_server(
     headers: HeaderMap,
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     state
         .db
         .delete_server(&id, &user.id)
@@ -1028,7 +2226,7 @@ async fn api_list_certs(
     jar: CookieJar,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let certs = state
         .db
         .list_accessible_certificates(&user.id)
@@ -1042,7 +2240,7 @@ async fn api_upload_cert(
     headers: HeaderMap,
     Json(req): Json<UploadCertBundleRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let clean_cert = req.cert_content.as_deref().unwrap_or("").trim();
     let inspection = ssh::inspect_certificate_bundle(
         &req.private_key_content,
@@ -1109,7 +2307,7 @@ async fn api_generate_test_cert(
     headers: HeaderMap,
     Json(req): Json<GenerateTestCertRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let key_id = req
         .key_id
         .as_deref()
@@ -1157,7 +2355,7 @@ async fn api_delete_cert(
     headers: HeaderMap,
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     state
         .db
         .delete_certificate(&id, &user.id)
@@ -1408,7 +2606,7 @@ async fn api_update_cert(
     AxumPath(id): AxumPath<String>,
     req: AxumRequest,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let owner = state
         .db
         .get_certificate_owner(&id)
@@ -1637,7 +2835,7 @@ async fn api_shell_ticket(
     headers: HeaderMap,
     Json(req): Json<shell::ShellTicketRequest>,
 ) -> Result<Json<shell::ShellTicketResponse>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let cert = state
         .db
         .get_accessible_certificate_secret(&req.certificate_id, &user.id)
@@ -1649,45 +2847,64 @@ async fn api_shell_ticket(
             )
         })?;
 
-    let (target_ip, target_port, ssh_user, server_label) = if let Some(server_id) = req
-        .server_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let srv = state
-            .db
-            .get_accessible_server(server_id, &user.id)
-            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
-            .ok_or_else(|| {
-                err_resp(
-                    StatusCode::BAD_REQUEST,
-                    "Ausgewählter Server nicht gefunden oder keine Berechtigung.",
-                )
-            })?;
-        let user_override = req
-            .ssh_user
+    let policy = state.db.get_auth_policy();
+    let (target_ip, target_port, ssh_user, server_label, ignore_host_key) =
+        if let Some(server_id) = req
+            .server_id
             .as_deref()
             .map(str::trim)
-            .filter(|s| !s.is_empty());
-        let effective_user = match user_override {
-            Some(u) => ssh::validate_ssh_user(u).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?,
-            None => srv.ssh_user.clone(),
+            .filter(|s| !s.is_empty())
+        {
+            let srv = state
+                .db
+                .get_accessible_server(server_id, &user.id)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+                .ok_or_else(|| {
+                    err_resp(
+                        StatusCode::BAD_REQUEST,
+                        "Ausgewählter Server nicht gefunden oder keine Berechtigung.",
+                    )
+                })?;
+            let user_override = req
+                .ssh_user
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let effective_user = match user_override {
+                Some(u) => {
+                    ssh::validate_ssh_user(u).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?
+                }
+                None => srv.ssh_user.clone(),
+            };
+            let effective_ignore = policy.allow_insecure_host_key && srv.ignore_host_key;
+            (
+                srv.ip_address,
+                srv.port,
+                effective_user,
+                srv.label,
+                effective_ignore,
+            )
+        } else {
+            let raw_ip = req.ip_address.as_deref().unwrap_or("");
+            let ip = ssh::validate_ip(raw_ip).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+            let port = req.port.unwrap_or(22).clamp(1, 65535);
+            let raw_user = req
+                .ssh_user
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(&user.default_ssh_user);
+            let valid_user = ssh::validate_ssh_user(raw_user)
+                .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+            if req.ignore_host_key == Some(true) && !policy.allow_insecure_host_key {
+                return Err(err_resp(
+                    StatusCode::FORBIDDEN,
+                    "Das Deaktivieren der Host-Key-Prüfung (StrictHostKeyChecking=no) ist global vom Administrator verboten.",
+                ));
+            }
+            let effective_ignore =
+                policy.allow_insecure_host_key && req.ignore_host_key.unwrap_or(false);
+            (ip.clone(), port, valid_user, ip, effective_ignore)
         };
-        (srv.ip_address, srv.port, effective_user, srv.label)
-    } else {
-        let raw_ip = req.ip_address.as_deref().unwrap_or("");
-        let ip = ssh::validate_ip(raw_ip).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
-        let port = req.port.unwrap_or(22).clamp(1, 65535);
-        let raw_user = req
-            .ssh_user
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or(&user.default_ssh_user);
-        let valid_user =
-            ssh::validate_ssh_user(raw_user).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
-        (ip.clone(), port, valid_user, ip)
-    };
 
     let token = state
         .shell_tickets
@@ -1699,6 +2916,7 @@ async fn api_shell_ticket(
             port: target_port,
             ssh_user: ssh_user.clone(),
             certificate_id: cert.id,
+            ignore_host_key,
             cols: req.cols.unwrap_or(100),
             rows: req.rows.unwrap_or(30),
             expires_at: std::time::Instant::now(),
@@ -1759,7 +2977,7 @@ async fn api_execute(
     headers: HeaderMap,
     Json(req): Json<ExecuteRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let cmd = state
         .db
         .get_accessible_command(&req.command_id, &user.id)
@@ -1776,15 +2994,22 @@ async fn api_execute(
         return Err(err_resp(StatusCode::BAD_REQUEST, "1 bis 20 Ziel-IPs zulässig."));
     }
 
+    let policy = state.db.get_auth_policy();
     let mut logs = Vec::new();
     for target in req.targets {
-        let (ip, port, ssh_user, label) = if let Some(srv_id) = target.server_id {
+        let (ip, port, ssh_user, label, ignore_host_key) = if let Some(srv_id) = target.server_id {
             let srv = state
                 .db
                 .get_accessible_server(&srv_id, &user.id)
                 .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
                 .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Server nicht gefunden."))?;
-            (srv.ip_address, srv.port, srv.ssh_user, srv.label)
+            (
+                srv.ip_address,
+                srv.port,
+                srv.ssh_user,
+                srv.label,
+                policy.allow_insecure_host_key && srv.ignore_host_key,
+            )
         } else {
             let ip = ssh::validate_ip(target.ip_address.as_deref().unwrap_or(""))
                 .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
@@ -1793,7 +3018,9 @@ async fn api_execute(
             )
             .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
             let lbl = ip.clone();
-            (ip, target.port.unwrap_or(22), ssh_u, lbl)
+            let ignore =
+                policy.allow_insecure_host_key && target.ignore_host_key.unwrap_or(false);
+            (ip, target.port.unwrap_or(22), ssh_u, lbl, ignore)
         };
 
         let plain_key = state
@@ -1801,9 +3028,17 @@ async fn api_execute(
             .decrypt(&cert.private_key_enc, &cert.private_key_nonce)
             .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-        let result = ssh::run_ssh_command(&ip, port, &ssh_user, &cmd, &cert, plain_key)
-            .await
-            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let result = ssh::run_ssh_command(
+            &ip,
+            port,
+            &ssh_user,
+            &cmd,
+            &cert,
+            plain_key,
+            ignore_host_key,
+        )
+        .await
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
         let cert_key_id = if cert.key_id.is_empty() {
             cert.name.clone()
@@ -1851,7 +3086,7 @@ async fn api_list_logs(
     headers: HeaderMap,
     Query(query): Query<ListLogsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let logs = state
         .db
         .list_logs(&user, query.user_id.as_deref())
@@ -1908,7 +3143,7 @@ async fn api_dashboard_status(
     jar: CookieJar,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     Ok(Json(build_dashboard_status_json(&state, &user).await?))
 }
 
@@ -1918,7 +3153,7 @@ async fn api_dashboard_ping(
     headers: HeaderMap,
     Json(req): Json<ManualPingRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     if !state.db.get_ping_allowed() {
         return Err(err_resp(
             StatusCode::FORBIDDEN,
@@ -1970,7 +3205,7 @@ async fn api_user_ping_settings(
     headers: HeaderMap,
     Json(req): Json<UserPingSettingsRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let updated_user = state
         .db
         .set_user_ping_enabled(&user.id, req.ping_enabled)
@@ -2024,12 +3259,7 @@ async fn api_admin_ping_settings(
 
     let dashboard_status = build_dashboard_status_json(&state, &admin).await?;
     Ok(Json(json!({
-        "settings": {
-            "instanceName": state.db.get_instance_name(),
-            "initializedAt": state.db.get_initialized_at(),
-            "pingAllowed": ping_allowed,
-            "pingIntervalSec": ping_interval_sec
-        },
+        "settings": serialize_public_settings(&state),
         "dashboardStatus": dashboard_status
     })))
 }
@@ -2040,7 +3270,7 @@ async fn api_execute_batch(
     headers: HeaderMap,
     Json(req): Json<BatchExecuteRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let (user, _) = current_user(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
     let cert = state
         .db
         .get_accessible_certificate_secret(&req.certificate_id, &user.id)
@@ -2051,6 +3281,7 @@ async fn api_execute_batch(
         return Err(err_resp(StatusCode::BAD_REQUEST, "1 bis 50 Aufträge zulässig."));
     }
 
+    let policy = state.db.get_auth_policy();
     let mut logs = Vec::new();
     for job in req.jobs {
         let srv = state
@@ -2069,9 +3300,18 @@ async fn api_execute_batch(
             .decrypt(&cert.private_key_enc, &cert.private_key_nonce)
             .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-        let result = ssh::run_ssh_command(&srv.ip_address, srv.port, &srv.ssh_user, &cmd, &cert, plain_key)
-            .await
-            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let ignore_host_key = policy.allow_insecure_host_key && srv.ignore_host_key;
+        let result = ssh::run_ssh_command(
+            &srv.ip_address,
+            srv.port,
+            &srv.ssh_user,
+            &cmd,
+            &cert,
+            plain_key,
+            ignore_host_key,
+        )
+        .await
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
         let cert_key_id = if cert.key_id.is_empty() {
             cert.name.clone()
@@ -2139,7 +3379,7 @@ async fn api_rust_project_files(
     jar: CookieJar,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _ = current_user(&state, &jar, &headers)?;
+    let _ = current_compliant_user(&state, &jar, &headers)?;
     let src_root = PathBuf::from(
         std::env::var("SSH_CONSOLE_SRC_DIR")
             .or_else(|_| std::env::var("TRIXIESSH_SRC_DIR"))
@@ -2185,6 +3425,7 @@ async fn main() {
         ping: ping_state,
         ping_notify,
         shell_tickets: shell::ShellTicketStore::default(),
+        auth_challenges: auth_extra::AuthChallengeStore::default(),
     });
 
     // Hintergrund-Task: Dynamisches Ping-Intervall mit Admin-Sperre & Pro-IP-Steuerung
@@ -2250,7 +3491,20 @@ async fn main() {
         .route("/api/status", get(api_status))
         .route("/api/setup", post(api_setup))
         .route("/api/auth/login", post(api_login))
+        .route("/api/auth/login/2fa", post(api_login_2fa))
+        .route("/api/auth/passkey/login/options", post(api_passkey_login_options))
+        .route("/api/auth/passkey/login/verify", post(api_passkey_login_verify))
+        .route("/api/auth/sso/url", get(api_sso_url))
+        .route("/api/auth/sso/callback", get(api_sso_callback))
+        .route("/api/auth/sso/callback/", get(api_sso_callback))
         .route("/api/auth/logout", post(api_logout))
+        .route("/api/auth/security", get(api_user_security))
+        .route("/api/auth/2fa/totp/setup", post(api_totp_setup))
+        .route("/api/auth/2fa/totp/verify", post(api_totp_verify))
+        .route("/api/auth/2fa/totp", delete(api_totp_disable))
+        .route("/api/auth/webauthn/register/options", post(api_webauthn_register_options))
+        .route("/api/auth/webauthn/register/verify", post(api_webauthn_register_verify))
+        .route("/api/auth/webauthn/:id", delete(api_webauthn_delete))
         .route("/api/auth/change-password", post(api_change_password))
         .route("/api/auth/api-keys", get(api_list_api_keys).post(api_create_api_key))
         .route("/api/auth/api-keys/:id", delete(api_delete_api_key))
@@ -2259,6 +3513,12 @@ async fn main() {
             "/api/admin/users/:id",
             patch(api_admin_update_user).delete(api_admin_delete_user),
         )
+        .route("/api/admin/users/:id/reset-auth", post(api_admin_reset_user_auth))
+        .route(
+            "/api/admin/auth/settings",
+            get(api_admin_get_auth_settings).patch(api_admin_patch_auth_settings),
+        )
+        .route("/api/admin/auth/sso/discover", post(api_admin_sso_discover))
         .route("/api/admin/ping-settings", patch(api_admin_ping_settings))
         .route("/api/commands", get(api_list_commands).post(api_create_command))
         .route("/api/commands/presets", post(api_load_presets))

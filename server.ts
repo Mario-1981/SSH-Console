@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -17,9 +18,38 @@ import {
   verifyPassword,
   type StoredApiKey,
   type StoredUser,
+  type StoredWebAuthnCredential,
   type UserCertificateBundle,
   type UserRole,
+  type WebAuthnCredentialKind,
 } from './server/store.ts';
+import {
+  buildOtpAuthUri,
+  generateRecoveryCodes,
+  generateTotpSecret,
+  hashRecoveryCode,
+  verifyTotpCode,
+} from './server/totp.ts';
+import {
+  consumePendingTotpSetup,
+  consumeSsoState,
+  consumeTwoFactorTicket,
+  consumeWebAuthnChallenge,
+  createSsoState,
+  createTwoFactorTicket,
+  createWebAuthnAuthenticationOptions,
+  createWebAuthnRegistrationOptions,
+  discoverOidcConfiguration,
+  exchangeSsoCodeForProfile,
+  getSsoCallbackUrl,
+  getWebAuthnContext,
+  peekTwoFactorTicket,
+  storePendingTotpSetup,
+  storeWebAuthnChallenge,
+  validateExternalEndpointUrl,
+  verifyWebAuthnAuthentication,
+  verifyWebAuthnRegistration,
+} from './server/authSecurity.ts';
 import { parseMultipartFormData } from './server/multipart.ts';
 import { buildRustProjectTarGz } from './server/tarBuilder.ts';
 import { buildDebianPackage } from './server/debBuilder.ts';
@@ -119,18 +149,133 @@ function sanitizeApiKey(k: StoredApiKey) {
   };
 }
 
+function sanitizeWebAuthnCredential(c: StoredWebAuthnCredential) {
+  return {
+    id: c.id,
+    kind: c.kind,
+    name: c.name,
+    transports: c.transports,
+    createdAt: c.createdAt,
+    lastUsedAt: c.lastUsedAt,
+  };
+}
+
+function serializePublicSettings() {
+  const s = store.getSettings();
+  return {
+    instanceName: s.instanceName,
+    initializedAt: s.initializedAt,
+    pingAllowed: s.pingAllowed,
+    pingIntervalSec: s.pingIntervalSec,
+    ssoEnabled: s.ssoEnabled,
+    ssoProviderName: s.ssoProviderName || 'SSO',
+    ssoAutoCreateUsers: s.ssoAutoCreateUsers,
+    ssoConfigured: store.isSsoConfigured(),
+    ssoTestedAt: s.ssoTestedAt,
+    localLoginDisabled: s.localLoginDisabled,
+    twoFactorEnabled: s.twoFactorEnabled,
+    twoFactorEnforced: s.twoFactorEnforced,
+    passkeyEnabled: s.passkeyEnabled,
+    passkeyEnforced: s.passkeyEnforced,
+    allowInsecureHostKey: s.allowInsecureHostKey,
+  };
+}
+
+function serializeAdminAuthSettings(req: Request) {
+  const s = store.getSettings();
+  return {
+    ssoEnabled: s.ssoEnabled,
+    ssoProviderName: s.ssoProviderName || 'SSO',
+    ssoIssuerUrl: s.ssoIssuerUrl,
+    ssoAuthUrl: s.ssoAuthUrl,
+    ssoTokenUrl: s.ssoTokenUrl,
+    ssoUserinfoUrl: s.ssoUserinfoUrl,
+    ssoClientId: s.ssoClientId,
+    ssoHasClientSecret: Boolean(s.ssoClientSecretEncrypted),
+    ssoScopes: s.ssoScopes || 'openid profile email',
+    ssoAutoCreateUsers: s.ssoAutoCreateUsers,
+    ssoConfigured: store.isSsoConfigured(),
+    ssoTestedAt: s.ssoTestedAt,
+    localLoginDisabled: s.localLoginDisabled,
+    twoFactorEnabled: s.twoFactorEnabled,
+    twoFactorEnforced: s.twoFactorEnforced,
+    passkeyEnabled: s.passkeyEnabled,
+    passkeyEnforced: s.passkeyEnforced,
+    allowInsecureHostKey: s.allowInsecureHostKey,
+    callbackUrl: getSsoCallbackUrl(req),
+  };
+}
+
 function sanitizeUser(u: StoredUser) {
+  const settings = store.getSettings();
+  const securityKeyCount = store.listUserWebAuthnCredentials(u.id, 'security-key').length;
+  const passkeyCount = store.listUserWebAuthnCredentials(u.id, 'passkey').length;
+  const hasTwoFactor = Boolean(u.totpEnabled || securityKeyCount > 0);
+  const authProvider = u.authProvider || 'local';
+  const isLocal = authProvider === 'local';
+  const mustSetupTwoFactor =
+    isLocal && settings.twoFactorEnabled && settings.twoFactorEnforced && !hasTwoFactor;
+  const mustSetupPasskey =
+    isLocal && settings.passkeyEnabled && settings.passkeyEnforced && passkeyCount === 0;
+
   return {
     id: u.id,
     username: u.username,
     displayName: u.displayName,
     role: u.role,
+    authProvider,
+    email: u.email || '',
     defaultSshUser: u.defaultSshUser,
     active: u.active,
     pingEnabled: u.pingEnabled !== false,
+    totpEnabled: Boolean(u.totpEnabled),
+    securityKeyCount,
+    passkeyCount,
+    hasTwoFactor,
+    mustSetupTwoFactor,
+    mustSetupPasskey,
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt,
   };
+}
+
+function renderSsoCallbackPage(payload: Record<string, unknown>, title: string, message: string): string {
+  const safeJson = JSON.stringify(payload).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  const escapedTitle = title.replace(/[<>&"]/g, '');
+  const escapedMsg = message.replace(/[<>&"]/g, '');
+  return `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapedTitle}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 24px; }
+    .card { max-width: 420px; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; text-align: center; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    p { font-size: 14px; color: #94a3b8; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${escapedTitle}</h1>
+    <p>${escapedMsg}</p>
+  </div>
+  <script>
+    (function () {
+      var data = ${safeJson};
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(data, window.location.origin);
+          window.close();
+          return;
+        }
+      } catch (e) {}
+      setTimeout(function () { window.location.replace('/'); }, 900);
+    })();
+  </script>
+</body>
+</html>`;
 }
 
 function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
@@ -142,6 +287,23 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   }
   req.user = user;
   req.sessionToken = token;
+  next();
+}
+
+function requireSecurityCompliant(req: AuthedRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    res.status(401).json({ error: 'Anmeldung erforderlich.' });
+    return;
+  }
+  const summary = sanitizeUser(req.user);
+  if (summary.mustSetupTwoFactor || summary.mustSetupPasskey) {
+    res.status(403).json({
+      error:
+        'Bitte schließen Sie zuerst die vorgeschriebene Einrichtung von 2FA bzw. Passkey unter Konto & Sicherheit ab.',
+      code: 'SECURITY_SETUP_REQUIRED',
+    });
+    return;
+  }
   next();
 }
 
@@ -253,7 +415,7 @@ async function startServer() {
     const user = store.getUserBySessionToken(token);
     res.json({
       initialized,
-      settings: store.getSettings(),
+      settings: serializePublicSettings(),
       user: user ? sanitizeUser(user) : null,
       opensshAvailable: Boolean(findOpenSshBinary()),
     });
@@ -289,7 +451,7 @@ async function startServer() {
       setSessionCookie(req, res, session.token);
       res.status(201).json({
         user: sanitizeUser(admin),
-        settings: store.getSettings(),
+        settings: serializePublicSettings(),
         sessionToken: session.token,
       });
     } catch (err) {
@@ -297,10 +459,17 @@ async function startServer() {
     }
   });
 
-  // Login (no public registration)
-  app.post('/api/auth/login', (req: Request, res: Response) => {
+  // Local Login (no public registration; respects localLoginDisabled, Passkey enforcement, and 2FA)
+  app.post('/api/auth/login', async (req: Request, res: Response) => {
     if (!store.isInitialized()) {
       res.status(409).json({ error: 'Bitte schließen Sie zuerst die Admin-Ersteinrichtung ab.' });
+      return;
+    }
+    const settings = store.getSettings();
+    if (settings.localLoginDisabled) {
+      res.status(403).json({
+        error: 'Die lokale Anmeldung ist deaktiviert. Bitte melden Sie sich über SSO an.',
+      });
       return;
     }
     const { username, password } = req.body ?? {};
@@ -310,12 +479,59 @@ async function startServer() {
     }
 
     const user = store.findUserByUsername(username);
-    if (!user || !verifyPassword(password, user.passwordSalt, user.passwordHash)) {
+    if (!user) {
+      res.status(401).json({ error: 'Ungültiger Benutzername oder falsches Passwort.' });
+      return;
+    }
+    if ((user.authProvider || 'local') === 'sso') {
+      res.status(403).json({
+        error: 'Dieses Konto nutzt SSO. Bitte melden Sie sich über den SSO-Anbieter an.',
+      });
+      return;
+    }
+    if (!verifyPassword(password, user.passwordSalt, user.passwordHash)) {
       res.status(401).json({ error: 'Ungültiger Benutzername oder falsches Passwort.' });
       return;
     }
     if (!user.active) {
       res.status(403).json({ error: 'Dieses Benutzerkonto wurde vom Administrator deaktiviert.' });
+      return;
+    }
+
+    // If Passkeys are enforced and the user already has a Passkey, require Passkey login
+    const passkeyCount = store.listUserWebAuthnCredentials(user.id, 'passkey').length;
+    if (settings.passkeyEnabled && settings.passkeyEnforced && passkeyCount > 0) {
+      res.status(403).json({
+        error:
+          'Passkey-Anmeldung ist vorgeschrieben. Bitte nutzen Sie die Schaltfläche „Mit Passkey anmelden“.',
+        code: 'PASSKEY_REQUIRED',
+      });
+      return;
+    }
+
+    // If 2FA is enabled and the user has TOTP or a Security Key configured, start step 2
+    const securityKeys = store.listUserWebAuthnCredentials(user.id, 'security-key');
+    const hasTotp = Boolean(user.totpEnabled);
+    const hasSecurityKey = securityKeys.length > 0;
+    if (settings.twoFactorEnabled && (hasTotp || hasSecurityKey)) {
+      const { rpId } = getWebAuthnContext(req);
+      const webauthnOptions = hasSecurityKey
+        ? await createWebAuthnAuthenticationOptions({
+            rpId,
+            allowCredentials: securityKeys,
+            requireUserVerification: false,
+          })
+        : null;
+      const ticket = createTwoFactorTicket(user.id, webauthnOptions?.challenge);
+      res.json({
+        requiresTwoFactor: true,
+        ticket,
+        methods: {
+          totp: hasTotp,
+          securityKey: hasSecurityKey,
+        },
+        webauthnOptions,
+      });
       return;
     }
 
@@ -327,11 +543,553 @@ async function startServer() {
     });
   });
 
+  // Local Login Step 2: Verify 2FA (Authenticator App TOTP, Recovery Code, or Hardware Security Key)
+  app.post('/api/auth/login/2fa', async (req: Request, res: Response) => {
+    const { ticket, method, code, assertion } = req.body ?? {};
+    if (typeof ticket !== 'string' || !ticket.trim()) {
+      res.status(400).json({ error: '2FA-Anmeldeticket fehlt oder ist abgelaufen.' });
+      return;
+    }
+    const pending = peekTwoFactorTicket(ticket.trim());
+    if (!pending) {
+      res.status(401).json({ error: 'Die 2FA-Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.' });
+      return;
+    }
+    const user = store.findUserById(pending.userId);
+    if (!user || !user.active) {
+      consumeTwoFactorTicket(ticket.trim());
+      res.status(403).json({ error: 'Benutzerkonto ist nicht verfügbar.' });
+      return;
+    }
+
+    if (method === 'totp') {
+      const secret = store.getUserTotpSecretPlain(user.id);
+      if (!secret || typeof code !== 'string' || !verifyTotpCode(secret, code)) {
+        res.status(401).json({ error: 'Ungültiger Authenticator-Code. Bitte erneut versuchen.' });
+        return;
+      }
+    } else if (method === 'recovery') {
+      if (typeof code !== 'string' || !code.trim()) {
+        res.status(400).json({ error: 'Bitte geben Sie einen Wiederherstellungscode ein.' });
+        return;
+      }
+      const ok = store.consumeRecoveryCode(user.id, hashRecoveryCode(code));
+      if (!ok) {
+        res.status(401).json({ error: 'Ungültiger oder bereits verwendeter Wiederherstellungscode.' });
+        return;
+      }
+    } else if (method === 'security-key') {
+      if (!pending.webauthnChallenge || !assertion || typeof assertion.id !== 'string') {
+        res.status(400).json({ error: 'Ungültige Sicherheitsschlüssel-Antwort.' });
+        return;
+      }
+      const cred = store.findWebAuthnCredentialByCredId(assertion.id);
+      if (!cred || cred.userId !== user.id || cred.kind !== 'security-key') {
+        res.status(401).json({ error: 'Sicherheitsschlüssel gehört nicht zu diesem Benutzerkonto.' });
+        return;
+      }
+      const { origin, rpId } = getWebAuthnContext(req);
+      try {
+        const result = await verifyWebAuthnAuthentication({
+          response: assertion,
+          expectedChallenge: pending.webauthnChallenge,
+          expectedOrigin: origin,
+          expectedRPID: rpId,
+          credential: cred,
+          requireUserVerification: false,
+        });
+        store.updateWebAuthnCredentialUsage(cred.id, result.newCounter);
+      } catch (err) {
+        res.status(401).json({
+          error:
+            err instanceof Error
+              ? err.message
+              : 'Sicherheitsschlüssel konnte nicht verifiziert werden.',
+        });
+        return;
+      }
+    } else {
+      res.status(400).json({ error: 'Unbekannte 2FA-Methode.' });
+      return;
+    }
+
+    consumeTwoFactorTicket(ticket.trim());
+    const session = store.createSession(user.id);
+    setSessionCookie(req, res, session.token);
+    res.json({
+      user: sanitizeUser(user),
+      sessionToken: session.token,
+    });
+  });
+
+  // Passkey Passwordless Login
+  app.post('/api/auth/passkey/login/options', async (req: Request, res: Response) => {
+    if (!store.isInitialized()) {
+      res.status(409).json({ error: 'Bitte schließen Sie zuerst die Admin-Ersteinrichtung ab.' });
+      return;
+    }
+    const settings = store.getSettings();
+    if (settings.localLoginDisabled) {
+      res.status(403).json({ error: 'Die lokale Anmeldung ist deaktiviert. Bitte nutzen Sie SSO.' });
+      return;
+    }
+    if (!settings.passkeyEnabled) {
+      res.status(403).json({ error: 'Passkeys sind vom Administrator nicht aktiviert.' });
+      return;
+    }
+    const { origin, rpId } = getWebAuthnContext(req);
+    const options = await createWebAuthnAuthenticationOptions({
+      rpId,
+      requireUserVerification: true,
+    });
+    const challengeId = storeWebAuthnChallenge({
+      challenge: options.challenge,
+      kind: 'passkey-login',
+      rpId,
+      origin,
+    });
+    res.json({ challengeId, options });
+  });
+
+  app.post('/api/auth/passkey/login/verify', async (req: Request, res: Response) => {
+    const settings = store.getSettings();
+    if (settings.localLoginDisabled || !settings.passkeyEnabled) {
+      res.status(403).json({ error: 'Passkey-Anmeldung ist derzeit nicht verfügbar.' });
+      return;
+    }
+    const { challengeId, response } = req.body ?? {};
+    if (typeof challengeId !== 'string' || !response || typeof response.id !== 'string') {
+      res.status(400).json({ error: 'Ungültige Passkey-Anmeldedaten.' });
+      return;
+    }
+    const challenge = consumeWebAuthnChallenge(challengeId);
+    if (!challenge || challenge.kind !== 'passkey-login') {
+      res.status(401).json({ error: 'Passkey-Challenge ist abgelaufen. Bitte erneut versuchen.' });
+      return;
+    }
+    const cred = store.findWebAuthnCredentialByCredId(response.id);
+    if (!cred || cred.kind !== 'passkey') {
+      res.status(401).json({ error: 'Unbekannter Passkey.' });
+      return;
+    }
+    const user = store.findUserById(cred.userId);
+    if (!user || !user.active) {
+      res.status(403).json({ error: 'Das zugehörige Benutzerkonto ist deaktiviert.' });
+      return;
+    }
+
+    try {
+      const result = await verifyWebAuthnAuthentication({
+        response,
+        expectedChallenge: challenge.challenge,
+        expectedOrigin: challenge.origin,
+        expectedRPID: challenge.rpId,
+        credential: cred,
+        requireUserVerification: true,
+      });
+      store.updateWebAuthnCredentialUsage(cred.id, result.newCounter);
+      const session = store.createSession(user.id);
+      setSessionCookie(req, res, session.token);
+      res.json({
+        user: sanitizeUser(user),
+        sessionToken: session.token,
+      });
+    } catch (err) {
+      res.status(401).json({
+        error: err instanceof Error ? err.message : 'Passkey konnte nicht verifiziert werden.',
+      });
+    }
+  });
+
+  // OIDC / OAuth 2.0 SSO (Popup Authorization URL + Callback for both login & admin test gate)
+  app.get('/api/auth/sso/url', (req: Request, res: Response) => {
+    const mode = req.query.mode === 'test' ? 'test' : 'login';
+    const settings = store.getSettings();
+    let adminUserId: string | undefined;
+
+    if (mode === 'test') {
+      const token = extractSessionToken(req);
+      const admin = store.getUserBySessionToken(token);
+      if (!admin || admin.role !== 'admin') {
+        res.status(403).json({ error: 'Nur Administratoren können einen SSO-Test starten.' });
+        return;
+      }
+      adminUserId = admin.id;
+    } else if (!settings.ssoEnabled) {
+      res.status(403).json({ error: 'SSO ist nicht aktiviert.' });
+      return;
+    }
+
+    if (!store.isSsoConfigured()) {
+      res.status(400).json({
+        error: 'SSO ist nicht vollständig konfiguriert (Authorization-URL, Token-URL und Client-ID erforderlich).',
+      });
+      return;
+    }
+
+    let authEndpoint: string;
+    try {
+      authEndpoint = validateExternalEndpointUrl(settings.ssoAuthUrl);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Ungültige SSO Authorization-URL.' });
+      return;
+    }
+
+    const redirectUri = getSsoCallbackUrl(req);
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const { state, codeChallenge } = createSsoState({
+      mode,
+      adminUserId,
+      codeVerifier,
+      redirectUri,
+    });
+
+    const url = new URL(authEndpoint);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', settings.ssoClientId);
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('scope', settings.ssoScopes || 'openid profile email');
+    url.searchParams.set('state', state);
+    url.searchParams.set('code_challenge', codeChallenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+
+    res.json({
+      url: url.toString(),
+      callbackUrl: redirectUri,
+    });
+  });
+
+  const handleSsoCallback = async (req: Request, res: Response) => {
+    const errorParam = typeof req.query.error === 'string' ? req.query.error : '';
+    const errorDesc =
+      typeof req.query.error_description === 'string' ? req.query.error_description : '';
+    if (errorParam) {
+      const msg = errorDesc || errorParam;
+      res
+        .status(200)
+        .type('html')
+        .send(
+          renderSsoCallbackPage(
+            { type: 'SSO_ERROR', error: `SSO-Anbieter meldete Fehler: ${msg}` },
+            'SSO-Anmeldung fehlgeschlagen',
+            msg
+          )
+        );
+      return;
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    if (!code || !state) {
+      res
+        .status(400)
+        .type('html')
+        .send(
+          renderSsoCallbackPage(
+            { type: 'SSO_ERROR', error: 'Ungültige SSO-Callback-Parameter (code/state fehlt).' },
+            'SSO-Callback ungültig',
+            'Fehlende Parameter.'
+          )
+        );
+      return;
+    }
+
+    const stateEntry = consumeSsoState(state);
+    if (!stateEntry) {
+      res
+        .status(400)
+        .type('html')
+        .send(
+          renderSsoCallbackPage(
+            { type: 'SSO_ERROR', error: 'SSO-Anfrage ist abgelaufen oder wurde bereits verwendet.' },
+            'SSO-Sitzung abgelaufen',
+            'Bitte starten Sie die Anmeldung erneut.'
+          )
+        );
+      return;
+    }
+
+    const settings = store.getSettings();
+    try {
+      const profile = await exchangeSsoCodeForProfile({
+        tokenUrl: settings.ssoTokenUrl,
+        userinfoUrl: settings.ssoUserinfoUrl,
+        clientId: settings.ssoClientId,
+        clientSecret: store.getSsoClientSecretPlain(),
+        code,
+        codeVerifier: stateEntry.codeVerifier,
+        redirectUri: stateEntry.redirectUri,
+      });
+
+      if (stateEntry.mode === 'test') {
+        const updated = store.markSsoTested();
+        res
+          .status(200)
+          .type('html')
+          .send(
+            renderSsoCallbackPage(
+              {
+                type: 'SSO_TEST_SUCCESS',
+                testedAt: updated.ssoTestedAt,
+                profile: {
+                  username: profile.username,
+                  displayName: profile.displayName,
+                  email: profile.email,
+                },
+              },
+              'SSO-Test erfolgreich',
+              `Verbindung bestätigt für ${profile.displayName} (${profile.email || profile.username}). Dieses Fenster schließt sich automatisch.`
+            )
+          );
+        return;
+      }
+
+      const { user, created } = store.findOrCreateSsoUser(profile);
+      const session = store.createSession(user.id);
+      setSessionCookie(req, res, session.token);
+      res
+        .status(200)
+        .type('html')
+        .send(
+          renderSsoCallbackPage(
+            {
+              type: 'SSO_LOGIN_SUCCESS',
+              sessionToken: session.token,
+              created,
+            },
+            'SSO-Anmeldung erfolgreich',
+            `Angemeldet als ${user.displayName}. Dieses Fenster schließt sich automatisch.`
+          )
+        );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'SSO-Authentifizierung fehlgeschlagen.';
+      res
+        .status(200)
+        .type('html')
+        .send(
+          renderSsoCallbackPage(
+            { type: 'SSO_ERROR', error: msg },
+            'SSO fehlgeschlagen',
+            msg
+          )
+        );
+    }
+  };
+
+  app.get('/api/auth/sso/callback', handleSsoCallback);
+  app.get('/api/auth/sso/callback/', handleSsoCallback);
+
   app.post('/api/auth/logout', (req: AuthedRequest, res: Response) => {
     const token = extractSessionToken(req);
     store.deleteSession(token);
     clearSessionCookie(req, res);
     res.json({ ok: true });
+  });
+
+  // Self-service 2FA (Authenticator App TOTP + Hardware Security Keys) & Passkeys
+  app.get('/api/auth/security', requireAuth, (req: AuthedRequest, res: Response) => {
+    const user = req.user!;
+    const securityKeys = store
+      .listUserWebAuthnCredentials(user.id, 'security-key')
+      .map(sanitizeWebAuthnCredential);
+    const passkeys = store
+      .listUserWebAuthnCredentials(user.id, 'passkey')
+      .map(sanitizeWebAuthnCredential);
+    res.json({
+      totpEnabled: Boolean(user.totpEnabled),
+      recoveryCodesRemaining: user.totpRecoveryHashes?.length ?? 0,
+      securityKeys,
+      passkeys,
+    });
+  });
+
+  app.post('/api/auth/2fa/totp/setup', requireAuth, (req: AuthedRequest, res: Response) => {
+    const settings = store.getSettings();
+    if (!settings.twoFactorEnabled) {
+      res.status(403).json({ error: '2-Faktor-Authentifizierung ist vom Administrator nicht eingeschaltet.' });
+      return;
+    }
+    const secret = generateTotpSecret();
+    storePendingTotpSetup(req.user!.id, secret);
+    const otpauthUri = buildOtpAuthUri({
+      issuer: settings.instanceName || 'SSH Console',
+      accountName: req.user!.username,
+      secret,
+    });
+    res.json({ secret, otpauthUri });
+  });
+
+  app.post('/api/auth/2fa/totp/verify', requireAuth, (req: AuthedRequest, res: Response) => {
+    const settings = store.getSettings();
+    if (!settings.twoFactorEnabled) {
+      res.status(403).json({ error: '2-Faktor-Authentifizierung ist vom Administrator nicht eingeschaltet.' });
+      return;
+    }
+    const code = typeof req.body?.code === 'string' ? req.body.code : '';
+    const pending = consumePendingTotpSetup(req.user!.id);
+    if (!pending) {
+      res.status(400).json({ error: 'Keine aktive Authenticator-Einrichtung gefunden. Bitte starten Sie erneut.' });
+      return;
+    }
+    if (!verifyTotpCode(pending.secret, code)) {
+      // Keep setup alive if user mistyped the 6-digit code
+      storePendingTotpSetup(req.user!.id, pending.secret);
+      res.status(400).json({ error: 'Ungültiger 6-stelliger Code. Bitte prüfen Sie die Uhrzeit und versuchen Sie es erneut.' });
+      return;
+    }
+    const { plainCodes, hashedCodes } = generateRecoveryCodes(8);
+    const updatedUser = store.setUserTotp(req.user!.id, pending.secret, hashedCodes);
+    res.json({
+      ok: true,
+      recoveryCodes: plainCodes,
+      user: sanitizeUser(updatedUser),
+    });
+  });
+
+  app.delete('/api/auth/2fa/totp', requireAuth, (req: AuthedRequest, res: Response) => {
+    const settings = store.getSettings();
+    const user = req.user!;
+    const securityKeyCount = store.listUserWebAuthnCredentials(user.id, 'security-key').length;
+    if (
+      (user.authProvider || 'local') === 'local' &&
+      settings.twoFactorEnabled &&
+      settings.twoFactorEnforced &&
+      securityKeyCount === 0
+    ) {
+      res.status(400).json({
+        error:
+          '2FA ist vom Administrator erzwungen. Registrieren Sie zuerst einen Hardware-Sicherheitsschlüssel, bevor Sie die Authenticator-App entfernen.',
+      });
+      return;
+    }
+    const updatedUser = store.disableUserTotp(user.id);
+    res.json({ ok: true, user: sanitizeUser(updatedUser) });
+  });
+
+  app.post('/api/auth/webauthn/register/options', requireAuth, async (req: AuthedRequest, res: Response) => {
+    const settings = store.getSettings();
+    const kind: WebAuthnCredentialKind =
+      req.body?.kind === 'passkey' ? 'passkey' : 'security-key';
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+
+    if (kind === 'security-key' && !settings.twoFactorEnabled) {
+      res.status(403).json({ error: '2-Faktor-Authentifizierung ist vom Administrator nicht eingeschaltet.' });
+      return;
+    }
+    if (kind === 'passkey' && !settings.passkeyEnabled) {
+      res.status(403).json({ error: 'Passkeys sind vom Administrator nicht eingeschaltet.' });
+      return;
+    }
+
+    const { origin, rpId } = getWebAuthnContext(req);
+    const existing = store.listUserWebAuthnCredentials(req.user!.id);
+    const options = await createWebAuthnRegistrationOptions({
+      rpName: settings.instanceName || 'SSH Console',
+      rpId,
+      userId: req.user!.id,
+      username: req.user!.username,
+      displayName: req.user!.displayName,
+      kind,
+      existingCredentials: existing,
+    });
+    const challengeId = storeWebAuthnChallenge({
+      challenge: options.challenge,
+      userId: req.user!.id,
+      kind,
+      name: name || (kind === 'passkey' ? 'Passkey' : 'Security Key'),
+      rpId,
+      origin,
+    });
+    res.json({ challengeId, options });
+  });
+
+  app.post('/api/auth/webauthn/register/verify', requireAuth, async (req: AuthedRequest, res: Response) => {
+    const { challengeId, response, name } = req.body ?? {};
+    if (typeof challengeId !== 'string' || !response) {
+      res.status(400).json({ error: 'Ungültige Registrierungsdaten.' });
+      return;
+    }
+    const challenge = consumeWebAuthnChallenge(challengeId);
+    if (
+      !challenge ||
+      challenge.userId !== req.user!.id ||
+      (challenge.kind !== 'security-key' && challenge.kind !== 'passkey')
+    ) {
+      res.status(400).json({ error: 'Registrierungs-Challenge ist abgelaufen. Bitte erneut starten.' });
+      return;
+    }
+
+    try {
+      const verified = await verifyWebAuthnRegistration({
+        response,
+        expectedChallenge: challenge.challenge,
+        expectedOrigin: challenge.origin,
+        expectedRPID: challenge.rpId,
+        kind: challenge.kind,
+      });
+      const label =
+        typeof name === 'string' && name.trim() ? name.trim() : challenge.name || 'WebAuthn';
+      const saved = store.addWebAuthnCredential({
+        userId: req.user!.id,
+        kind: challenge.kind,
+        name: label,
+        credentialId: verified.credentialId,
+        publicKey: verified.publicKey,
+        counter: verified.counter,
+        transports: verified.transports,
+      });
+      const freshUser = store.findUserById(req.user!.id) ?? req.user!;
+      res.status(201).json({
+        ok: true,
+        credential: sanitizeWebAuthnCredential(saved),
+        user: sanitizeUser(freshUser),
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Registrierung konnte nicht verifiziert werden.',
+      });
+    }
+  });
+
+  app.delete('/api/auth/webauthn/:id', requireAuth, (req: AuthedRequest, res: Response) => {
+    const user = req.user!;
+    const settings = store.getSettings();
+    const allCreds = store.listUserWebAuthnCredentials(user.id);
+    const target = allCreds.find((c) => c.id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: 'Schlüssel nicht gefunden.' });
+      return;
+    }
+    const isLocal = (user.authProvider || 'local') === 'local';
+    if (
+      isLocal &&
+      target.kind === 'security-key' &&
+      settings.twoFactorEnabled &&
+      settings.twoFactorEnforced &&
+      !user.totpEnabled &&
+      allCreds.filter((c) => c.kind === 'security-key').length <= 1
+    ) {
+      res.status(400).json({
+        error:
+          '2FA ist erzwungen. Der letzte Sicherheitsschlüssel kann nicht entfernt werden, solange keine Authenticator-App aktiv ist.',
+      });
+      return;
+    }
+    if (
+      isLocal &&
+      target.kind === 'passkey' &&
+      settings.passkeyEnabled &&
+      settings.passkeyEnforced &&
+      allCreds.filter((c) => c.kind === 'passkey').length <= 1
+    ) {
+      res.status(400).json({
+        error: 'Passkeys sind erzwungen. Der letzte Passkey kann nicht entfernt werden.',
+      });
+      return;
+    }
+    store.deleteWebAuthnCredential(target.id, user.id);
+    const freshUser = store.findUserById(user.id) ?? user;
+    res.json({ ok: true, user: sanitizeUser(freshUser) });
   });
 
   // Self-service Password Change for every authenticated user
@@ -440,8 +1198,96 @@ async function startServer() {
     }
   });
 
+  app.post('/api/admin/users/:id/reset-auth', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
+    try {
+      const updated = store.resetUserSecondFactors(req.params.id);
+      res.json({ ok: true, user: sanitizeUser(updated) });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : '2FA/Passkeys konnten nicht zurückgesetzt werden.',
+      });
+    }
+  });
+
+  // Admin: SSO, 2FA & Passkey Security Policy Settings
+  app.get('/api/admin/auth/settings', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
+    res.json({
+      authSettings: serializeAdminAuthSettings(req),
+      settings: serializePublicSettings(),
+    });
+  });
+
+  app.patch('/api/admin/auth/settings', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
+    const body = req.body ?? {};
+    try {
+      const validateOptUrl = (val: unknown): string | undefined => {
+        if (val === undefined) return undefined;
+        if (typeof val !== 'string') throw new Error('Ungültige URL-Angabe.');
+        const trimmed = val.trim();
+        if (!trimmed) return '';
+        return validateExternalEndpointUrl(trimmed);
+      };
+
+      store.updateAuthSettings({
+        ssoEnabled: typeof body.ssoEnabled === 'boolean' ? body.ssoEnabled : undefined,
+        ssoProviderName: typeof body.ssoProviderName === 'string' ? body.ssoProviderName : undefined,
+        ssoIssuerUrl: validateOptUrl(body.ssoIssuerUrl),
+        ssoAuthUrl: validateOptUrl(body.ssoAuthUrl),
+        ssoTokenUrl: validateOptUrl(body.ssoTokenUrl),
+        ssoUserinfoUrl: validateOptUrl(body.ssoUserinfoUrl),
+        ssoClientId: typeof body.ssoClientId === 'string' ? body.ssoClientId : undefined,
+        ssoClientSecret: typeof body.ssoClientSecret === 'string' ? body.ssoClientSecret : undefined,
+        clearSsoClientSecret: Boolean(body.clearSsoClientSecret),
+        ssoScopes: typeof body.ssoScopes === 'string' ? body.ssoScopes : undefined,
+        ssoAutoCreateUsers:
+          typeof body.ssoAutoCreateUsers === 'boolean' ? body.ssoAutoCreateUsers : undefined,
+        localLoginDisabled:
+          typeof body.localLoginDisabled === 'boolean' ? body.localLoginDisabled : undefined,
+        twoFactorEnabled:
+          typeof body.twoFactorEnabled === 'boolean' ? body.twoFactorEnabled : undefined,
+        twoFactorEnforced:
+          typeof body.twoFactorEnforced === 'boolean' ? body.twoFactorEnforced : undefined,
+        passkeyEnabled:
+          typeof body.passkeyEnabled === 'boolean' ? body.passkeyEnabled : undefined,
+        passkeyEnforced:
+          typeof body.passkeyEnforced === 'boolean' ? body.passkeyEnforced : undefined,
+        allowInsecureHostKey:
+          typeof body.allowInsecureHostKey === 'boolean' ? body.allowInsecureHostKey : undefined,
+      });
+
+      res.json({
+        authSettings: serializeAdminAuthSettings(req),
+        settings: serializePublicSettings(),
+        user: req.user ? sanitizeUser(store.findUserById(req.user.id) ?? req.user) : null,
+      });
+    } catch (err) {
+      res.status(400).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Authentifizierungseinstellungen konnten nicht gespeichert werden.',
+      });
+    }
+  });
+
+  app.post('/api/admin/auth/sso/discover', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+    const issuerUrl = typeof req.body?.issuerUrl === 'string' ? req.body.issuerUrl.trim() : '';
+    if (!issuerUrl) {
+      res.status(400).json({ error: 'Bitte geben Sie eine OIDC Issuer-URL ein.' });
+      return;
+    }
+    try {
+      const discovered = await discoverOidcConfiguration(issuerUrl);
+      res.json({ discovered });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'OIDC Auto-Discovery fehlgeschlagen.',
+      });
+    }
+  });
+
   // SSH Commands (only visible to creator, except items explicitly shared by an admin)
-  app.get('/api/commands', requireAuth, (req: AuthedRequest, res) => {
+  app.get('/api/commands', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     const includeDisabledOwn = req.query.all === '1';
     const commands = store.listAccessibleCommands(req.user!.id, includeDisabledOwn);
     res.json({ commands });
@@ -567,26 +1413,26 @@ async function startServer() {
     res.json({ ok: true });
   };
 
-  app.post('/api/commands', requireAuth, handleCreateCommand);
-  app.post('/api/admin/commands', requireAuth, handleCreateCommand);
+  app.post('/api/commands', requireAuth, requireSecurityCompliant, handleCreateCommand);
+  app.post('/api/admin/commands', requireAuth, requireSecurityCompliant, handleCreateCommand);
 
-  app.post('/api/commands/presets', requireAuth, handleLoadPresets);
-  app.post('/api/admin/commands/presets', requireAuth, handleLoadPresets);
+  app.post('/api/commands/presets', requireAuth, requireSecurityCompliant, handleLoadPresets);
+  app.post('/api/admin/commands/presets', requireAuth, requireSecurityCompliant, handleLoadPresets);
 
-  app.patch('/api/commands/:id', requireAuth, handleUpdateCommand);
-  app.patch('/api/admin/commands/:id', requireAuth, handleUpdateCommand);
+  app.patch('/api/commands/:id', requireAuth, requireSecurityCompliant, handleUpdateCommand);
+  app.patch('/api/admin/commands/:id', requireAuth, requireSecurityCompliant, handleUpdateCommand);
 
   app.patch('/api/commands/:id/share', requireAuth, requireAdmin, handleShareCommand);
 
-  app.delete('/api/commands/:id', requireAuth, handleDeleteCommand);
-  app.delete('/api/admin/commands/:id', requireAuth, handleDeleteCommand);
+  app.delete('/api/commands/:id', requireAuth, requireSecurityCompliant, handleDeleteCommand);
+  app.delete('/api/admin/commands/:id', requireAuth, requireSecurityCompliant, handleDeleteCommand);
 
   // User Target Servers (IP addresses — creator-private; admin may share)
-  app.get('/api/servers', requireAuth, (req: AuthedRequest, res) => {
+  app.get('/api/servers', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     res.json({ servers: store.listAccessibleServers(req.user!.id) });
   });
 
-  app.post('/api/servers', requireAuth, (req: AuthedRequest, res) => {
+  app.post('/api/servers', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     const {
       label,
       ipAddress,
@@ -596,6 +1442,7 @@ async function startServer() {
       sshUser,
       notes,
       pingEnabled,
+      ignoreHostKey,
       sharedWithAll,
       sharedWithUserIds,
     } = req.body ?? {};
@@ -618,6 +1465,13 @@ async function startServer() {
       res.status(400).json({ error: 'Ungültiger SSH-Benutzername (erlaubt: a-z, 0-9, ., _, -).' });
       return;
     }
+    if (Boolean(ignoreHostKey) && !store.getSettings().allowInsecureHostKey) {
+      res.status(403).json({
+        error:
+          'Das Deaktivieren der SSH-Host-Key-Prüfung (StrictHostKeyChecking=no) ist vom Administrator global verboten.',
+      });
+      return;
+    }
     const isAdmin = req.user!.role === 'admin';
     const server = store.createServer({
       userId: req.user!.id,
@@ -630,6 +1484,7 @@ async function startServer() {
       sshUser: cleanSshUser,
       notes: typeof notes === 'string' ? notes : '',
       pingEnabled: pingEnabled !== undefined ? Boolean(pingEnabled) : true,
+      ignoreHostKey: Boolean(ignoreHostKey),
       sharedWithAll: isAdmin ? Boolean(sharedWithAll) : false,
       sharedWithUserIds: isAdmin && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
     });
@@ -640,8 +1495,9 @@ async function startServer() {
     res.status(201).json({ server });
   });
 
-  app.patch('/api/servers/:id', requireAuth, (req: AuthedRequest, res) => {
-    const { label, ipAddress, bmcIpAddress, bmcIpAddress2, port, sshUser, notes, pingEnabled } = req.body ?? {};
+  app.patch('/api/servers/:id', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const { label, ipAddress, bmcIpAddress, bmcIpAddress2, port, sshUser, notes, pingEnabled, ignoreHostKey } =
+      req.body ?? {};
     if (ipAddress !== undefined && (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress))) {
       res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
       return;
@@ -672,6 +1528,16 @@ async function startServer() {
       res.status(400).json({ error: 'Ungültiger SSH-Benutzername (erlaubt: a-z, 0-9, ., _, -).' });
       return;
     }
+    if (ignoreHostKey === true && !store.getSettings().allowInsecureHostKey) {
+      const existing = store.getAccessibleServer(req.params.id, req.user!.id);
+      if (!existing || !existing.ignoreHostKey) {
+        res.status(403).json({
+          error:
+            'Das Deaktivieren der SSH-Host-Key-Prüfung (StrictHostKeyChecking=no) ist vom Administrator global verboten.',
+        });
+        return;
+      }
+    }
     try {
       const updated = store.updateServer(req.params.id, req.user!.id, {
         label: typeof label === 'string' ? label : undefined,
@@ -682,6 +1548,7 @@ async function startServer() {
         sshUser: typeof sshUser === 'string' ? sshUser : undefined,
         notes: typeof notes === 'string' ? notes : undefined,
         pingEnabled: typeof pingEnabled === 'boolean' ? pingEnabled : undefined,
+        ignoreHostKey: typeof ignoreHostKey === 'boolean' ? ignoreHostKey : undefined,
       });
       if (!updated.pingEnabled) {
         pingMonitor.clearServerStatus(updated.id);
@@ -768,12 +1635,12 @@ async function startServer() {
     };
   }
 
-  app.get('/api/certificates', requireAuth, (req: AuthedRequest, res) => {
+  app.get('/api/certificates', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     const list = store.listAccessibleCertificates(req.user!.id).map(serializeCertificate);
     res.json({ certificates: list });
   });
 
-  app.post('/api/certificates', requireAuth, (req: AuthedRequest, res) => {
+  app.post('/api/certificates', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     const {
       name,
       privateKeyFileName,
@@ -1221,7 +2088,7 @@ async function startServer() {
   app.put('/api/v1/certificates/:idOrName', handleApiV1UpdateCert);
 
   // Execute SSH Command on One or Multiple Target IPs (own or admin-shared)
-  app.post('/api/execute', requireAuth, async (req: AuthedRequest, res) => {
+  app.post('/api/execute', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
     const { commandId, certificateId, targets, dryRun } = req.body ?? {};
 
     const command = store.getAccessibleCommand(String(commandId ?? ''), req.user!.id);
@@ -1241,7 +2108,14 @@ async function startServer() {
       return;
     }
 
-    const resolvedTargets: Array<{ ipAddress: string; port: number; sshUser: string; label: string }> = [];
+    const allowInsecureHostKey = store.getSettings().allowInsecureHostKey;
+    const resolvedTargets: Array<{
+      ipAddress: string;
+      port: number;
+      sshUser: string;
+      label: string;
+      ignoreHostKey: boolean;
+    }> = [];
     for (const t of targets) {
       if (typeof t?.serverId === 'string' && t.serverId) {
         const srv = store.getAccessibleServer(t.serverId, req.user!.id);
@@ -1254,6 +2128,7 @@ async function startServer() {
           port: srv.port,
           sshUser: srv.sshUser,
           label: srv.label,
+          ignoreHostKey: allowInsecureHostKey && Boolean(srv.ignoreHostKey),
         });
       } else {
         const ip = String(t?.ipAddress ?? '').trim();
@@ -1272,6 +2147,7 @@ async function startServer() {
           port,
           sshUser,
           label: ip,
+          ignoreHostKey: allowInsecureHostKey && Boolean(t?.ignoreHostKey),
         });
       }
     }
@@ -1284,6 +2160,7 @@ async function startServer() {
           sshUser: target.sshUser,
           command,
           certificate,
+          ignoreHostKey: target.ignoreHostKey,
           forceDryRun: Boolean(dryRun),
         });
 
@@ -1313,11 +2190,11 @@ async function startServer() {
   });
 
   // Dashboard: Ping Status, User & Admin Ping Settings, Manual Ping Trigger
-  app.get('/api/dashboard/status', requireAuth, (req: AuthedRequest, res) => {
+  app.get('/api/dashboard/status', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     res.json(pingMonitor.getUserStatuses(req.user!.id));
   });
 
-  app.post('/api/dashboard/ping', requireAuth, async (req: AuthedRequest, res) => {
+  app.post('/api/dashboard/ping', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
     const settings = store.getSettings();
     if (!settings.pingAllowed) {
       res.status(403).json({ error: 'Anpingen wurde vom Administrator global verboten.' });
@@ -1339,7 +2216,7 @@ async function startServer() {
     res.json(pingMonitor.getUserStatuses(req.user!.id));
   });
 
-  app.patch('/api/dashboard/ping-settings', requireAuth, (req: AuthedRequest, res) => {
+  app.patch('/api/dashboard/ping-settings', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     const { pingEnabled } = req.body ?? {};
     if (typeof pingEnabled !== 'boolean') {
       res.status(400).json({ error: 'Ungültiger Wert für pingEnabled.' });
@@ -1366,7 +2243,7 @@ async function startServer() {
       const becameEnabled = !prevAllowed && settings.pingAllowed;
       pingMonitor.reschedule(becameEnabled);
       res.json({
-        settings,
+        settings: serializePublicSettings(),
         dashboardStatus: pingMonitor.getUserStatuses(req.user!.id),
       });
     } catch (err) {
@@ -1377,7 +2254,7 @@ async function startServer() {
   });
 
   // Dashboard Batch Execution: Execute assigned commands across multiple IPs in one go
-  app.post('/api/execute/batch', requireAuth, async (req: AuthedRequest, res) => {
+  app.post('/api/execute/batch', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
     const { certificateId, jobs, dryRun } = req.body ?? {};
 
     const certificate = store.getAccessibleCertificate(String(certificateId ?? ''), req.user!.id);
@@ -1391,8 +2268,9 @@ async function startServer() {
       return;
     }
 
+    const allowInsecureHostKey = store.getSettings().allowInsecureHostKey;
     const resolvedJobs: Array<{
-      server: { ipAddress: string; port: number; sshUser: string; label: string };
+      server: { ipAddress: string; port: number; sshUser: string; label: string; ignoreHostKey: boolean };
       command: NonNullable<ReturnType<typeof store.getCommand>>;
     }> = [];
 
@@ -1415,6 +2293,7 @@ async function startServer() {
           port: srv.port,
           sshUser: srv.sshUser,
           label: srv.label,
+          ignoreHostKey: allowInsecureHostKey && Boolean(srv.ignoreHostKey),
         },
         command: cmd,
       });
@@ -1428,6 +2307,7 @@ async function startServer() {
           sshUser: server.sshUser,
           command,
           certificate,
+          ignoreHostKey: server.ignoreHostKey,
           forceDryRun: Boolean(dryRun),
         });
 
@@ -1457,8 +2337,9 @@ async function startServer() {
   });
 
   // Interactive SSH Shell: issue short-lived one-time WebSocket ticket
-  app.post('/api/shell/ticket', requireAuth, (req: AuthedRequest, res) => {
-    const { serverId, ipAddress, port, sshUser, certificateId, cols, rows } = req.body ?? {};
+  app.post('/api/shell/ticket', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const { serverId, ipAddress, port, sshUser, certificateId, ignoreHostKey, cols, rows } =
+      req.body ?? {};
     if (typeof certificateId !== 'string' || !certificateId.trim()) {
       res.status(400).json({ error: 'Bitte ein SSH-Zertifikatspaket auswählen.' });
       return;
@@ -1469,10 +2350,12 @@ async function startServer() {
       return;
     }
 
+    const allowInsecureHostKey = store.getSettings().allowInsecureHostKey;
     let targetIp = '';
     let targetPort = 22;
     let targetSshUser = req.user!.defaultSshUser || 'root';
     let serverLabel = '';
+    let targetIgnoreHostKey = false;
 
     if (typeof serverId === 'string' && serverId.trim()) {
       const server = store.getAccessibleServer(serverId.trim(), req.user!.id);
@@ -1484,6 +2367,7 @@ async function startServer() {
       targetPort = server.port;
       targetSshUser = server.sshUser;
       serverLabel = server.label;
+      targetIgnoreHostKey = allowInsecureHostKey && Boolean(server.ignoreHostKey);
       if (typeof sshUser === 'string' && sshUser.trim()) {
         if (!validateSshUsername(sshUser)) {
           res.status(400).json({ error: `Ungültiger SSH-Benutzername: ${sshUser}` });
@@ -1513,6 +2397,14 @@ async function startServer() {
           : 22;
       targetSshUser = rawUser;
       serverLabel = rawIp;
+      if (Boolean(ignoreHostKey) && !allowInsecureHostKey) {
+        res.status(403).json({
+          error:
+            'Das Deaktivieren der SSH-Host-Key-Prüfung (StrictHostKeyChecking=no) ist vom Administrator global verboten.',
+        });
+        return;
+      }
+      targetIgnoreHostKey = allowInsecureHostKey && Boolean(ignoreHostKey);
     }
 
     const ticket = issueShellTicket({
@@ -1523,6 +2415,7 @@ async function startServer() {
       port: targetPort,
       sshUser: targetSshUser,
       certificateId: certificate.id,
+      ignoreHostKey: targetIgnoreHostKey,
       cols: Number(cols) || 100,
       rows: Number(rows) || 30,
     });
@@ -1539,7 +2432,7 @@ async function startServer() {
   });
 
   // Execution History / Audit Logs (regular users strictly receive only their own logs; admins see all)
-  app.get('/api/logs', requireAuth, (req: AuthedRequest, res) => {
+  app.get('/api/logs', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     const filterUserId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
     res.json({ logs: store.listLogs(req.user!, filterUserId) });
   });

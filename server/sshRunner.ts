@@ -97,11 +97,15 @@ export async function executeSshCommand(params: {
   sshUser: string;
   command: SshCommand;
   certificate: UserCertificateBundle;
+  ignoreHostKey?: boolean;
   forceDryRun?: boolean;
 }): Promise<SshExecutionResult> {
   const started = Date.now();
   const sshBinary = findOpenSshBinary();
   const hasCert = Boolean(params.certificate.certContent && params.certificate.certContent.trim());
+  const hostKeyArgs = params.ignoreHostKey
+    ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
+    : ['-o', 'StrictHostKeyChecking=accept-new'];
 
   const displayInvocation = [
     'ssh',
@@ -116,8 +120,7 @@ export async function executeSshCommand(params: {
     'PasswordAuthentication=no',
     '-o',
     'KbdInteractiveAuthentication=no',
-    '-o',
-    'StrictHostKeyChecking=accept-new',
+    ...hostKeyArgs,
     '-o',
     'ConnectTimeout=10',
     '-p',
@@ -157,8 +160,7 @@ export async function executeSshCommand(params: {
         'PasswordAuthentication=no',
         '-o',
         'KbdInteractiveAuthentication=no',
-        '-o',
-        'StrictHostKeyChecking=accept-new',
+        ...hostKeyArgs,
         '-o',
         'ConnectTimeout=10',
         '-p',

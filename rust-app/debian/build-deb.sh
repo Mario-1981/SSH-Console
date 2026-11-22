@@ -60,7 +60,7 @@ Priority: optional
 Architecture: ${ARCH}
 Installed-Size: ${INSTALLED_KB}
 Maintainer: SSH Console Maintainers <admin@localhost>
-Depends: openssh-client, iputils-ping, curl, ca-certificates, adduser
+Depends: openssh-client, iputils-ping, curl, openssl, ca-certificates, adduser
 Description: SSH Console - SSH-Befehls-, Zertifikats- & BMC-Webkonsole
  Selbstgehostetes Webinterface fuer Debian 13 (Trixie) zur passwortlosen
  Ausfuehrung von SSH-Befehlen und Befehlsketten mit OpenSSH-Schluesselpaaren

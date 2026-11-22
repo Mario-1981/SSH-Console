@@ -1,13 +1,23 @@
 export type UserRole = 'admin' | 'user';
+export type AuthProvider = 'local' | 'sso';
+export type WebAuthnCredentialKind = 'security-key' | 'passkey';
 
 export interface User {
   id: string;
   username: string;
   displayName: string;
   role: UserRole;
+  authProvider: AuthProvider;
+  email: string;
   defaultSshUser: string;
   active: boolean;
   pingEnabled: boolean;
+  totpEnabled: boolean;
+  securityKeyCount: number;
+  passkeyCount: number;
+  hasTwoFactor: boolean;
+  mustSetupTwoFactor: boolean;
+  mustSetupPasskey: boolean;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -20,12 +30,77 @@ export interface UserApiKey {
   lastUsedAt: string | null;
 }
 
+export interface WebAuthnCredentialItem {
+  id: string;
+  kind: WebAuthnCredentialKind;
+  name: string;
+  transports: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface UserSecurityStatus {
+  totpEnabled: boolean;
+  recoveryCodesRemaining: number;
+  securityKeys: WebAuthnCredentialItem[];
+  passkeys: WebAuthnCredentialItem[];
+}
+
 export interface AppSettings {
   instanceName: string;
   initializedAt: string | null;
   pingAllowed: boolean;
   pingIntervalSec: number;
+  ssoEnabled: boolean;
+  ssoProviderName: string;
+  ssoAutoCreateUsers: boolean;
+  ssoConfigured: boolean;
+  ssoTestedAt: string | null;
+  localLoginDisabled: boolean;
+  twoFactorEnabled: boolean;
+  twoFactorEnforced: boolean;
+  passkeyEnabled: boolean;
+  passkeyEnforced: boolean;
+  allowInsecureHostKey: boolean;
 }
+
+export interface AdminAuthSettings {
+  ssoEnabled: boolean;
+  ssoProviderName: string;
+  ssoIssuerUrl: string;
+  ssoAuthUrl: string;
+  ssoTokenUrl: string;
+  ssoUserinfoUrl: string;
+  ssoClientId: string;
+  ssoHasClientSecret: boolean;
+  ssoScopes: string;
+  ssoAutoCreateUsers: boolean;
+  ssoConfigured: boolean;
+  ssoTestedAt: string | null;
+  localLoginDisabled: boolean;
+  twoFactorEnabled: boolean;
+  twoFactorEnforced: boolean;
+  passkeyEnabled: boolean;
+  passkeyEnforced: boolean;
+  allowInsecureHostKey: boolean;
+  callbackUrl: string;
+}
+
+export type LoginResponse =
+  | {
+      requiresTwoFactor?: false;
+      user: User;
+      sessionToken?: string;
+    }
+  | {
+      requiresTwoFactor: true;
+      ticket: string;
+      methods: {
+        totp: boolean;
+        securityKey: boolean;
+      };
+      webauthnOptions: Record<string, unknown> | null;
+    };
 
 export interface AppStatus {
   initialized: boolean;
@@ -72,6 +147,7 @@ export interface UserServer {
   sshUser: string;
   notes: string;
   pingEnabled: boolean;
+  ignoreHostKey?: boolean;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   createdAt: string;
@@ -187,4 +263,5 @@ export type ActiveTab =
   | 'logs'
   | 'account'
   | 'admin-commands'
-  | 'admin-users';
+  | 'admin-users'
+  | 'admin-auth';

@@ -1,16 +1,21 @@
 import type {
+  AdminAuthSettings,
   AppSettings,
   AppStatus,
   BmcCheckResult,
   DashboardPingResponse,
   ExecutionLog,
+  LoginResponse,
   RustProjectFile,
   SshCommand,
   User,
   UserApiKey,
   UserCertificate,
   UserRole,
+  UserSecurityStatus,
   UserServer,
+  WebAuthnCredentialItem,
+  WebAuthnCredentialKind,
 } from './types';
 
 const TOKEN_STORAGE_KEY = 'trixiessh_session_token';
@@ -25,6 +30,10 @@ function getStoredToken(): string | null {
   } catch {
     return memoryToken;
   }
+}
+
+export function setSessionToken(token: string | null) {
+  setStoredToken(token);
 }
 
 function setStoredToken(token: string | null) {
@@ -80,7 +89,12 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && !url.startsWith('/api/auth/login') && !url.startsWith('/api/setup')) {
+    if (
+      res.status === 401 &&
+      !url.startsWith('/api/auth/login') &&
+      !url.startsWith('/api/auth/passkey/login') &&
+      !url.startsWith('/api/setup')
+    ) {
       setStoredToken(null);
       unauthorizedHandler?.();
     }
@@ -106,14 +120,53 @@ export const api = {
     return res;
   },
 
-  login: async (username: string, password: string) => {
-    const res = await request<{ user: User; sessionToken?: string }>('/api/auth/login', {
+  login: async (username: string, password: string): Promise<LoginResponse> => {
+    const res = await request<LoginResponse>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
+    });
+    if (!res.requiresTwoFactor && res.sessionToken) {
+      setStoredToken(res.sessionToken);
+    }
+    return res;
+  },
+
+  verifyTwoFactorLogin: async (payload: {
+    ticket: string;
+    method: 'totp' | 'recovery' | 'security-key';
+    code?: string;
+    assertion?: unknown;
+  }) => {
+    const res = await request<{ user: User; sessionToken?: string }>('/api/auth/login/2fa', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
     if (res.sessionToken) setStoredToken(res.sessionToken);
     return res;
   },
+
+  getPasskeyLoginOptions: () =>
+    request<{ challengeId: string; options: Record<string, unknown> }>(
+      '/api/auth/passkey/login/options',
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+
+  verifyPasskeyLogin: async (challengeId: string, response: unknown) => {
+    const res = await request<{ user: User; sessionToken?: string }>(
+      '/api/auth/passkey/login/verify',
+      {
+        method: 'POST',
+        body: JSON.stringify({ challengeId, response }),
+      }
+    );
+    if (res.sessionToken) setStoredToken(res.sessionToken);
+    return res;
+  },
+
+  getSsoUrl: (mode: 'login' | 'test' = 'login') =>
+    request<{ url: string; callbackUrl: string }>(
+      `/api/auth/sso/url?mode=${encodeURIComponent(mode)}`
+    ),
 
   logout: async () => {
     try {
@@ -124,6 +177,49 @@ export const api = {
       setStoredToken(null);
     }
   },
+
+  // Self-service 2FA & Passkeys
+  getUserSecurity: () => request<UserSecurityStatus>('/api/auth/security'),
+
+  setupTotp: () =>
+    request<{ secret: string; otpauthUri: string }>('/api/auth/2fa/totp/setup', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  verifyTotp: (code: string) =>
+    request<{ ok: boolean; recoveryCodes: string[]; user: User }>('/api/auth/2fa/totp/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  disableTotp: () =>
+    request<{ ok: boolean; user: User }>('/api/auth/2fa/totp', {
+      method: 'DELETE',
+    }),
+
+  getWebAuthnRegisterOptions: (kind: WebAuthnCredentialKind, name: string) =>
+    request<{ challengeId: string; options: Record<string, unknown> }>(
+      '/api/auth/webauthn/register/options',
+      {
+        method: 'POST',
+        body: JSON.stringify({ kind, name }),
+      }
+    ),
+
+  verifyWebAuthnRegister: (challengeId: string, response: unknown, name: string) =>
+    request<{ ok: boolean; credential: WebAuthnCredentialItem; user: User }>(
+      '/api/auth/webauthn/register/verify',
+      {
+        method: 'POST',
+        body: JSON.stringify({ challengeId, response, name }),
+      }
+    ),
+
+  deleteWebAuthnCredential: (id: string) =>
+    request<{ ok: boolean; user: User }>(`/api/auth/webauthn/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
 
   changePassword: (currentPassword: string, newPassword: string) =>
     request<{ ok: boolean }>('/api/auth/change-password', {
@@ -175,9 +271,59 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  resetUserAuth: (id: string) =>
+    request<{ ok: boolean; user: User }>(`/api/admin/users/${encodeURIComponent(id)}/reset-auth`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
   deleteUser: (id: string) =>
     request<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+    }),
+
+  // Admin Authentication, SSO, 2FA & Passkey Policies
+  getAdminAuthSettings: () =>
+    request<{ authSettings: AdminAuthSettings; settings: AppSettings }>('/api/admin/auth/settings'),
+
+  updateAdminAuthSettings: (payload: {
+    ssoEnabled?: boolean;
+    ssoProviderName?: string;
+    ssoIssuerUrl?: string;
+    ssoAuthUrl?: string;
+    ssoTokenUrl?: string;
+    ssoUserinfoUrl?: string;
+    ssoClientId?: string;
+    ssoClientSecret?: string;
+    clearSsoClientSecret?: boolean;
+    ssoScopes?: string;
+    ssoAutoCreateUsers?: boolean;
+    localLoginDisabled?: boolean;
+    twoFactorEnabled?: boolean;
+    twoFactorEnforced?: boolean;
+    passkeyEnabled?: boolean;
+    passkeyEnforced?: boolean;
+    allowInsecureHostKey?: boolean;
+  }) =>
+    request<{ authSettings: AdminAuthSettings; settings: AppSettings; user: User | null }>(
+      '/api/admin/auth/settings',
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  discoverOidc: (issuerUrl: string) =>
+    request<{
+      discovered: {
+        issuer: string;
+        authorizationEndpoint: string;
+        tokenEndpoint: string;
+        userinfoEndpoint: string;
+      };
+    }>('/api/admin/auth/sso/discover', {
+      method: 'POST',
+      body: JSON.stringify({ issuerUrl }),
     }),
 
   // Commands
@@ -254,6 +400,7 @@ export const api = {
     sshUser: string;
     notes: string;
     pingEnabled?: boolean;
+    ignoreHostKey?: boolean;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
   }) =>
@@ -273,6 +420,7 @@ export const api = {
       sshUser?: string;
       notes?: string;
       pingEnabled?: boolean;
+      ignoreHostKey?: boolean;
     }
   ) =>
     request<{ server: UserServer }>(`/api/servers/${encodeURIComponent(id)}`, {
@@ -365,7 +513,7 @@ export const api = {
     certificateId: string;
     targets: Array<
       | { serverId: string }
-      | { ipAddress: string; port: number; sshUser: string }
+      | { ipAddress: string; port: number; sshUser: string; ignoreHostKey?: boolean }
     >;
     dryRun?: boolean;
   }) =>
@@ -390,6 +538,7 @@ export const api = {
     ipAddress?: string;
     port?: number;
     sshUser?: string;
+    ignoreHostKey?: boolean;
     certificateId: string;
     cols: number;
     rows: number;

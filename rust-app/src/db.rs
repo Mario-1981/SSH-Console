@@ -1,7 +1,11 @@
 use crate::models::{
-    CertInspection, CommandStep, ExecutionLog, SshCommand, StoredCertificateForEdit,
-    UserApiKeyPublic, UserCertificatePublic, UserCertificateSecret, UserPublic, UserServer,
+    AdminAuthSettingsPatchRequest, AuthPolicySettings, CertInspection, CommandStep, ExecutionLog,
+    SshCommand, StoredCertificateForEdit, UserApiKeyPublic, UserCertificatePublic,
+    UserCertificateSecret, UserPublic, UserServer, WebAuthnCredentialPublic,
+    WebAuthnCredentialStored,
 };
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use chrono::{Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
@@ -86,6 +90,7 @@ impl Database {
                 ssh_user TEXT NOT NULL DEFAULT 'root',
                 notes TEXT NOT NULL DEFAULT '',
                 ping_enabled INTEGER NOT NULL DEFAULT 1,
+                ignore_host_key INTEGER NOT NULL DEFAULT 0,
                 shared_with_all INTEGER NOT NULL DEFAULT 0,
                 shared_with_user_ids TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL
@@ -130,6 +135,19 @@ impl Database {
                 duration_ms INTEGER NOT NULL,
                 executed_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS user_webauthn_credentials (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL CHECK (kind IN ('security-key', 'passkey')),
+                name TEXT NOT NULL,
+                credential_id TEXT NOT NULL UNIQUE,
+                public_key TEXT NOT NULL,
+                counter INTEGER NOT NULL DEFAULT 0,
+                transports_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                last_used_at TEXT
+            );
             ",
         )
         .map_err(|e| format!("Schema-Initialisierung fehlgeschlagen: {e}"))?;
@@ -148,7 +166,30 @@ impl Database {
             [],
         );
         let _ = conn.execute(
+            "ALTER TABLE user_servers ADD COLUMN ignore_host_key INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
             "ALTER TABLE users ADD COLUMN ping_enabled INTEGER NOT NULL DEFAULT 1",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'local'",
+            [],
+        );
+        let _ = conn.execute("ALTER TABLE users ADD COLUMN sso_subject TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute("ALTER TABLE users ADD COLUMN totp_secret_enc BLOB", []);
+        let _ = conn.execute("ALTER TABLE users ADD COLUMN totp_secret_nonce BLOB", []);
+        let _ = conn.execute(
+            "ALTER TABLE users ADD COLUMN totp_recovery_hashes_json TEXT NOT NULL DEFAULT '[]'",
             [],
         );
         let _ = conn.execute(
@@ -179,6 +220,139 @@ impl Database {
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    fn setting_str_locked(conn: &Connection, key: &str, default: &str) -> String {
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |r| r.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| default.to_string())
+    }
+
+    fn setting_bool_locked(conn: &Connection, key: &str, default: bool) -> bool {
+        let def_str = if default { "1" } else { "0" };
+        let val = Self::setting_str_locked(conn, key, def_str);
+        val == "1" || val.eq_ignore_ascii_case("true")
+    }
+
+    fn set_setting_locked(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn read_auth_policy_locked(conn: &Connection) -> AuthPolicySettings {
+        let secret_enc_b64 = Self::setting_str_locked(conn, "sso_client_secret_enc", "");
+        let secret_nonce_b64 = Self::setting_str_locked(conn, "sso_client_secret_nonce", "");
+        let sso_client_secret_enc = if !secret_enc_b64.is_empty() && !secret_nonce_b64.is_empty() {
+            match (
+                STANDARD.decode(&secret_enc_b64),
+                STANDARD.decode(&secret_nonce_b64),
+            ) {
+                (Ok(enc), Ok(nonce)) => Some((enc, nonce)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let tested_raw = Self::setting_str_locked(conn, "sso_tested_at", "");
+        let sso_tested_at = if tested_raw.trim().is_empty() {
+            None
+        } else {
+            Some(tested_raw)
+        };
+        let provider = Self::setting_str_locked(conn, "sso_provider_name", "SSO");
+        let scopes = Self::setting_str_locked(conn, "sso_scopes", "openid profile email");
+
+        AuthPolicySettings {
+            sso_enabled: Self::setting_bool_locked(conn, "sso_enabled", false),
+            sso_provider_name: if provider.trim().is_empty() {
+                "SSO".into()
+            } else {
+                provider
+            },
+            sso_issuer_url: Self::setting_str_locked(conn, "sso_issuer_url", ""),
+            sso_auth_url: Self::setting_str_locked(conn, "sso_auth_url", ""),
+            sso_token_url: Self::setting_str_locked(conn, "sso_token_url", ""),
+            sso_userinfo_url: Self::setting_str_locked(conn, "sso_userinfo_url", ""),
+            sso_client_id: Self::setting_str_locked(conn, "sso_client_id", ""),
+            sso_client_secret_enc,
+            sso_scopes: if scopes.trim().is_empty() {
+                "openid profile email".into()
+            } else {
+                scopes
+            },
+            sso_auto_create_users: Self::setting_bool_locked(conn, "sso_auto_create_users", true),
+            sso_tested_at,
+            local_login_disabled: Self::setting_bool_locked(conn, "local_login_disabled", false),
+            two_factor_enabled: Self::setting_bool_locked(conn, "two_factor_enabled", false),
+            two_factor_enforced: Self::setting_bool_locked(conn, "two_factor_enforced", false),
+            passkey_enabled: Self::setting_bool_locked(conn, "passkey_enabled", false),
+            passkey_enforced: Self::setting_bool_locked(conn, "passkey_enforced", false),
+            allow_insecure_host_key: Self::setting_bool_locked(conn, "allow_insecure_host_key", false),
+        }
+    }
+
+    fn count_webauthn_locked(conn: &Connection, user_id: &str, kind: &str) -> usize {
+        conn.query_row(
+            "SELECT COUNT(*) FROM user_webauthn_credentials WHERE user_id = ?1 AND kind = ?2",
+            params![user_id, kind],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        .max(0) as usize
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_user_public(
+        conn: &Connection,
+        policy: &AuthPolicySettings,
+        id: String,
+        username: String,
+        display_name: String,
+        role: String,
+        auth_provider: String,
+        email: String,
+        default_ssh_user: String,
+        active: bool,
+        ping_enabled: bool,
+        totp_enabled: bool,
+        created_at: String,
+        last_login_at: Option<String>,
+    ) -> UserPublic {
+        let security_key_count = Self::count_webauthn_locked(conn, &id, "security-key");
+        let passkey_count = Self::count_webauthn_locked(conn, &id, "passkey");
+        let has_two_factor = totp_enabled || security_key_count > 0;
+        let is_local = auth_provider != "sso";
+        let must_setup_two_factor =
+            is_local && policy.two_factor_enabled && policy.two_factor_enforced && !has_two_factor;
+        let must_setup_passkey =
+            is_local && policy.passkey_enabled && policy.passkey_enforced && passkey_count == 0;
+
+        UserPublic {
+            id,
+            username,
+            display_name,
+            role,
+            auth_provider,
+            email,
+            default_ssh_user,
+            active,
+            ping_enabled,
+            totp_enabled,
+            security_key_count,
+            passkey_count,
+            has_two_factor,
+            must_setup_two_factor,
+            must_setup_passkey,
+            created_at,
+            last_login_at,
+        }
     }
 
     pub fn is_initialized(&self) -> Result<bool, String> {
@@ -348,41 +522,58 @@ impl Database {
         )
         .map_err(|e| format!("Benutzer konnte nicht gespeichert werden: {e}"))?;
 
-        Ok(UserPublic {
+        let policy = Self::read_auth_policy_locked(&conn);
+        Ok(Self::build_user_public(
+            &conn,
+            &policy,
             id,
-            username: username.to_string(),
-            display_name: display_name.to_string(),
-            role: role.to_string(),
-            default_ssh_user: default_ssh_user.to_string(),
-            active: true,
-            ping_enabled: true,
-            created_at: now,
-            last_login_at: None,
-        })
+            username.to_string(),
+            display_name.to_string(),
+            role.to_string(),
+            "local".to_string(),
+            String::new(),
+            default_ssh_user.to_string(),
+            true,
+            true,
+            false,
+            now,
+            None,
+        ))
     }
 
     pub fn get_user_by_id(&self, id: &str) -> Result<Option<UserPublic>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
-        conn.query_row(
-            "SELECT id, username, display_name, role, default_ssh_user, active, ping_enabled, created_at, last_login_at
-             FROM users WHERE id = ?1",
-            params![id],
-            |r| {
-                Ok(UserPublic {
-                    id: r.get(0)?,
-                    username: r.get(1)?,
-                    display_name: r.get(2)?,
-                    role: r.get(3)?,
-                    default_ssh_user: r.get(4)?,
-                    active: r.get::<_, i64>(5)? == 1,
-                    ping_enabled: r.get::<_, i64>(6)? == 1,
-                    created_at: r.get(7)?,
-                    last_login_at: r.get(8)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(|e| e.to_string())
+        let policy = Self::read_auth_policy_locked(&conn);
+        let raw = conn
+            .query_row(
+                "SELECT id, username, display_name, role, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at
+                 FROM users WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, String>(6)?,
+                        r.get::<_, i64>(7)? == 1,
+                        r.get::<_, i64>(8)? == 1,
+                        r.get::<_, i64>(9)? == 1,
+                        r.get::<_, String>(10)?,
+                        r.get::<_, Option<String>>(11)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        Ok(raw.map(|t| {
+            Self::build_user_public(
+                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11,
+            )
+        }))
     }
 
     pub fn update_user(
@@ -433,28 +624,39 @@ impl Database {
 
     pub fn find_user_for_login(&self, username: &str) -> Result<Option<(UserPublic, String)>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
-        conn.query_row(
-            "SELECT id, username, display_name, role, default_ssh_user, active, ping_enabled, created_at, last_login_at, password_hash
-             FROM users WHERE username = ?1",
-            params![username],
-            |r| {
-                let user = UserPublic {
-                    id: r.get(0)?,
-                    username: r.get(1)?,
-                    display_name: r.get(2)?,
-                    role: r.get(3)?,
-                    default_ssh_user: r.get(4)?,
-                    active: r.get::<_, i64>(5)? == 1,
-                    ping_enabled: r.get::<_, i64>(6)? == 1,
-                    created_at: r.get(7)?,
-                    last_login_at: r.get(8)?,
-                };
-                let hash: String = r.get(9)?;
-                Ok((user, hash))
-            },
-        )
-        .optional()
-        .map_err(|e| e.to_string())
+        let policy = Self::read_auth_policy_locked(&conn);
+        let raw = conn
+            .query_row(
+                "SELECT id, username, display_name, role, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at, password_hash
+                 FROM users WHERE username = ?1",
+                params![username],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, String>(6)?,
+                        r.get::<_, i64>(7)? == 1,
+                        r.get::<_, i64>(8)? == 1,
+                        r.get::<_, i64>(9)? == 1,
+                        r.get::<_, String>(10)?,
+                        r.get::<_, Option<String>>(11)?,
+                        r.get::<_, String>(12)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        Ok(raw.map(|t| {
+            let user = Self::build_user_public(
+                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11,
+            );
+            (user, t.12)
+        }))
     }
 
     pub fn create_session(&self, user_id: &str) -> Result<String, String> {
@@ -476,29 +678,40 @@ impl Database {
 
     pub fn user_by_session(&self, token: &str) -> Result<Option<UserPublic>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let policy = Self::read_auth_policy_locked(&conn);
         let now = Utc::now().to_rfc3339();
-        conn.query_row(
-            "SELECT u.id, u.username, u.display_name, u.role, u.default_ssh_user, u.active, u.ping_enabled, u.created_at, u.last_login_at
-             FROM sessions s
-             JOIN users u ON u.id = s.user_id
-             WHERE s.token = ?1 AND s.expires_at > ?2 AND u.active = 1",
-            params![token, now],
-            |r| {
-                Ok(UserPublic {
-                    id: r.get(0)?,
-                    username: r.get(1)?,
-                    display_name: r.get(2)?,
-                    role: r.get(3)?,
-                    default_ssh_user: r.get(4)?,
-                    active: r.get::<_, i64>(5)? == 1,
-                    ping_enabled: r.get::<_, i64>(6)? == 1,
-                    created_at: r.get(7)?,
-                    last_login_at: r.get(8)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(|e| e.to_string())
+        let raw = conn
+            .query_row(
+                "SELECT u.id, u.username, u.display_name, u.role, u.auth_provider, u.email, u.default_ssh_user, u.active, u.ping_enabled, u.totp_enabled, u.created_at, u.last_login_at
+                 FROM sessions s
+                 JOIN users u ON u.id = s.user_id
+                 WHERE s.token = ?1 AND s.expires_at > ?2 AND u.active = 1",
+                params![token, now],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, String>(6)?,
+                        r.get::<_, i64>(7)? == 1,
+                        r.get::<_, i64>(8)? == 1,
+                        r.get::<_, i64>(9)? == 1,
+                        r.get::<_, String>(10)?,
+                        r.get::<_, Option<String>>(11)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        Ok(raw.map(|t| {
+            Self::build_user_public(
+                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11,
+            )
+        }))
     }
 
     pub fn delete_session(&self, token: &str) {
@@ -566,37 +779,43 @@ impl Database {
 
     pub fn user_by_api_key_hash(&self, key_hash: &str) -> Result<Option<UserPublic>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
-        let found: Option<(String, UserPublic)> = conn
+        let policy = Self::read_auth_policy_locked(&conn);
+        let found = conn
             .query_row(
-                "SELECT k.id, u.id, u.username, u.display_name, u.role, u.default_ssh_user, u.active, u.ping_enabled, u.created_at, u.last_login_at
+                "SELECT k.id, u.id, u.username, u.display_name, u.role, u.auth_provider, u.email, u.default_ssh_user, u.active, u.ping_enabled, u.totp_enabled, u.created_at, u.last_login_at
                  FROM user_api_keys k
                  JOIN users u ON u.id = k.user_id
                  WHERE k.key_hash = ?1 AND u.active = 1",
                 params![key_hash],
                 |r| {
-                    let key_id: String = r.get(0)?;
-                    let user = UserPublic {
-                        id: r.get(1)?,
-                        username: r.get(2)?,
-                        display_name: r.get(3)?,
-                        role: r.get(4)?,
-                        default_ssh_user: r.get(5)?,
-                        active: r.get::<_, i64>(6)? == 1,
-                        ping_enabled: r.get::<_, i64>(7)? == 1,
-                        created_at: r.get(8)?,
-                        last_login_at: r.get(9)?,
-                    };
-                    Ok((key_id, user))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, String>(6)?,
+                        r.get::<_, String>(7)?,
+                        r.get::<_, i64>(8)? == 1,
+                        r.get::<_, i64>(9)? == 1,
+                        r.get::<_, i64>(10)? == 1,
+                        r.get::<_, String>(11)?,
+                        r.get::<_, Option<String>>(12)?,
+                    ))
                 },
             )
             .optional()
             .map_err(|e| e.to_string())?;
 
-        if let Some((key_id, user)) = found {
+        if let Some(t) = found {
             let now = Utc::now().to_rfc3339();
             let _ = conn.execute(
                 "UPDATE user_api_keys SET last_used_at = ?1 WHERE id = ?2",
-                params![now, key_id],
+                params![now, &t.0],
+            );
+            let user = Self::build_user_public(
+                &conn, &policy, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11, t.12,
             );
             Ok(Some(user))
         } else {
@@ -606,28 +825,42 @@ impl Database {
 
     pub fn list_users(&self) -> Result<Vec<UserPublic>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let policy = Self::read_auth_policy_locked(&conn);
         let mut stmt = conn
             .prepare(
-                "SELECT id, username, display_name, role, default_ssh_user, active, ping_enabled, created_at, last_login_at
+                "SELECT id, username, display_name, role, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at
                  FROM users ORDER BY created_at ASC",
             )
             .map_err(|e| e.to_string())?;
-        let rows = stmt
+        let raw_rows = stmt
             .query_map([], |r| {
-                Ok(UserPublic {
-                    id: r.get(0)?,
-                    username: r.get(1)?,
-                    display_name: r.get(2)?,
-                    role: r.get(3)?,
-                    default_ssh_user: r.get(4)?,
-                    active: r.get::<_, i64>(5)? == 1,
-                    ping_enabled: r.get::<_, i64>(6)? == 1,
-                    created_at: r.get(7)?,
-                    last_login_at: r.get(8)?,
-                })
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(6)?,
+                    r.get::<_, i64>(7)? == 1,
+                    r.get::<_, i64>(8)? == 1,
+                    r.get::<_, i64>(9)? == 1,
+                    r.get::<_, String>(10)?,
+                    r.get::<_, Option<String>>(11)?,
+                ))
             })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+
+        Ok(raw_rows
+            .into_iter()
+            .map(|t| {
+                Self::build_user_public(
+                    &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11,
+                )
+            })
+            .collect())
     }
 
     pub fn delete_user(&self, id: &str) -> Result<(), String> {
@@ -937,13 +1170,13 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, shared_with_all, shared_with_user_ids, created_at
+                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, ignore_host_key, shared_with_all, shared_with_user_ids, created_at
                  FROM user_servers ORDER BY label ASC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
-                let shared_json: String = r.get(12)?;
+                let shared_json: String = r.get(13)?;
                 let shared_with_user_ids: Vec<String> =
                     serde_json::from_str(&shared_json).unwrap_or_default();
                 Ok(UserServer {
@@ -958,9 +1191,10 @@ impl Database {
                     ssh_user: r.get(8)?,
                     notes: r.get(9)?,
                     ping_enabled: r.get::<_, i64>(10)? == 1,
-                    shared_with_all: r.get::<_, i64>(11)? == 1,
+                    ignore_host_key: r.get::<_, i64>(11)? == 1,
+                    shared_with_all: r.get::<_, i64>(12)? == 1,
                     shared_with_user_ids,
-                    created_at: r.get(13)?,
+                    created_at: r.get(14)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -997,6 +1231,7 @@ impl Database {
         ssh_user: &str,
         notes: &str,
         ping_enabled: bool,
+        ignore_host_key: bool,
         shared_with_all: bool,
         shared_with_user_ids: &[String],
     ) -> Result<UserServer, String> {
@@ -1010,8 +1245,8 @@ impl Database {
         };
         let shared_json = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
         conn.execute(
-            "INSERT INTO user_servers (id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, shared_with_all, shared_with_user_ids, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            "INSERT INTO user_servers (id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, ignore_host_key, shared_with_all, shared_with_user_ids, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 id,
                 user_id,
@@ -1024,6 +1259,7 @@ impl Database {
                 ssh_user,
                 notes,
                 if ping_enabled { 1i64 } else { 0i64 },
+                if ignore_host_key { 1i64 } else { 0i64 },
                 if shared_with_all { 1i64 } else { 0i64 },
                 shared_json,
                 now
@@ -1042,6 +1278,7 @@ impl Database {
             ssh_user: ssh_user.to_string(),
             notes: notes.to_string(),
             ping_enabled,
+            ignore_host_key,
             shared_with_all,
             shared_with_user_ids: clean_shared,
             created_at: now,
@@ -1061,14 +1298,15 @@ impl Database {
         ssh_user: &str,
         notes: &str,
         ping_enabled: bool,
+        ignore_host_key: bool,
     ) -> Result<Option<UserServer>, String> {
         {
             let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
             let changed = conn
                 .execute(
                     "UPDATE user_servers
-                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, bmc_ip_address2 = ?4, port = ?5, ssh_user = ?6, notes = ?7, ping_enabled = ?8
-                     WHERE id = ?9 AND user_id = ?10",
+                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, bmc_ip_address2 = ?4, port = ?5, ssh_user = ?6, notes = ?7, ping_enabled = ?8, ignore_host_key = ?9
+                     WHERE id = ?10 AND user_id = ?11",
                     params![
                         label,
                         ip,
@@ -1078,6 +1316,7 @@ impl Database {
                         ssh_user,
                         notes,
                         if ping_enabled { 1i64 } else { 0i64 },
+                        if ignore_host_key { 1i64 } else { 0i64 },
                         id,
                         owner_user_id
                     ],
@@ -1688,5 +1927,561 @@ impl Database {
         .map_err(|e| e.to_string())?;
 
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    // ── Auth Policies (SSO, 2FA, Passkeys) ──────────────────────────────────
+
+    pub fn get_auth_policy(&self) -> AuthPolicySettings {
+        let Ok(conn) = self.conn.lock() else {
+            return AuthPolicySettings {
+                sso_enabled: false,
+                sso_provider_name: "SSO".into(),
+                sso_issuer_url: String::new(),
+                sso_auth_url: String::new(),
+                sso_token_url: String::new(),
+                sso_userinfo_url: String::new(),
+                sso_client_id: String::new(),
+                sso_client_secret_enc: None,
+                sso_scopes: "openid profile email".into(),
+                sso_auto_create_users: true,
+                sso_tested_at: None,
+                local_login_disabled: false,
+                two_factor_enabled: false,
+                two_factor_enforced: false,
+                passkey_enabled: false,
+                passkey_enforced: false,
+                allow_insecure_host_key: false,
+            };
+        };
+        Self::read_auth_policy_locked(&conn)
+    }
+
+    pub fn update_auth_policy(
+        &self,
+        patch: &AdminAuthSettingsPatchRequest,
+        encrypted_secret: Option<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<AuthPolicySettings, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let mut s = Self::read_auth_policy_locked(&conn);
+        let mut sso_changed = false;
+
+        if let Some(ref v) = patch.sso_provider_name {
+            let clean = v.trim();
+            s.sso_provider_name = if clean.is_empty() {
+                "SSO".into()
+            } else {
+                clean.chars().take(64).collect()
+            };
+        }
+        if let Some(ref v) = patch.sso_issuer_url {
+            let next = v.trim().to_string();
+            if next != s.sso_issuer_url {
+                sso_changed = true;
+            }
+            s.sso_issuer_url = next;
+        }
+        if let Some(ref v) = patch.sso_auth_url {
+            let next = v.trim().to_string();
+            if next != s.sso_auth_url {
+                sso_changed = true;
+            }
+            s.sso_auth_url = next;
+        }
+        if let Some(ref v) = patch.sso_token_url {
+            let next = v.trim().to_string();
+            if next != s.sso_token_url {
+                sso_changed = true;
+            }
+            s.sso_token_url = next;
+        }
+        if let Some(ref v) = patch.sso_userinfo_url {
+            let next = v.trim().to_string();
+            if next != s.sso_userinfo_url {
+                sso_changed = true;
+            }
+            s.sso_userinfo_url = next;
+        }
+        if let Some(ref v) = patch.sso_client_id {
+            let next = v.trim().to_string();
+            if next != s.sso_client_id {
+                sso_changed = true;
+            }
+            s.sso_client_id = next;
+        }
+        if patch.clear_sso_client_secret.unwrap_or(false) {
+            if s.sso_client_secret_enc.is_some() {
+                sso_changed = true;
+            }
+            s.sso_client_secret_enc = None;
+        } else if let Some(enc_pair) = encrypted_secret {
+            s.sso_client_secret_enc = Some(enc_pair);
+            sso_changed = true;
+        }
+        if let Some(ref v) = patch.sso_scopes {
+            let next = if v.trim().is_empty() {
+                "openid profile email".to_string()
+            } else {
+                v.trim().to_string()
+            };
+            if next != s.sso_scopes {
+                sso_changed = true;
+            }
+            s.sso_scopes = next;
+        }
+        if let Some(v) = patch.sso_auto_create_users {
+            s.sso_auto_create_users = v;
+        }
+        if let Some(v) = patch.sso_enabled {
+            s.sso_enabled = v;
+        }
+
+        if sso_changed {
+            s.sso_tested_at = None;
+            s.local_login_disabled = false;
+        }
+
+        if !s.sso_enabled || !s.is_sso_configured() || s.sso_tested_at.is_none() {
+            if patch.local_login_disabled == Some(true) {
+                return Err(
+                    "Die lokale Anmeldung kann erst abgeschaltet werden, wenn SSO aktiviert, vollständig konfiguriert und erfolgreich getestet wurde.".into(),
+                );
+            }
+            s.local_login_disabled = false;
+        } else if let Some(v) = patch.local_login_disabled {
+            s.local_login_disabled = v;
+        }
+
+        if let Some(v) = patch.two_factor_enabled {
+            s.two_factor_enabled = v;
+            if !v {
+                s.two_factor_enforced = false;
+            }
+        }
+        if let Some(v) = patch.two_factor_enforced {
+            if v && !s.two_factor_enabled {
+                return Err("2FA muss zuerst eingeschaltet werden, bevor sie erzwungen werden kann.".into());
+            }
+            s.two_factor_enforced = v;
+        }
+
+        if let Some(v) = patch.passkey_enabled {
+            s.passkey_enabled = v;
+            if !v {
+                s.passkey_enforced = false;
+            }
+        }
+        if let Some(v) = patch.passkey_enforced {
+            if v && !s.passkey_enabled {
+                return Err("Passkeys müssen zuerst eingeschaltet werden, bevor sie erzwungen werden können.".into());
+            }
+            s.passkey_enforced = v;
+        }
+        if let Some(v) = patch.allow_insecure_host_key {
+            s.allow_insecure_host_key = v;
+        }
+
+        Self::set_setting_locked(&conn, "sso_enabled", if s.sso_enabled { "1" } else { "0" })?;
+        Self::set_setting_locked(&conn, "sso_provider_name", &s.sso_provider_name)?;
+        Self::set_setting_locked(&conn, "sso_issuer_url", &s.sso_issuer_url)?;
+        Self::set_setting_locked(&conn, "sso_auth_url", &s.sso_auth_url)?;
+        Self::set_setting_locked(&conn, "sso_token_url", &s.sso_token_url)?;
+        Self::set_setting_locked(&conn, "sso_userinfo_url", &s.sso_userinfo_url)?;
+        Self::set_setting_locked(&conn, "sso_client_id", &s.sso_client_id)?;
+        if let Some((ref enc, ref nonce)) = s.sso_client_secret_enc {
+            Self::set_setting_locked(&conn, "sso_client_secret_enc", &STANDARD.encode(enc))?;
+            Self::set_setting_locked(&conn, "sso_client_secret_nonce", &STANDARD.encode(nonce))?;
+        } else {
+            Self::set_setting_locked(&conn, "sso_client_secret_enc", "")?;
+            Self::set_setting_locked(&conn, "sso_client_secret_nonce", "")?;
+        }
+        Self::set_setting_locked(&conn, "sso_scopes", &s.sso_scopes)?;
+        Self::set_setting_locked(
+            &conn,
+            "sso_auto_create_users",
+            if s.sso_auto_create_users { "1" } else { "0" },
+        )?;
+        Self::set_setting_locked(
+            &conn,
+            "sso_tested_at",
+            s.sso_tested_at.as_deref().unwrap_or(""),
+        )?;
+        Self::set_setting_locked(
+            &conn,
+            "local_login_disabled",
+            if s.local_login_disabled { "1" } else { "0" },
+        )?;
+        Self::set_setting_locked(
+            &conn,
+            "two_factor_enabled",
+            if s.two_factor_enabled { "1" } else { "0" },
+        )?;
+        Self::set_setting_locked(
+            &conn,
+            "two_factor_enforced",
+            if s.two_factor_enforced { "1" } else { "0" },
+        )?;
+        Self::set_setting_locked(
+            &conn,
+            "passkey_enabled",
+            if s.passkey_enabled { "1" } else { "0" },
+        )?;
+        Self::set_setting_locked(
+            &conn,
+            "passkey_enforced",
+            if s.passkey_enforced { "1" } else { "0" },
+        )?;
+        Self::set_setting_locked(
+            &conn,
+            "allow_insecure_host_key",
+            if s.allow_insecure_host_key { "1" } else { "0" },
+        )?;
+
+        Ok(s)
+    }
+
+    pub fn mark_sso_tested(&self) -> Result<AuthPolicySettings, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let now = Utc::now().to_rfc3339();
+        Self::set_setting_locked(&conn, "sso_tested_at", &now)?;
+        Ok(Self::read_auth_policy_locked(&conn))
+    }
+
+    pub fn find_or_create_sso_user(
+        &self,
+        sub: &str,
+        preferred_username: &str,
+        display_name: &str,
+        email: &str,
+        dummy_password_hash: &str,
+    ) -> Result<(UserPublic, bool), String> {
+        let user_id = {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            let policy = Self::read_auth_policy_locked(&conn);
+            let issuer_prefix = if !policy.sso_issuer_url.is_empty() {
+                &policy.sso_issuer_url
+            } else {
+                &policy.sso_auth_url
+            };
+            let sso_key = format!("{issuer_prefix}::{sub}");
+
+            let mut existing_id: Option<(String, bool)> = conn
+                .query_row(
+                    "SELECT id, active FROM users WHERE sso_subject = ?1",
+                    params![&sso_key],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? == 1)),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?;
+
+            if existing_id.is_none() && !email.is_empty() {
+                existing_id = conn
+                    .query_row(
+                        "SELECT id, active FROM users WHERE LOWER(email) = LOWER(?1)",
+                        params![email],
+                        |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? == 1)),
+                    )
+                    .optional()
+                    .map_err(|e| e.to_string())?;
+            }
+
+            if existing_id.is_none() {
+                existing_id = conn
+                    .query_row(
+                        "SELECT id, active FROM users WHERE username = ?1",
+                        params![preferred_username],
+                        |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? == 1)),
+                    )
+                    .optional()
+                    .map_err(|e| e.to_string())?;
+            }
+
+            if let Some((uid, active)) = existing_id {
+                if !active {
+                    return Err("Dieses Benutzerkonto ist gesperrt.".into());
+                }
+                let _ = conn.execute(
+                    "UPDATE users SET sso_subject = COALESCE(sso_subject, ?1), email = CASE WHEN email = '' THEN ?2 ELSE email END WHERE id = ?3",
+                    params![&sso_key, email, &uid],
+                );
+                (uid, false)
+            } else {
+                if !policy.sso_auto_create_users {
+                    return Err(
+                        "Für diesen SSO-Zugang existiert kein Benutzerkonto und die automatische Benutzeranlage ist deaktiviert.".into(),
+                    );
+                }
+                let mut candidate = preferred_username.to_string();
+                let mut suffix = 1u32;
+                loop {
+                    let exists: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM users WHERE username = ?1",
+                            params![&candidate],
+                            |r| r.get(0),
+                        )
+                        .unwrap_or(0);
+                    if exists == 0 {
+                        break;
+                    }
+                    let tag = format!("_{suffix}");
+                    suffix += 1;
+                    let prefix_len = 32usize.saturating_sub(tag.len());
+                    let base: String = preferred_username.chars().take(prefix_len).collect();
+                    candidate = format!("{base}{tag}");
+                }
+                let id = Uuid::new_v4().to_string();
+                let now = Utc::now().to_rfc3339();
+                conn.execute(
+                    "INSERT INTO users (id, username, display_name, role, auth_provider, sso_subject, email, default_ssh_user, active, ping_enabled, password_hash, totp_enabled, created_at)
+                     VALUES (?1, ?2, ?3, 'user', 'sso', ?4, ?5, 'root', 1, 1, ?6, 0, ?7)",
+                    params![&id, &candidate, display_name, &sso_key, email, dummy_password_hash, &now],
+                )
+                .map_err(|e| format!("SSO-Benutzer konnte nicht angelegt werden: {e}"))?;
+                (id, true)
+            }
+        };
+
+        let user = self
+            .get_user_by_id(&user_id.0)?
+            .ok_or_else(|| "SSO-Benutzer konnte nicht geladen werden.".to_string())?;
+        Ok((user, user_id.1))
+    }
+
+    // ── TOTP & WebAuthn ─────────────────────────────────────────────────────
+
+    pub fn set_user_totp(
+        &self,
+        user_id: &str,
+        secret_enc: &[u8],
+        secret_nonce: &[u8],
+        recovery_hashes: &[String],
+    ) -> Result<Option<UserPublic>, String> {
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            let json_hashes = serde_json::to_string(recovery_hashes).unwrap_or_else(|_| "[]".into());
+            conn.execute(
+                "UPDATE users SET totp_enabled = 1, totp_secret_enc = ?1, totp_secret_nonce = ?2, totp_recovery_hashes_json = ?3 WHERE id = ?4",
+                params![secret_enc, secret_nonce, json_hashes, user_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        self.get_user_by_id(user_id)
+    }
+
+    pub fn get_user_totp_secret_enc(&self, user_id: &str) -> Result<Option<(Vec<u8>, Vec<u8>)>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT totp_secret_enc, totp_secret_nonce FROM users WHERE id = ?1 AND totp_enabled = 1",
+            params![user_id],
+            |r| {
+                let enc: Option<Vec<u8>> = r.get(0)?;
+                let nonce: Option<Vec<u8>> = r.get(1)?;
+                Ok(enc.zip(nonce))
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+        .map(|opt| opt.flatten())
+    }
+
+    pub fn get_user_recovery_count(&self, user_id: &str) -> usize {
+        let Ok(conn) = self.conn.lock() else {
+            return 0;
+        };
+        let raw: String = conn
+            .query_row(
+                "SELECT totp_recovery_hashes_json FROM users WHERE id = ?1",
+                params![user_id],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "[]".into());
+        serde_json::from_str::<Vec<String>>(&raw)
+            .map(|v| v.len())
+            .unwrap_or(0)
+    }
+
+    pub fn consume_recovery_code(&self, user_id: &str, code_hash: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let raw: Option<String> = conn
+            .query_row(
+                "SELECT totp_recovery_hashes_json FROM users WHERE id = ?1 AND totp_enabled = 1",
+                params![user_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some(json_str) = raw else {
+            return Ok(false);
+        };
+        let mut hashes: Vec<String> = serde_json::from_str(&json_str).unwrap_or_default();
+        let Some(pos) = hashes.iter().position(|h| h == code_hash) else {
+            return Ok(false);
+        };
+        hashes.remove(pos);
+        let updated = serde_json::to_string(&hashes).unwrap_or_else(|_| "[]".into());
+        conn.execute(
+            "UPDATE users SET totp_recovery_hashes_json = ?1 WHERE id = ?2",
+            params![updated, user_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    pub fn disable_user_totp(&self, user_id: &str) -> Result<Option<UserPublic>, String> {
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            conn.execute(
+                "UPDATE users SET totp_enabled = 0, totp_secret_enc = NULL, totp_secret_nonce = NULL, totp_recovery_hashes_json = '[]' WHERE id = ?1",
+                params![user_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        self.get_user_by_id(user_id)
+    }
+
+    pub fn list_webauthn_credentials(
+        &self,
+        user_id: &str,
+        kind: Option<&str>,
+    ) -> Result<Vec<WebAuthnCredentialStored>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let sql = if kind.is_some() {
+            "SELECT id, user_id, kind, name, credential_id, public_key, counter, transports_json, created_at, last_used_at
+             FROM user_webauthn_credentials WHERE user_id = ?1 AND kind = ?2 ORDER BY created_at DESC"
+        } else {
+            "SELECT id, user_id, kind, name, credential_id, public_key, counter, transports_json, created_at, last_used_at
+             FROM user_webauthn_credentials WHERE user_id = ?1 ORDER BY created_at DESC"
+        };
+        let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+        let mapper = |r: &rusqlite::Row<'_>| -> rusqlite::Result<WebAuthnCredentialStored> {
+            let transports_raw: String = r.get(7)?;
+            Ok(WebAuthnCredentialStored {
+                id: r.get(0)?,
+                user_id: r.get(1)?,
+                kind: r.get(2)?,
+                name: r.get(3)?,
+                credential_id: r.get(4)?,
+                public_key: r.get(5)?,
+                counter: r.get::<_, i64>(6)?.max(0) as u32,
+                transports: serde_json::from_str(&transports_raw).unwrap_or_default(),
+                created_at: r.get(8)?,
+                last_used_at: r.get(9)?,
+            })
+        };
+        let rows = if let Some(k) = kind {
+            stmt.query_map(params![user_id, k], mapper)
+        } else {
+            stmt.query_map(params![user_id], mapper)
+        }
+        .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn find_webauthn_by_cred_id(
+        &self,
+        cred_id: &str,
+    ) -> Result<Option<WebAuthnCredentialStored>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT id, user_id, kind, name, credential_id, public_key, counter, transports_json, created_at, last_used_at
+             FROM user_webauthn_credentials WHERE credential_id = ?1",
+            params![cred_id],
+            |r| {
+                let transports_raw: String = r.get(7)?;
+                Ok(WebAuthnCredentialStored {
+                    id: r.get(0)?,
+                    user_id: r.get(1)?,
+                    kind: r.get(2)?,
+                    name: r.get(3)?,
+                    credential_id: r.get(4)?,
+                    public_key: r.get(5)?,
+                    counter: r.get::<_, i64>(6)?.max(0) as u32,
+                    transports: serde_json::from_str(&transports_raw).unwrap_or_default(),
+                    created_at: r.get(8)?,
+                    last_used_at: r.get(9)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_webauthn_credential(
+        &self,
+        user_id: &str,
+        kind: &str,
+        name: &str,
+        credential_id: &str,
+        public_key: &str,
+        counter: u32,
+        transports: &[String],
+    ) -> Result<WebAuthnCredentialPublic, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let transports_json = serde_json::to_string(transports).unwrap_or_else(|_| "[]".into());
+        conn.execute(
+            "INSERT INTO user_webauthn_credentials (id, user_id, kind, name, credential_id, public_key, counter, transports_json, created_at, last_used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
+            params![
+                &id,
+                user_id,
+                kind,
+                name,
+                credential_id,
+                public_key,
+                counter as i64,
+                &transports_json,
+                &now
+            ],
+        )
+        .map_err(|e| format!("Schlüssel konnte nicht gespeichert werden: {e}"))?;
+        Ok(WebAuthnCredentialPublic {
+            id,
+            kind: kind.to_string(),
+            name: name.to_string(),
+            transports: transports.to_vec(),
+            created_at: now,
+            last_used_at: None,
+        })
+    }
+
+    pub fn update_webauthn_usage(&self, id: &str, new_counter: u32) {
+        if let Ok(conn) = self.conn.lock() {
+            let now = Utc::now().to_rfc3339();
+            let _ = conn.execute(
+                "UPDATE user_webauthn_credentials SET counter = ?1, last_used_at = ?2 WHERE id = ?3",
+                params![new_counter as i64, now, id],
+            );
+        }
+    }
+
+    pub fn delete_webauthn_credential(&self, id: &str, user_id: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let changed = conn
+            .execute(
+                "DELETE FROM user_webauthn_credentials WHERE id = ?1 AND user_id = ?2",
+                params![id, user_id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(changed > 0)
+    }
+
+    pub fn reset_user_second_factors(&self, user_id: &str) -> Result<Option<UserPublic>, String> {
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            conn.execute(
+                "UPDATE users SET totp_enabled = 0, totp_secret_enc = NULL, totp_secret_nonce = NULL, totp_recovery_hashes_json = '[]' WHERE id = ?1",
+                params![user_id],
+            )
+            .map_err(|e| e.to_string())?;
+            conn.execute(
+                "DELETE FROM user_webauthn_credentials WHERE user_id = ?1",
+                params![user_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        self.get_user_by_id(user_id)
     }
 }

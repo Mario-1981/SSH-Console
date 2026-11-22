@@ -4,6 +4,7 @@ import { api, setUnauthorizedHandler } from './api';
 import { LanguageSwitcher, useI18n } from './i18n';
 import { AccountView } from './components/AccountView';
 import { AuditLogView } from './components/AuditLogView';
+import { AuthSecurityAdminView } from './components/AuthSecurityAdminView';
 import { CertificatesView } from './components/CertificatesView';
 import { CommandsAdminView } from './components/CommandsAdminView';
 import { DashboardView } from './components/DashboardView';
@@ -33,6 +34,17 @@ export default function App() {
     initializedAt: null,
     pingAllowed: true,
     pingIntervalSec: 60,
+    ssoEnabled: false,
+    ssoProviderName: 'SSO',
+    ssoAutoCreateUsers: true,
+    ssoConfigured: false,
+    ssoTestedAt: null,
+    localLoginDisabled: false,
+    twoFactorEnabled: false,
+    twoFactorEnforced: false,
+    passkeyEnabled: false,
+    passkeyEnforced: false,
+    allowInsecureHostKey: false,
   });
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -45,6 +57,9 @@ export default function App() {
   const [users, setUsers] = useState<User[]>([]);
 
   const loadWorkspaceData = useCallback(async (currentUser: User) => {
+    if (currentUser.mustSetupTwoFactor || currentUser.mustSetupPasskey) {
+      return;
+    }
     const isAdmin = currentUser.role === 'admin';
     const [cmdRes, srvRes, certRes, logRes, usrRes] = await Promise.all([
       api.listCommands(true),
@@ -68,7 +83,11 @@ export default function App() {
       setOpensshAvailable(status.opensshAvailable);
       setUser(status.user);
       if (status.user) {
-        await loadWorkspaceData(status.user);
+        if (status.user.mustSetupTwoFactor || status.user.mustSetupPasskey) {
+          setActiveTab('account');
+        } else {
+          await loadWorkspaceData(status.user);
+        }
       }
     } finally {
       setLoading(false);
@@ -87,7 +106,7 @@ export default function App() {
   }, [bootstrap]);
 
   useEffect(() => {
-    if (!user || activeTab !== 'logs') return;
+    if (!user || activeTab !== 'logs' || user.mustSetupTwoFactor || user.mustSetupPasskey) return;
     let cancelled = false;
     void api
       .listLogs()
@@ -112,8 +131,21 @@ export default function App() {
 
   async function handleLogin(loggedInUser: User) {
     setUser(loggedInUser);
+    if (loggedInUser.mustSetupTwoFactor || loggedInUser.mustSetupPasskey) {
+      setActiveTab('account');
+      return;
+    }
     setActiveTab('dashboard');
     await loadWorkspaceData(loggedInUser);
+  }
+
+  async function handleUserSecurityUpdated(updatedUser: User) {
+    const wasLocked = Boolean(user?.mustSetupTwoFactor || user?.mustSetupPasskey);
+    const isStillLocked = Boolean(updatedUser.mustSetupTwoFactor || updatedUser.mustSetupPasskey);
+    setUser(updatedUser);
+    if (wasLocked && !isStillLocked) {
+      await loadWorkspaceData(updatedUser);
+    }
   }
 
   async function handleLogout() {
@@ -141,8 +173,14 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginView instanceName={settings.instanceName} onLogin={handleLogin} />;
+    return <LoginView settings={settings} onLogin={handleLogin} />;
   }
+
+  const securitySetupRequired = Boolean(user.mustSetupTwoFactor || user.mustSetupPasskey);
+  const effectiveTab: ActiveTab =
+    securitySetupRequired && activeTab !== 'account' && activeTab !== 'admin-auth'
+      ? 'account'
+      : activeTab;
 
   const breadcrumbs: Record<ActiveTab, { group: string; title: string }> = {
     dashboard: { group: tr('Arbeitsbereich', 'Workspace'), title: 'Dashboard' },
@@ -150,19 +188,20 @@ export default function App() {
     servers: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Meine Server (IPs)', 'My Servers (IPs)') },
     certificates: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('SSH-Zertifikate', 'SSH Certificates') },
     logs: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Ausführungsprotokoll', 'Execution Log') },
-    account: { group: tr('Konto', 'Account'), title: tr('Konto & API-Schlüssel', 'Account & API Keys') },
+    account: { group: tr('Konto', 'Account'), title: tr('Konto & Sicherheit', 'Account & Security') },
     'admin-commands': { group: tr('Arbeitsbereich', 'Workspace'), title: tr('SSH-Befehle', 'SSH Commands') },
     'admin-users': { group: 'Administration', title: tr('Benutzerverwaltung', 'User Management') },
+    'admin-auth': { group: 'Administration', title: tr('Authentifizierung & SSO', 'Auth & SSO') },
   };
 
-  const crumb = breadcrumbs[activeTab];
+  const crumb = breadcrumbs[effectiveTab];
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
       <Sidebar
         instanceName={settings.instanceName}
         user={user}
-        activeTab={activeTab}
+        activeTab={effectiveTab}
         onSelectTab={setActiveTab}
         onLogout={handleLogout}
         mobileOpen={mobileMenuOpen}
@@ -189,29 +228,30 @@ export default function App() {
 
           <div className="flex items-center gap-3 shrink-0">
             <LanguageSwitcher />
-            {activeTab !== 'dashboard' ? (
-              <button
-                type="button"
-                onClick={() => setActiveTab('dashboard')}
-                className="px-3.5 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-              >
-                {tr('Zum Dashboard', 'Go to Dashboard')}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setActiveTab('servers')}
-                className="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-              >
-                {tr(`Server verwalten (${servers.length})`, `Manage Servers (${servers.length})`)}
-              </button>
-            )}
+            {!securitySetupRequired &&
+              (effectiveTab !== 'dashboard' ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('dashboard')}
+                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  {tr('Zum Dashboard', 'Go to Dashboard')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('servers')}
+                  className="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  {tr(`Server verwalten (${servers.length})`, `Manage Servers (${servers.length})`)}
+                </button>
+              ))}
           </div>
         </header>
 
         <main className="flex-1 overflow-y-auto px-6 py-8">
           <div className="max-w-6xl mx-auto">
-            {activeTab === 'dashboard' && (
+            {effectiveTab === 'dashboard' && (
               <DashboardView
                 currentUser={user}
                 settings={settings}
@@ -232,10 +272,11 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'shell' && (
+            {effectiveTab === 'shell' && (
               <SshShellView
                 user={user}
                 opensshAvailable={opensshAvailable}
+                allowInsecureHostKey={settings.allowInsecureHostKey}
                 servers={servers}
                 certificates={certificates}
                 onNavigate={setActiveTab}
@@ -246,12 +287,14 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'servers' && (
+            {effectiveTab === 'servers' && (
               <ServersView
                 user={user}
                 users={users}
                 servers={servers}
                 globalPingAllowed={settings.pingAllowed}
+                allowInsecureHostKey={settings.allowInsecureHostKey}
+                onUpdateSettings={setSettings}
                 onRefresh={async () => {
                   const res = await api.listServers();
                   setServers(res.servers);
@@ -259,7 +302,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'certificates' && (
+            {effectiveTab === 'certificates' && (
               <CertificatesView
                 user={user}
                 users={users}
@@ -271,7 +314,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'logs' && (
+            {effectiveTab === 'logs' && (
               <AuditLogView
                 currentUser={user}
                 users={users}
@@ -283,9 +326,15 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'account' && <AccountView user={user} />}
+            {effectiveTab === 'account' && (
+              <AccountView
+                user={user}
+                settings={settings}
+                onUserUpdated={handleUserSecurityUpdated}
+              />
+            )}
 
-            {activeTab === 'admin-commands' && (
+            {effectiveTab === 'admin-commands' && (
               <CommandsAdminView
                 currentUser={user}
                 users={users}
@@ -297,13 +346,24 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'admin-users' && user.role === 'admin' && (
+            {effectiveTab === 'admin-users' && user.role === 'admin' && (
               <UsersAdminView
                 currentUser={user}
                 users={users}
                 onRefresh={async () => {
                   const res = await api.listUsers();
                   setUsers(res.users);
+                }}
+              />
+            )}
+
+            {effectiveTab === 'admin-auth' && user.role === 'admin' && (
+              <AuthSecurityAdminView
+                onSettingsUpdated={(nextSettings, updatedUser) => {
+                  setSettings(nextSettings);
+                  if (updatedUser) {
+                    void handleUserSecurityUpdated(updatedUser);
+                  }
                 }}
               />
             )}

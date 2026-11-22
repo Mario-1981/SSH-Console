@@ -4,17 +4,38 @@ import path from 'node:path';
 import type { ParsedCertMetadata } from './opensshCert.ts';
 
 export type UserRole = 'admin' | 'user';
+export type AuthProvider = 'local' | 'sso';
+export type WebAuthnCredentialKind = 'security-key' | 'passkey';
+
+export interface StoredWebAuthnCredential {
+  id: string;
+  userId: string;
+  kind: WebAuthnCredentialKind;
+  name: string;
+  credentialId: string;
+  publicKey: string;
+  counter: number;
+  transports: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+}
 
 export interface StoredUser {
   id: string;
   username: string;
   displayName: string;
   role: UserRole;
+  authProvider: AuthProvider;
+  ssoSubject: string | null;
+  email: string;
   defaultSshUser: string;
   active: boolean;
   pingEnabled: boolean;
   passwordSalt: string;
   passwordHash: string;
+  totpEnabled: boolean;
+  totpSecretEncrypted: EncryptedBlob | null;
+  totpRecoveryHashes: string[];
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -100,6 +121,7 @@ export interface UserServer {
   sshUser: string;
   notes: string;
   pingEnabled: boolean;
+  ignoreHostKey: boolean;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   createdAt: string;
@@ -155,6 +177,26 @@ export interface AppSettings {
   initializedAt: string | null;
   pingAllowed: boolean;
   pingIntervalSec: number;
+  // SSO (OIDC / OAuth2)
+  ssoEnabled: boolean;
+  ssoProviderName: string;
+  ssoIssuerUrl: string;
+  ssoAuthUrl: string;
+  ssoTokenUrl: string;
+  ssoUserinfoUrl: string;
+  ssoClientId: string;
+  ssoClientSecretEncrypted: EncryptedBlob | null;
+  ssoScopes: string;
+  ssoAutoCreateUsers: boolean;
+  ssoTestedAt: string | null;
+  localLoginDisabled: boolean;
+  // Local 2FA (Authenticator App + Security Key) & Passkeys
+  twoFactorEnabled: boolean;
+  twoFactorEnforced: boolean;
+  passkeyEnabled: boolean;
+  passkeyEnforced: boolean;
+  // SSH Security
+  allowInsecureHostKey: boolean;
 }
 
 interface DatabaseSchema {
@@ -162,6 +204,7 @@ interface DatabaseSchema {
   users: StoredUser[];
   sessions: StoredSession[];
   apiKeys: StoredApiKey[];
+  webauthnCredentials: StoredWebAuthnCredential[];
   commands: SshCommand[];
   servers: UserServer[];
   certificates: UserCertificateBundle[];
@@ -243,10 +286,28 @@ function emptyDb(): DatabaseSchema {
       initializedAt: null,
       pingAllowed: true,
       pingIntervalSec: 60,
+      ssoEnabled: false,
+      ssoProviderName: 'SSO',
+      ssoIssuerUrl: '',
+      ssoAuthUrl: '',
+      ssoTokenUrl: '',
+      ssoUserinfoUrl: '',
+      ssoClientId: '',
+      ssoClientSecretEncrypted: null,
+      ssoScopes: 'openid profile email',
+      ssoAutoCreateUsers: true,
+      ssoTestedAt: null,
+      localLoginDisabled: false,
+      twoFactorEnabled: false,
+      twoFactorEnforced: false,
+      passkeyEnabled: false,
+      passkeyEnforced: false,
+      allowInsecureHostKey: false,
     },
     users: [],
     sessions: [],
     apiKeys: [],
+    webauthnCredentials: [],
     commands: [],
     servers: [],
     certificates: [],
@@ -270,7 +331,13 @@ class Store {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) as DatabaseSchema;
       const users: StoredUser[] = (parsed.users ?? []).map((u) => ({
         ...u,
+        authProvider: u.authProvider === 'sso' ? 'sso' : 'local',
+        ssoSubject: typeof u.ssoSubject === 'string' && u.ssoSubject ? u.ssoSubject : null,
+        email: typeof u.email === 'string' ? u.email : '',
         pingEnabled: typeof u.pingEnabled === 'boolean' ? u.pingEnabled : true,
+        totpEnabled: Boolean(u.totpEnabled),
+        totpSecretEncrypted: u.totpSecretEncrypted ?? null,
+        totpRecoveryHashes: Array.isArray(u.totpRecoveryHashes) ? u.totpRecoveryHashes : [],
       }));
       const usernameToId = new Map(users.map((u) => [u.username.toLowerCase(), u.id]));
       const idToUsername = new Map(users.map((u) => [u.id, u.username]));
@@ -292,6 +359,7 @@ class Store {
         bmcIpAddress: typeof s.bmcIpAddress === 'string' ? s.bmcIpAddress.trim() : '',
         bmcIpAddress2: typeof s.bmcIpAddress2 === 'string' ? s.bmcIpAddress2.trim() : '',
         pingEnabled: typeof s.pingEnabled === 'boolean' ? s.pingEnabled : true,
+        ignoreHostKey: Boolean(s.ignoreHostKey),
         sharedWithAll: Boolean(s.sharedWithAll),
         sharedWithUserIds: Array.isArray(s.sharedWithUserIds) ? s.sharedWithUserIds : [],
       }));
@@ -313,8 +381,17 @@ class Store {
       }));
 
       const rawInterval = Number(parsed.settings?.pingIntervalSec);
+      const baseSettings = emptyDb().settings;
+      const ssoEnabled = Boolean(parsed.settings?.ssoEnabled);
+      const ssoTestedAt =
+        typeof parsed.settings?.ssoTestedAt === 'string' && parsed.settings.ssoTestedAt
+          ? parsed.settings.ssoTestedAt
+          : null;
+      const twoFactorEnabled = Boolean(parsed.settings?.twoFactorEnabled);
+      const passkeyEnabled = Boolean(parsed.settings?.passkeyEnabled);
+
       const migratedSettings: AppSettings = {
-        ...emptyDb().settings,
+        ...baseSettings,
         ...(parsed.settings ?? {}),
         instanceName:
           !parsed.settings?.instanceName || parsed.settings.instanceName === 'TrixieSSH'
@@ -325,7 +402,44 @@ class Store {
         pingIntervalSec: Number.isFinite(rawInterval)
           ? Math.min(3600, Math.max(10, Math.round(rawInterval)))
           : 60,
+        ssoEnabled,
+        ssoProviderName:
+          typeof parsed.settings?.ssoProviderName === 'string' && parsed.settings.ssoProviderName.trim()
+            ? parsed.settings.ssoProviderName.trim()
+            : 'SSO',
+        ssoIssuerUrl: typeof parsed.settings?.ssoIssuerUrl === 'string' ? parsed.settings.ssoIssuerUrl : '',
+        ssoAuthUrl: typeof parsed.settings?.ssoAuthUrl === 'string' ? parsed.settings.ssoAuthUrl : '',
+        ssoTokenUrl: typeof parsed.settings?.ssoTokenUrl === 'string' ? parsed.settings.ssoTokenUrl : '',
+        ssoUserinfoUrl:
+          typeof parsed.settings?.ssoUserinfoUrl === 'string' ? parsed.settings.ssoUserinfoUrl : '',
+        ssoClientId: typeof parsed.settings?.ssoClientId === 'string' ? parsed.settings.ssoClientId : '',
+        ssoClientSecretEncrypted: parsed.settings?.ssoClientSecretEncrypted ?? null,
+        ssoScopes:
+          typeof parsed.settings?.ssoScopes === 'string' && parsed.settings.ssoScopes.trim()
+            ? parsed.settings.ssoScopes.trim()
+            : 'openid profile email',
+        ssoAutoCreateUsers:
+          typeof parsed.settings?.ssoAutoCreateUsers === 'boolean'
+            ? parsed.settings.ssoAutoCreateUsers
+            : true,
+        ssoTestedAt,
+        localLoginDisabled: Boolean(parsed.settings?.localLoginDisabled && ssoEnabled && ssoTestedAt),
+        twoFactorEnabled,
+        twoFactorEnforced: Boolean(parsed.settings?.twoFactorEnforced && twoFactorEnabled),
+        passkeyEnabled,
+        passkeyEnforced: Boolean(parsed.settings?.passkeyEnforced && passkeyEnabled),
+        allowInsecureHostKey: Boolean(parsed.settings?.allowInsecureHostKey),
       };
+
+      const migratedWebauthn: StoredWebAuthnCredential[] = Array.isArray(parsed.webauthnCredentials)
+        ? parsed.webauthnCredentials.map((c) => ({
+            ...c,
+            kind: c.kind === 'passkey' ? 'passkey' : 'security-key',
+            transports: Array.isArray(c.transports) ? c.transports : [],
+            counter: Number.isFinite(Number(c.counter)) ? Number(c.counter) : 0,
+            lastUsedAt: typeof c.lastUsedAt === 'string' ? c.lastUsedAt : null,
+          }))
+        : [];
 
       return {
         ...emptyDb(),
@@ -333,6 +447,7 @@ class Store {
         users,
         settings: migratedSettings,
         apiKeys: Array.isArray(parsed.apiKeys) ? parsed.apiKeys : [],
+        webauthnCredentials: migratedWebauthn,
         commands: migratedCommands,
         servers: migratedServers,
         certificates: migratedCertificates,
@@ -414,15 +529,22 @@ class Store {
       username: params.username.trim().toLowerCase(),
       displayName: params.displayName.trim() || params.username.trim(),
       role: 'admin',
+      authProvider: 'local',
+      ssoSubject: null,
+      email: '',
       defaultSshUser: 'root',
       active: true,
       pingEnabled: true,
       passwordSalt: salt,
       passwordHash: hash,
+      totpEnabled: false,
+      totpSecretEncrypted: null,
+      totpRecoveryHashes: [],
       createdAt: now,
       lastLoginAt: now,
     };
     this.db.settings = {
+      ...emptyDb().settings,
       instanceName: params.instanceName.trim() || 'SSH Console',
       initializedAt: now,
       pingAllowed: true,
@@ -433,6 +555,142 @@ class Store {
     return admin;
   }
 
+  isSsoConfigured(): boolean {
+    const s = this.db.settings;
+    return Boolean(s.ssoAuthUrl.trim() && s.ssoTokenUrl.trim() && s.ssoClientId.trim());
+  }
+
+  getSsoClientSecretPlain(): string {
+    const enc = this.db.settings.ssoClientSecretEncrypted;
+    if (!enc) return '';
+    try {
+      return decryptSecret(enc);
+    } catch {
+      return '';
+    }
+  }
+
+  updateAuthSettings(patch: {
+    ssoEnabled?: boolean;
+    ssoProviderName?: string;
+    ssoIssuerUrl?: string;
+    ssoAuthUrl?: string;
+    ssoTokenUrl?: string;
+    ssoUserinfoUrl?: string;
+    ssoClientId?: string;
+    ssoClientSecret?: string;
+    clearSsoClientSecret?: boolean;
+    ssoScopes?: string;
+    ssoAutoCreateUsers?: boolean;
+    localLoginDisabled?: boolean;
+    twoFactorEnabled?: boolean;
+    twoFactorEnforced?: boolean;
+    passkeyEnabled?: boolean;
+    passkeyEnforced?: boolean;
+    allowInsecureHostKey?: boolean;
+  }): AppSettings {
+    const s = this.db.settings;
+    let ssoConfigChanged = false;
+
+    if (patch.ssoProviderName !== undefined) {
+      s.ssoProviderName = patch.ssoProviderName.trim().slice(0, 64) || 'SSO';
+    }
+    if (patch.ssoIssuerUrl !== undefined) {
+      const next = patch.ssoIssuerUrl.trim();
+      if (next !== s.ssoIssuerUrl) ssoConfigChanged = true;
+      s.ssoIssuerUrl = next;
+    }
+    if (patch.ssoAuthUrl !== undefined) {
+      const next = patch.ssoAuthUrl.trim();
+      if (next !== s.ssoAuthUrl) ssoConfigChanged = true;
+      s.ssoAuthUrl = next;
+    }
+    if (patch.ssoTokenUrl !== undefined) {
+      const next = patch.ssoTokenUrl.trim();
+      if (next !== s.ssoTokenUrl) ssoConfigChanged = true;
+      s.ssoTokenUrl = next;
+    }
+    if (patch.ssoUserinfoUrl !== undefined) {
+      const next = patch.ssoUserinfoUrl.trim();
+      if (next !== s.ssoUserinfoUrl) ssoConfigChanged = true;
+      s.ssoUserinfoUrl = next;
+    }
+    if (patch.ssoClientId !== undefined) {
+      const next = patch.ssoClientId.trim();
+      if (next !== s.ssoClientId) ssoConfigChanged = true;
+      s.ssoClientId = next;
+    }
+    if (patch.clearSsoClientSecret) {
+      if (s.ssoClientSecretEncrypted !== null) ssoConfigChanged = true;
+      s.ssoClientSecretEncrypted = null;
+    } else if (typeof patch.ssoClientSecret === 'string' && patch.ssoClientSecret.trim()) {
+      s.ssoClientSecretEncrypted = encryptSecret(patch.ssoClientSecret.trim());
+      ssoConfigChanged = true;
+    }
+    if (patch.ssoScopes !== undefined) {
+      const next = patch.ssoScopes.trim() || 'openid profile email';
+      if (next !== s.ssoScopes) ssoConfigChanged = true;
+      s.ssoScopes = next;
+    }
+    if (patch.ssoAutoCreateUsers !== undefined) {
+      s.ssoAutoCreateUsers = Boolean(patch.ssoAutoCreateUsers);
+    }
+    if (patch.ssoEnabled !== undefined) {
+      s.ssoEnabled = Boolean(patch.ssoEnabled);
+    }
+
+    if (ssoConfigChanged) {
+      s.ssoTestedAt = null;
+      s.localLoginDisabled = false;
+    }
+
+    if (!s.ssoEnabled || !this.isSsoConfigured() || !s.ssoTestedAt) {
+      if (patch.localLoginDisabled === true) {
+        throw new Error(
+          'Die lokale Anmeldung kann erst abgeschaltet werden, wenn SSO aktiviert, vollständig konfiguriert und erfolgreich getestet wurde.'
+        );
+      }
+      s.localLoginDisabled = false;
+    } else if (patch.localLoginDisabled !== undefined) {
+      s.localLoginDisabled = Boolean(patch.localLoginDisabled);
+    }
+
+    if (patch.twoFactorEnabled !== undefined) {
+      s.twoFactorEnabled = Boolean(patch.twoFactorEnabled);
+      if (!s.twoFactorEnabled) s.twoFactorEnforced = false;
+    }
+    if (patch.twoFactorEnforced !== undefined) {
+      if (patch.twoFactorEnforced && !s.twoFactorEnabled) {
+        throw new Error('2FA muss zuerst eingeschaltet werden, bevor sie erzwungen werden kann.');
+      }
+      s.twoFactorEnforced = Boolean(patch.twoFactorEnforced);
+    }
+
+    if (patch.passkeyEnabled !== undefined) {
+      s.passkeyEnabled = Boolean(patch.passkeyEnabled);
+      if (!s.passkeyEnabled) s.passkeyEnforced = false;
+    }
+    if (patch.passkeyEnforced !== undefined) {
+      if (patch.passkeyEnforced && !s.passkeyEnabled) {
+        throw new Error('Passkeys müssen zuerst eingeschaltet werden, bevor sie erzwungen werden können.');
+      }
+      s.passkeyEnforced = Boolean(patch.passkeyEnforced);
+    }
+
+    if (patch.allowInsecureHostKey !== undefined) {
+      s.allowInsecureHostKey = Boolean(patch.allowInsecureHostKey);
+    }
+
+    this.save();
+    return s;
+  }
+
+  markSsoTested(): AppSettings {
+    this.db.settings.ssoTestedAt = new Date().toISOString();
+    this.save();
+    return this.db.settings;
+  }
+
   findUserByUsername(username: string): StoredUser | undefined {
     const normalized = username.trim().toLowerCase();
     return this.db.users.find((u) => u.username === normalized);
@@ -440,6 +698,77 @@ class Store {
 
   findUserById(id: string): StoredUser | undefined {
     return this.db.users.find((u) => u.id === id);
+  }
+
+  findOrCreateSsoUser(profile: {
+    sub: string;
+    username: string;
+    displayName: string;
+    email: string;
+  }): { user: StoredUser; created: boolean } {
+    const ssoKey = `${this.db.settings.ssoIssuerUrl || this.db.settings.ssoAuthUrl}::${profile.sub}`;
+    let user = this.db.users.find((u) => u.ssoSubject === ssoKey);
+    if (!user && profile.email) {
+      const emailLower = profile.email.toLowerCase();
+      user = this.db.users.find((u) => u.email && u.email.toLowerCase() === emailLower);
+    }
+    if (!user) {
+      user = this.findUserByUsername(profile.username);
+    }
+
+    if (user) {
+      if (!user.active) {
+        throw new Error('Dieses Benutzerkonto ist gesperrt. Bitte wenden Sie sich an den Administrator.');
+      }
+      if (!user.ssoSubject) user.ssoSubject = ssoKey;
+      if (profile.email && !user.email) user.email = profile.email;
+      if (profile.displayName && user.displayName === user.username) {
+        user.displayName = profile.displayName;
+      }
+      this.save();
+      return { user, created: false };
+    }
+
+    if (!this.db.settings.ssoAutoCreateUsers) {
+      throw new Error(
+        'Für diesen SSO-Zugang existiert kein Benutzerkonto und die automatische Benutzeranlage ist deaktiviert.'
+      );
+    }
+
+    // Ensure unique username
+    let baseUsername = profile.username.toLowerCase().replace(/[^a-z0-9._-]/g, '_');
+    if (baseUsername.length < 2) baseUsername = `sso_${crypto.randomBytes(3).toString('hex')}`;
+    let candidate = baseUsername.slice(0, 32);
+    let suffix = 1;
+    while (this.db.users.some((u) => u.username === candidate)) {
+      const tag = `_${suffix++}`;
+      candidate = `${baseUsername.slice(0, 32 - tag.length)}${tag}`;
+    }
+
+    const randomSecret = crypto.randomBytes(32).toString('hex');
+    const { salt, hash } = hashPassword(randomSecret);
+    const createdUser: StoredUser = {
+      id: crypto.randomUUID(),
+      username: candidate,
+      displayName: profile.displayName || candidate,
+      role: 'user',
+      authProvider: 'sso',
+      ssoSubject: ssoKey,
+      email: profile.email || '',
+      defaultSshUser: 'root',
+      active: true,
+      pingEnabled: true,
+      passwordSalt: salt,
+      passwordHash: hash,
+      totpEnabled: false,
+      totpSecretEncrypted: null,
+      totpRecoveryHashes: [],
+      createdAt: new Date().toISOString(),
+      lastLoginAt: null,
+    };
+    this.db.users.push(createdUser);
+    this.save();
+    return { user: createdUser, created: true };
   }
 
   listUsers(): StoredUser[] {
@@ -466,15 +795,136 @@ class Store {
       username: normalized,
       displayName: params.displayName.trim() || normalized,
       role: params.role,
+      authProvider: 'local',
+      ssoSubject: null,
+      email: '',
       defaultSshUser: params.defaultSshUser.trim() || 'root',
       active: true,
       pingEnabled: true,
       passwordSalt: salt,
       passwordHash: hash,
+      totpEnabled: false,
+      totpSecretEncrypted: null,
+      totpRecoveryHashes: [],
       createdAt: new Date().toISOString(),
       lastLoginAt: null,
     };
     this.db.users.push(user);
+    this.save();
+    return user;
+  }
+
+  // ── 2FA (TOTP) & WebAuthn (Security Keys + Passkeys) ──────────────────────
+
+  setUserTotp(userId: string, secretBase32: string, recoveryHashes: string[]): StoredUser {
+    const user = this.db.users.find((u) => u.id === userId);
+    if (!user) throw new Error('Benutzer nicht gefunden.');
+    user.totpEnabled = true;
+    user.totpSecretEncrypted = encryptSecret(secretBase32);
+    user.totpRecoveryHashes = recoveryHashes;
+    this.save();
+    return user;
+  }
+
+  getUserTotpSecretPlain(userId: string): string | null {
+    const user = this.db.users.find((u) => u.id === userId);
+    if (!user || !user.totpEnabled || !user.totpSecretEncrypted) return null;
+    try {
+      return decryptSecret(user.totpSecretEncrypted);
+    } catch {
+      return null;
+    }
+  }
+
+  consumeRecoveryCode(userId: string, codeHash: string): boolean {
+    const user = this.db.users.find((u) => u.id === userId);
+    if (!user || !user.totpEnabled) return false;
+    const idx = user.totpRecoveryHashes.indexOf(codeHash);
+    if (idx === -1) return false;
+    user.totpRecoveryHashes.splice(idx, 1);
+    this.save();
+    return true;
+  }
+
+  disableUserTotp(userId: string): StoredUser {
+    const user = this.db.users.find((u) => u.id === userId);
+    if (!user) throw new Error('Benutzer nicht gefunden.');
+    user.totpEnabled = false;
+    user.totpSecretEncrypted = null;
+    user.totpRecoveryHashes = [];
+    this.save();
+    return user;
+  }
+
+  listUserWebAuthnCredentials(
+    userId: string,
+    kind?: WebAuthnCredentialKind
+  ): StoredWebAuthnCredential[] {
+    return this.db.webauthnCredentials
+      .filter((c) => c.userId === userId && (!kind || c.kind === kind))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  findWebAuthnCredentialByCredId(credentialId: string): StoredWebAuthnCredential | undefined {
+    return this.db.webauthnCredentials.find((c) => c.credentialId === credentialId);
+  }
+
+  addWebAuthnCredential(params: {
+    userId: string;
+    kind: WebAuthnCredentialKind;
+    name: string;
+    credentialId: string;
+    publicKey: string;
+    counter: number;
+    transports: string[];
+  }): StoredWebAuthnCredential {
+    if (this.db.webauthnCredentials.some((c) => c.credentialId === params.credentialId)) {
+      throw new Error('Dieser Schlüssel bzw. Passkey ist bereits registriert.');
+    }
+    const cred: StoredWebAuthnCredential = {
+      id: crypto.randomUUID(),
+      userId: params.userId,
+      kind: params.kind,
+      name: params.name.trim().slice(0, 64) || (params.kind === 'passkey' ? 'Passkey' : 'Security Key'),
+      credentialId: params.credentialId,
+      publicKey: params.publicKey,
+      counter: params.counter,
+      transports: params.transports,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: null,
+    };
+    this.db.webauthnCredentials.push(cred);
+    this.save();
+    return cred;
+  }
+
+  updateWebAuthnCredentialUsage(id: string, newCounter: number) {
+    const cred = this.db.webauthnCredentials.find((c) => c.id === id);
+    if (!cred) return;
+    cred.counter = newCounter;
+    cred.lastUsedAt = new Date().toISOString();
+    this.save();
+  }
+
+  deleteWebAuthnCredential(id: string, userId: string): boolean {
+    const before = this.db.webauthnCredentials.length;
+    this.db.webauthnCredentials = this.db.webauthnCredentials.filter(
+      (c) => !(c.id === id && c.userId === userId)
+    );
+    if (this.db.webauthnCredentials.length !== before) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  resetUserSecondFactors(userId: string): StoredUser {
+    const user = this.db.users.find((u) => u.id === userId);
+    if (!user) throw new Error('Benutzer nicht gefunden.');
+    user.totpEnabled = false;
+    user.totpSecretEncrypted = null;
+    user.totpRecoveryHashes = [];
+    this.db.webauthnCredentials = this.db.webauthnCredentials.filter((c) => c.userId !== userId);
     this.save();
     return user;
   }
@@ -531,6 +981,7 @@ class Store {
     this.db.users = this.db.users.filter((u) => u.id !== id);
     this.db.sessions = this.db.sessions.filter((s) => s.userId !== id);
     this.db.apiKeys = this.db.apiKeys.filter((k) => k.userId !== id);
+    this.db.webauthnCredentials = this.db.webauthnCredentials.filter((c) => c.userId !== id);
     this.db.commands = this.db.commands
       .filter((c) => c.userId !== id)
       .map((c) => ({ ...c, sharedWithUserIds: c.sharedWithUserIds.filter((uid) => uid !== id) }));
@@ -866,6 +1317,7 @@ class Store {
     sshUser: string;
     notes: string;
     pingEnabled?: boolean;
+    ignoreHostKey?: boolean;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
   }): UserServer {
@@ -885,6 +1337,7 @@ class Store {
       sshUser: params.sshUser.trim() || 'root',
       notes: params.notes.trim(),
       pingEnabled: params.pingEnabled !== undefined ? Boolean(params.pingEnabled) : true,
+      ignoreHostKey: Boolean(params.ignoreHostKey),
       sharedWithAll,
       sharedWithUserIds,
       createdAt: new Date().toISOString(),
@@ -906,6 +1359,7 @@ class Store {
       sshUser?: string;
       notes?: string;
       pingEnabled?: boolean;
+      ignoreHostKey?: boolean;
     }
   ): UserServer {
     const srv = this.db.servers.find((s) => s.id === id);
@@ -923,6 +1377,7 @@ class Store {
     if (patch.sshUser !== undefined) srv.sshUser = patch.sshUser.trim() || 'root';
     if (patch.notes !== undefined) srv.notes = patch.notes.trim();
     if (patch.pingEnabled !== undefined) srv.pingEnabled = Boolean(patch.pingEnabled);
+    if (patch.ignoreHostKey !== undefined) srv.ignoreHostKey = Boolean(patch.ignoreHostKey);
     this.save();
     return srv;
   }

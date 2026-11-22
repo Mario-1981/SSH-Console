@@ -7,6 +7,7 @@ import {
   History,
   SlidersHorizontal,
   Users,
+  ShieldCheck,
   LogOut,
   Lock,
   X,
@@ -52,9 +53,17 @@ export function Sidebar({
 
   const adminItems: NavItem[] = [
     { id: 'admin-users', label: tr('Benutzerverwaltung', 'User Management'), icon: Users },
+    { id: 'admin-auth', label: tr('Authentifizierung & SSO', 'Auth & SSO'), icon: ShieldCheck },
   ];
 
+  const setupLocked = Boolean(user.mustSetupTwoFactor || user.mustSetupPasskey);
+
   function handleNav(tab: ActiveTab) {
+    if (setupLocked && tab !== 'account' && tab !== 'admin-auth') {
+      onSelectTab('account');
+      onCloseMobile();
+      return;
+    }
     onSelectTab(tab);
     onCloseMobile();
   }
@@ -88,14 +97,21 @@ export function Sidebar({
                 <li key={item.id}>
                   <button
                     type="button"
+                    disabled={setupLocked}
                     onClick={() => handleNav(item.id)}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                      isActive
-                        ? 'bg-blue-50 text-blue-800 font-medium'
-                        : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-sm rounded-md transition-colors whitespace-nowrap ${
+                      setupLocked
+                        ? 'text-slate-400 cursor-not-allowed'
+                        : isActive
+                          ? 'bg-blue-50 text-blue-800 font-medium cursor-pointer'
+                          : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900 cursor-pointer'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-blue-700' : 'text-slate-500'}`} />
+                    <Icon
+                      className={`w-4 h-4 shrink-0 ${
+                        setupLocked ? 'text-slate-300' : isActive ? 'text-blue-700' : 'text-slate-500'
+                      }`}
+                    />
                     <span className="truncate">{item.label}</span>
                   </button>
                 </li>
@@ -156,13 +172,17 @@ export function Sidebar({
           type="button"
           onClick={() => handleNav('account')}
           className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer whitespace-nowrap ${
-            activeTab === 'account'
-              ? 'bg-blue-50 border-blue-200 text-blue-800'
-              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+            setupLocked
+              ? 'bg-amber-50 border-amber-300 text-amber-900'
+              : activeTab === 'account'
+                ? 'bg-blue-50 border-blue-200 text-blue-800'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
           }`}
         >
           <Lock className="w-3.5 h-3.5 shrink-0" />
-          {tr('Konto & API-Schlüssel', 'Account & API Keys')}
+          {setupLocked
+            ? tr('Sicherheit einrichten!', 'Complete Security Setup!')
+            : tr('Konto & Sicherheit', 'Account & Security')}
         </button>
       </div>
     </div>

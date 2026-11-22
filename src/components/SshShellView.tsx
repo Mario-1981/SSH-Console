@@ -21,6 +21,7 @@ import type { ActiveTab, User, UserCertificate, UserServer } from '../types';
 interface SshShellViewProps {
   user: User;
   opensshAvailable: boolean;
+  allowInsecureHostKey?: boolean;
   servers: UserServer[];
   certificates: UserCertificate[];
   onNavigate: (tab: ActiveTab) => void;
@@ -32,6 +33,7 @@ type ConnectionState = 'idle' | 'connecting' | 'connected' | 'preview' | 'closed
 export function SshShellView({
   user,
   opensshAvailable,
+  allowInsecureHostKey = false,
   servers,
   certificates,
   onNavigate,
@@ -45,6 +47,7 @@ export function SshShellView({
   const [selectedServerId, setSelectedServerId] = useState<string>(servers[0]?.id ?? '');
   const [customIp, setCustomIp] = useState('');
   const [customPort, setCustomPort] = useState(22);
+  const [customIgnoreHostKey, setCustomIgnoreHostKey] = useState(false);
   const [sshUser, setSshUser] = useState(
     servers[0]?.sshUser || user.defaultSshUser || 'root'
   );
@@ -261,6 +264,7 @@ export function SshShellView({
               ipAddress: customIp.trim(),
               port: customPort,
               sshUser: sshUser.trim() || user.defaultSshUser || 'root',
+              ignoreHostKey: allowInsecureHostKey ? customIgnoreHostKey : false,
             }),
         certificateId: selectedCertId,
         cols,
@@ -387,6 +391,7 @@ export function SshShellView({
   }
 
   const selectedCert = certificates.find((c) => c.id === selectedCertId);
+  const selectedServer = servers.find((s) => s.id === selectedServerId);
   const isLive = connState === 'connected' || connState === 'connecting';
 
   const statusBadge = (() => {
@@ -661,6 +666,65 @@ export function SshShellView({
             )}
           </div>
         </div>
+
+        {targetMode === 'custom' ? (
+          <div className="pt-1 border-t border-slate-100">
+            <label
+              className={`inline-flex items-center gap-2 text-xs ${
+                allowInsecureHostKey && !isLive
+                  ? 'text-slate-700 cursor-pointer'
+                  : 'text-slate-400 cursor-not-allowed'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={allowInsecureHostKey ? customIgnoreHostKey : false}
+                disabled={isLive || !allowInsecureHostKey}
+                onChange={(e) => setCustomIgnoreHostKey(e.target.checked)}
+                className="rounded border-slate-300 text-amber-600 focus:ring-amber-600 disabled:opacity-50"
+              />
+              <span>
+                {tr('Host-Key-Prüfung deaktivieren', 'Disable Host Key Checking')}{' '}
+                <code className="font-mono text-[11px] text-slate-500">
+                  (StrictHostKeyChecking=no, UserKnownHostsFile=/dev/null)
+                </code>
+                {!allowInsecureHostKey && (
+                  <span className="text-amber-700 ml-1.5">
+                    ({tr('vom Admin global verboten', 'globally prohibited by admin')})
+                  </span>
+                )}
+              </span>
+            </label>
+          </div>
+        ) : (
+          selectedServer?.ignoreHostKey && (
+            <div className="pt-1 border-t border-slate-100 text-xs flex items-center gap-1.5">
+              <AlertTriangle
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  allowInsecureHostKey ? 'text-amber-600' : 'text-slate-400'
+                }`}
+              />
+              {allowInsecureHostKey ? (
+                <span className="text-amber-800">
+                  {tr(
+                    'Host-Key-Prüfung für diesen Server deaktiviert:',
+                    'Host key checking disabled for this server:'
+                  )}{' '}
+                  <code className="font-mono text-[11px]">
+                    StrictHostKeyChecking=no · UserKnownHostsFile=/dev/null
+                  </code>
+                </span>
+              ) : (
+                <span className="text-slate-500">
+                  {tr(
+                    'Host-Key-Prüfung wird trotz Server-Option vom Administrator global erzwungen.',
+                    'Host key checking is globally enforced by the administrator despite this server’s setting.'
+                  )}
+                </span>
+              )}
+            </div>
+          )
+        )}
       </form>
 
       {/* Interactive Terminal Surface */}

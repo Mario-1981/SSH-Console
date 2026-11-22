@@ -7,11 +7,73 @@ pub struct UserPublic {
     pub username: String,
     pub display_name: String,
     pub role: String, // "admin" | "user"
+    pub auth_provider: String, // "local" | "sso"
+    pub email: String,
     pub default_ssh_user: String,
     pub active: bool,
     pub ping_enabled: bool,
+    pub totp_enabled: bool,
+    pub security_key_count: usize,
+    pub passkey_count: usize,
+    pub has_two_factor: bool,
+    pub must_setup_two_factor: bool,
+    pub must_setup_passkey: bool,
     pub created_at: String,
     pub last_login_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebAuthnCredentialPublic {
+    pub id: String,
+    pub kind: String, // "security-key" | "passkey"
+    pub name: String,
+    pub transports: Vec<String>,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebAuthnCredentialStored {
+    pub id: String,
+    pub user_id: String,
+    pub kind: String,
+    pub name: String,
+    pub credential_id: String,
+    pub public_key: String,
+    pub counter: u32,
+    pub transports: Vec<String>,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthPolicySettings {
+    pub sso_enabled: bool,
+    pub sso_provider_name: String,
+    pub sso_issuer_url: String,
+    pub sso_auth_url: String,
+    pub sso_token_url: String,
+    pub sso_userinfo_url: String,
+    pub sso_client_id: String,
+    pub sso_client_secret_enc: Option<(Vec<u8>, Vec<u8>)>,
+    pub sso_scopes: String,
+    pub sso_auto_create_users: bool,
+    pub sso_tested_at: Option<String>,
+    pub local_login_disabled: bool,
+    pub two_factor_enabled: bool,
+    pub two_factor_enforced: bool,
+    pub passkey_enabled: bool,
+    pub passkey_enforced: bool,
+    pub allow_insecure_host_key: bool,
+}
+
+impl AuthPolicySettings {
+    pub fn is_sso_configured(&self) -> bool {
+        !self.sso_auth_url.trim().is_empty()
+            && !self.sso_token_url.trim().is_empty()
+            && !self.sso_client_id.trim().is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +135,7 @@ pub struct UserServer {
     pub ssh_user: String,
     pub notes: String,
     pub ping_enabled: bool,
+    pub ignore_host_key: bool,
     pub shared_with_all: bool,
     pub shared_with_user_ids: Vec<String>,
     pub created_at: String,
@@ -336,6 +399,8 @@ pub struct CreateServerRequest {
     pub notes: Option<String>,
     #[serde(alias = "ping_enabled")]
     pub ping_enabled: Option<bool>,
+    #[serde(alias = "ignore_host_key")]
+    pub ignore_host_key: Option<bool>,
     #[serde(alias = "shared_with_all")]
     pub shared_with_all: Option<bool>,
     #[serde(alias = "shared_with_user_ids")]
@@ -358,6 +423,8 @@ pub struct UpdateServerRequest {
     pub notes: Option<String>,
     #[serde(alias = "ping_enabled")]
     pub ping_enabled: Option<bool>,
+    #[serde(alias = "ignore_host_key")]
+    pub ignore_host_key: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -448,6 +515,8 @@ pub struct ExecuteTarget {
     pub port: Option<u16>,
     #[serde(alias = "ssh_user")]
     pub ssh_user: Option<String>,
+    #[serde(alias = "ignore_host_key")]
+    pub ignore_host_key: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -511,4 +580,70 @@ pub struct BatchExecuteRequest {
     #[serde(alias = "certificate_id")]
     pub certificate_id: String,
     pub jobs: Vec<BatchJobItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwoFactorLoginRequest {
+    pub ticket: String,
+    pub method: String, // "totp" | "recovery" | "security-key"
+    pub code: Option<String>,
+    pub assertion: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TotpVerifyRequest {
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebAuthnRegisterOptionsRequest {
+    pub kind: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebAuthnRegisterVerifyRequest {
+    pub challenge_id: String,
+    pub response: serde_json::Value,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasskeyLoginVerifyRequest {
+    pub challenge_id: String,
+    pub response: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminAuthSettingsPatchRequest {
+    pub sso_enabled: Option<bool>,
+    pub sso_provider_name: Option<String>,
+    pub sso_issuer_url: Option<String>,
+    pub sso_auth_url: Option<String>,
+    pub sso_token_url: Option<String>,
+    pub sso_userinfo_url: Option<String>,
+    pub sso_client_id: Option<String>,
+    pub sso_client_secret: Option<String>,
+    pub clear_sso_client_secret: Option<bool>,
+    pub sso_scopes: Option<String>,
+    pub sso_auto_create_users: Option<bool>,
+    pub local_login_disabled: Option<bool>,
+    pub two_factor_enabled: Option<bool>,
+    pub two_factor_enforced: Option<bool>,
+    pub passkey_enabled: Option<bool>,
+    pub passkey_enforced: Option<bool>,
+    #[serde(alias = "allow_insecure_host_key")]
+    pub allow_insecure_host_key: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcDiscoverRequest {
+    pub issuer_url: String,
 }

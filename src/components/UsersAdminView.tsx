@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserPlus, Trash2, KeyRound, Check, X } from 'lucide-react';
+import { UserPlus, Trash2, KeyRound, Check, X, ShieldOff } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import type { User, UserRole } from '../types';
@@ -98,6 +98,27 @@ export function UsersAdminView({ currentUser, users, onRefresh }: UsersAdminView
         err instanceof Error
           ? err.message
           : tr('Passwort konnte nicht geändert werden.', 'Could not change password.')
+      );
+    }
+  }
+
+  async function handleResetAuth(u: User) {
+    setError(null);
+    setSuccess(null);
+    try {
+      await api.resetUserAuth(u.id);
+      await onRefresh();
+      setSuccess(
+        tr(
+          `2FA und Passkeys für „${u.username}“ wurden zurückgesetzt.`,
+          `2FA and Passkeys for "${u.username}" have been reset.`
+        )
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('2FA/Passkeys konnten nicht zurückgesetzt werden.', 'Could not reset 2FA/Passkeys.')
       );
     }
   }
@@ -253,6 +274,7 @@ export function UsersAdminView({ currentUser, users, onRefresh }: UsersAdminView
               <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
                 <th className="py-2.5 px-6">{tr('Benutzer', 'User')}</th>
                 <th className="py-2.5 px-4">{tr('Rolle', 'Role')}</th>
+                <th className="py-2.5 px-4">{tr('Anmeldung & 2FA', 'Auth & 2FA')}</th>
                 <th className="py-2.5 px-4">{tr('Standard-SSH', 'Default SSH')}</th>
                 <th className="py-2.5 px-4">{tr('Letzte Anmeldung', 'Last Sign-in')}</th>
                 <th className="py-2.5 px-4">{tr('Status', 'Status')}</th>
@@ -263,6 +285,7 @@ export function UsersAdminView({ currentUser, users, onRefresh }: UsersAdminView
               {users.map((u) => {
                 const isSelf = u.id === currentUser.id;
                 const isResetting = resetUserId === u.id;
+                const hasFactors = u.totpEnabled || u.securityKeyCount > 0 || u.passkeyCount > 0;
                 return (
                   <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 px-6">
@@ -275,10 +298,27 @@ export function UsersAdminView({ currentUser, users, onRefresh }: UsersAdminView
                           </span>
                         )}
                       </p>
-                      <p className="text-xs font-mono text-slate-500">{u.username}</p>
+                      <p className="text-xs font-mono text-slate-500">
+                        {u.username}
+                        {u.email ? ` · ${u.email}` : ''}
+                      </p>
                     </td>
                     <td className="py-3 px-4 text-xs text-slate-700 whitespace-nowrap">
                       {u.role === 'admin' ? tr('Administrator', 'Administrator') : tr('Benutzer', 'User')}
+                    </td>
+                    <td className="py-3 px-4 text-xs text-slate-600 whitespace-nowrap">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium text-slate-800">
+                          {u.authProvider === 'sso' ? 'SSO' : tr('Lokal', 'Local')}
+                        </span>
+                        {u.totpEnabled && <span className="text-emerald-700">· App-2FA</span>}
+                        {u.securityKeyCount > 0 && (
+                          <span className="text-emerald-700">· Key ({u.securityKeyCount})</span>
+                        )}
+                        {u.passkeyCount > 0 && (
+                          <span className="text-blue-700">· Passkey ({u.passkeyCount})</span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700 whitespace-nowrap">
                       {u.defaultSshUser}
@@ -334,17 +374,30 @@ export function UsersAdminView({ currentUser, users, onRefresh }: UsersAdminView
                         </div>
                       ) : (
                         <div className="inline-flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setResetUserId(u.id);
-                              setResetPasswordVal('');
-                            }}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-700 cursor-pointer"
-                          >
-                            <KeyRound className="w-3.5 h-3.5" />
-                            {tr('Passwort', 'Password')}
-                          </button>
+                          {u.authProvider !== 'sso' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResetUserId(u.id);
+                                setResetPasswordVal('');
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-700 cursor-pointer"
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
+                              {tr('Passwort', 'Password')}
+                            </button>
+                          )}
+                          {hasFactors && (
+                            <button
+                              type="button"
+                              onClick={() => handleResetAuth(u)}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 hover:text-amber-950 cursor-pointer"
+                              title={tr('2FA und Passkeys zurücksetzen', 'Reset 2FA and Passkeys')}
+                            >
+                              <ShieldOff className="w-3.5 h-3.5" />
+                              {tr('2FA/Passkey Reset', 'Reset 2FA/Passkey')}
+                            </button>
+                          )}
                           {!isSelf && (
                             <button
                               type="button"
