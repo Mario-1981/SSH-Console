@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Repository auschecken
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Version bestimmen
         id: meta
@@ -41,7 +41,7 @@ jobs:
           echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Node.js einrichten
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -86,14 +86,14 @@ jobs:
           ls -lh release-assets/
 
       - name: Pakete als Workflow-Artefakt speichern
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ssh-console-deb-${{ steps.meta.outputs.version }}
           path: release-assets/*.deb
 
       - name: GitHub Release erstellen & .deb-Pakete anhaengen
         if: startsWith(github.ref, 'refs/tags/v') || inputs.create_release == true
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: SSH Console ${{ steps.meta.outputs.tag }}
