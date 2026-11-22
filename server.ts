@@ -1538,9 +1538,10 @@ async function startServer() {
     });
   });
 
-  // Execution History / Audit Logs
+  // Execution History / Audit Logs (regular users strictly receive only their own logs; admins see all)
   app.get('/api/logs', requireAuth, (req: AuthedRequest, res) => {
-    res.json({ logs: store.listLogs(req.user!) });
+    const filterUserId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
+    res.json({ logs: store.listLogs(req.user!, filterUserId) });
   });
 
   // Rust Debian Trixie Source Inspector & Archive Download

@@ -1623,18 +1623,28 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_logs(&self, user: &UserPublic) -> Result<Vec<ExecutionLog>, String> {
+    pub fn list_logs(
+        &self,
+        user: &UserPublic,
+        filter_user_id: Option<&str>,
+    ) -> Result<Vec<ExecutionLog>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
-        let mut stmt = if user.role == "admin" {
+        let effective_user_id = if user.role == "admin" {
+            filter_user_id.map(str::trim).filter(|s| !s.is_empty())
+        } else {
+            Some(user.id.as_str())
+        };
+
+        let mut stmt = if effective_user_id.is_some() {
             conn.prepare(
                 "SELECT id, user_id, username, command_id, command_name, command_text, target_ip, target_port, ssh_user, server_label, certificate_id, certificate_key_id, mode, ssh_invocation, exit_code, stdout, stderr, duration_ms, executed_at
-                 FROM execution_logs ORDER BY executed_at DESC LIMIT 250",
+                 FROM execution_logs WHERE user_id = ?1 ORDER BY executed_at DESC LIMIT 250",
             )
             .map_err(|e| e.to_string())?
         } else {
             conn.prepare(
                 "SELECT id, user_id, username, command_id, command_name, command_text, target_ip, target_port, ssh_user, server_label, certificate_id, certificate_key_id, mode, ssh_invocation, exit_code, stdout, stderr, duration_ms, executed_at
-                 FROM execution_logs WHERE user_id = ?1 ORDER BY executed_at DESC LIMIT 250",
+                 FROM execution_logs ORDER BY executed_at DESC LIMIT 250",
             )
             .map_err(|e| e.to_string())?
         };
@@ -1670,10 +1680,10 @@ impl Database {
             })
         };
 
-        let rows = if user.role == "admin" {
-            stmt.query_map([], mapper)
+        let rows = if let Some(uid) = effective_user_id {
+            stmt.query_map(params![uid], mapper)
         } else {
-            stmt.query_map(params![user.id], mapper)
+            stmt.query_map([], mapper)
         }
         .map_err(|e| e.to_string())?;
 

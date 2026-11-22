@@ -1838,15 +1838,22 @@ async fn api_execute(
     Ok(Json(json!({ "results": logs })))
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ListLogsQuery {
+    user_id: Option<String>,
+}
+
 async fn api_list_logs(
     State(state): State<SharedState>,
     jar: CookieJar,
     headers: HeaderMap,
+    Query(query): Query<ListLogsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_user(&state, &jar, &headers)?;
     let logs = state
         .db
-        .list_logs(&user)
+        .list_logs(&user, query.user_id.as_deref())
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(json!({ "logs": logs })))
 }

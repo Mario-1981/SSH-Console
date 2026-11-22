@@ -86,6 +86,22 @@ export default function App() {
     bootstrap();
   }, [bootstrap]);
 
+  useEffect(() => {
+    if (!user || activeTab !== 'logs') return;
+    let cancelled = false;
+    void api
+      .listLogs()
+      .then((res) => {
+        if (!cancelled) setLogs(res.logs);
+      })
+      .catch(() => {
+        // ignore transient refresh error
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, user]);
+
   async function handleSetupComplete(admin: User, newSettings: AppSettings) {
     setInitialized(true);
     setSettings(newSettings);
@@ -255,7 +271,17 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'logs' && <AuditLogView logs={logs} />}
+            {activeTab === 'logs' && (
+              <AuditLogView
+                currentUser={user}
+                users={users}
+                logs={logs}
+                onRefresh={async () => {
+                  const res = await api.listLogs();
+                  setLogs(res.logs);
+                }}
+              />
+            )}
 
             {activeTab === 'account' && <AccountView user={user} />}
 

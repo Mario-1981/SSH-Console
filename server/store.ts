@@ -1176,9 +1176,10 @@ class Store {
     return full;
   }
 
-  listLogs(user: StoredUser): ExecutionLog[] {
+  listLogs(user: StoredUser, filterUserId?: string): ExecutionLog[] {
     if (user.role === 'admin') {
-      return this.db.logs;
+      const targetUserId = filterUserId?.trim();
+      return targetUserId ? this.db.logs.filter((l) => l.userId === targetUserId) : this.db.logs;
     }
     return this.db.logs.filter((l) => l.userId === user.id);
   }
