@@ -13,7 +13,7 @@ use axum::{
     },
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{delete, get, patch, post, put},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
@@ -1323,7 +1323,8 @@ async fn apply_partial_cert_update(
                 .vault
                 .decrypt(&existing.private_key_enc, &existing.private_key_nonce)
                 .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
-            let plain = String::from_utf8(plain_bytes)
+            let plain = std::str::from_utf8(&plain_bytes)
+                .map(str::to_string)
                 .map_err(|_| err_resp(StatusCode::INTERNAL_SERVER_ERROR, "Gespeicherter Schlüssel ungültig."))?;
             (
                 plain,

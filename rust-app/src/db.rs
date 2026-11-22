@@ -1,6 +1,6 @@
 use crate::models::{
-    CertInspection, CommandStep, ExecutionLog, SshCommand, UserApiKeyPublic, UserCertificatePublic,
-    UserCertificateSecret, UserPublic, UserServer,
+    CertInspection, CommandStep, ExecutionLog, SshCommand, StoredCertificateForEdit,
+    UserApiKeyPublic, UserCertificatePublic, UserCertificateSecret, UserPublic, UserServer,
 };
 use chrono::{Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
