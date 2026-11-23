@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+dist
+build
+coverage
+data
+wiki
+release-assets
+rust-app/target
+*.deb
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example

@@ -1,0 +1,116 @@
+name: Build & Publish Docker Image (GHCR)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker-Image-Tag (z. B. latest oder 1.0.0)'
+        required: false
+        default: 'latest'
+      platforms:
+        description: 'Ziel-Architektur(en)'
+        required: false
+        type: choice
+        default: 'linux/amd64'
+        options:
+          - 'linux/amd64'
+          - 'linux/amd64,linux/arm64'
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Zielplattformen bestimmen
+        id: target
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            PLATFORMS="${{ github.event.inputs.platforms || 'linux/amd64' }}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            PLATFORMS="linux/amd64,linux/arm64"
+          else
+            PLATFORMS="linux/amd64"
+          fi
+          IMAGE_LOWER=$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+          echo "platforms=${PLATFORMS}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_LOWER}" >> "$GITHUB_OUTPUT"
+          echo "needs_qemu=$(echo "${PLATFORMS}" | grep -q 'arm64' && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
+
+      - name: QEMU fuer Multi-Arch einrichten (nur bei arm64)
+        if: steps.target.outputs.needs_qemu == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Docker Buildx einrichten
+        uses: docker/setup-buildx-action@v3
+
+      - name: Bei GitHub Container Registry (GHCR) anmelden
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker-Metadaten & Tags erzeugen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.target.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag == 'latest' }}
+            type=raw,value=${{ github.event.inputs.tag || 'manual' }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' && github.event.inputs.tag != 'latest' }}
+
+      - name: Docker-Image bauen & nach GHCR pushen
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ steps.target.outputs.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Zusammenfassung in GitHub Actions ausgeben
+        run: |
+          {
+            echo "## Docker-Image erfolgreich gebaut & veröffentlicht"
+            echo ""
+            echo "- **Image:** \`${{ steps.target.outputs.image }}\`"
+            echo "- **Plattformen:** \`${{ steps.target.outputs.platforms }}\`"
+            echo "- **Digest:** \`${{ steps.build.outputs.digest }}\`"
+            echo ""
+            echo "### Direkt starten"
+            echo '```bash'
+            echo "docker pull ${{ steps.target.outputs.image }}:latest"
+            echo "docker run -d \\"
+            echo "  --name ssh-console \\"
+            echo "  --restart unless-stopped \\"
+            echo "  -p 3000:3000 \\"
+            echo "  --cap-drop=ALL \\"
+            echo "  --cap-add=NET_RAW \\"
+            echo "  --security-opt no-new-privileges:true \\"
+            echo "  -v ssh-console-data:/var/lib/ssh-console \\"
+            echo "  ${{ steps.target.outputs.image }}:latest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

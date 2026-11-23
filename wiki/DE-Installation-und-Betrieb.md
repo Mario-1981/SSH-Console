@@ -54,26 +54,37 @@ chmod +x debian/install-trixie.sh
 
 ---
 
-## Option 3: Docker (Debian-Trixie-Multi-Stage)
+## Option 3: Docker & Docker Compose (Empfohlen für Container)
 
-Zuerst das Frontend (`dist/`) bauen, dann das Rust-Image (`rust-app/Dockerfile.trixie`) erstellen und starten:
+Das Repository enthält ein **eigenständiges 3-stufiges `Dockerfile`** (baut sowohl das React-Frontend als auch das native Debian-13-Rust-Backend komplett im Container) sowie eine gehärtete **`docker-compose.yml`**:
+
+### Schnellstart mit Docker Compose
 
 ```bash
-npm install --legacy-peer-deps
-npm run build
+docker compose up -d --build
+```
 
-docker build -f rust-app/Dockerfile.trixie -t ssh-console:latest rust-app/
+### Direkt mit der Docker CLI bauen & starten
+
+```bash
+docker build -t ssh-console:latest .
 
 docker run -d \
   --name ssh-console \
   --restart unless-stopped \
   -p 3000:3000 \
+  --cap-drop=ALL \
+  --cap-add=NET_RAW \
+  --security-opt no-new-privileges:true \
   -v ssh-console-data:/var/lib/ssh-console \
-  -v "$(pwd)/dist:/opt/ssh-console/dist:ro" \
   ssh-console:latest
 ```
 
-> **Hinweis:** Wenn ICMP-Ping im Container genutzt werden soll, `--cap-add=NET_RAW` mitgeben – andernfalls nutzt SSH Console automatisch einen zuverlässigen TCP-Connect-Ping auf den konfigurierten SSH-Port.
+### Automatische GHCR-Multi-Arch-Images (`amd64` & `arm64`)
+
+Der Workflow `.github/workflows/release-docker.yml` baut und veröffentlicht automatisch Multi-Arch-Images in der GitHub Container Registry (`ghcr.io/<owner>/<repo>`) bei Version-Tags (`v*`) oder manuell über **Actions → Build & Publish Docker Image (GHCR) → Run workflow**.
+
+> **Hinweis:** `--cap-add=NET_RAW` ermöglicht natives ICMP-Ping (`/bin/ping`) im Container. Ohne diese Capability nutzt SSH Console automatisch den TCP-Connect-Ping auf den jeweiligen SSH-Port.
 
 ---
 

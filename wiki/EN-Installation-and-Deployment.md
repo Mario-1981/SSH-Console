@@ -54,26 +54,37 @@ chmod +x debian/install-trixie.sh
 
 ---
 
-## Option 3: Docker (Debian Trixie Multi-Stage)
+## Option 3: Docker & Docker Compose (Recommended for Containers)
 
-First build the web frontend (`dist/`), then build and run the Rust container (`rust-app/Dockerfile.trixie`):
+The repository includes a **self-contained 3-stage `Dockerfile`** (builds both the React frontend and native Debian 13 Rust backend) and a hardened **`docker-compose.yml`**:
+
+### Quick Start with Docker Compose
 
 ```bash
-npm install --legacy-peer-deps
-npm run build
+docker compose up -d --build
+```
 
-docker build -f rust-app/Dockerfile.trixie -t ssh-console:latest rust-app/
+### Build & Run with Docker CLI
+
+```bash
+docker build -t ssh-console:latest .
 
 docker run -d \
   --name ssh-console \
   --restart unless-stopped \
   -p 3000:3000 \
+  --cap-drop=ALL \
+  --cap-add=NET_RAW \
+  --security-opt no-new-privileges:true \
   -v ssh-console-data:/var/lib/ssh-console \
-  -v "$(pwd)/dist:/opt/ssh-console/dist:ro" \
   ssh-console:latest
 ```
 
-> **Tip:** To enable ICMP ping inside Docker containers that drop raw socket capabilities, either pass `--cap-add=NET_RAW` or let SSH Console fall back automatically to TCP connect pings on the configured SSH port.
+### Automated GHCR Multi-Arch Images (`amd64` & `arm64`)
+
+The workflow `.github/workflows/release-docker.yml` automatically builds and publishes multi-architecture images to GitHub Container Registry (`ghcr.io/<owner>/<repo>`) on version tags (`v*`) or via manual **Actions → Build & Publish Docker Image (GHCR) → Run workflow**.
+
+> **Tip:** `--cap-add=NET_RAW` enables native ICMP `/bin/ping` inside the container. Without it, SSH Console automatically falls back to TCP connect pings on each server's SSH port.
 
 ---
 

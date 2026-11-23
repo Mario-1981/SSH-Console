@@ -1,0 +1,36 @@
+services:
+  ssh-console:
+    # Zum direkten Laden aus GHCR einfach SSH_CONSOLE_IMAGE=ghcr.io/<owner>/<repo>:latest setzen
+    # und mit `docker compose pull && docker compose up -d` starten.
+    image: ${SSH_CONSOLE_IMAGE:-ssh-console:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ssh-console
+    restart: unless-stopped
+    ports:
+      - "${SSH_CONSOLE_PORT:-3000}:3000"
+    environment:
+      SSH_CONSOLE_BIND: "0.0.0.0:3000"
+      SSH_CONSOLE_DATA_DIR: "/var/lib/ssh-console"
+      SSH_CONSOLE_STATIC_DIR: "/opt/ssh-console/dist"
+      RUST_LOG: "${RUST_LOG:-info}"
+    volumes:
+      - ssh-console-data:/var/lib/ssh-console
+    cap_drop:
+      - ALL
+    cap_add:
+      # Ermöglicht natives ICMP-Ping (/bin/ping); ohne NET_RAW erfolgt automatischer TCP-Ping-Fallback
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ssh-console-data:
+    name: ssh-console-data
