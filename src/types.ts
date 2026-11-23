@@ -62,6 +62,7 @@ export interface AppSettings {
   passkeyEnabled: boolean;
   passkeyEnforced: boolean;
   allowInsecureHostKey: boolean;
+  publicUrl?: string;
 }
 
 export interface AdminAuthSettings {
@@ -83,6 +84,7 @@ export interface AdminAuthSettings {
   passkeyEnabled: boolean;
   passkeyEnforced: boolean;
   allowInsecureHostKey: boolean;
+  publicUrl: string;
   callbackUrl: string;
 }
 
@@ -135,6 +137,13 @@ export interface SshCommand {
   updatedAt: string;
 }
 
+export interface ServerCategory {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface UserServer {
   id: string;
   userId: string;
@@ -146,6 +155,7 @@ export interface UserServer {
   port: number;
   sshUser: string;
   notes: string;
+  categories?: string[];
   pingEnabled: boolean;
   ignoreHostKey?: boolean;
   sharedWithAll: boolean;

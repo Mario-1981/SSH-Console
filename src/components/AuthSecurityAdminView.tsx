@@ -54,6 +54,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
   const [passkeyEnforced, setPasskeyEnforced] = useState(false);
   const [allowInsecureHostKey, setAllowInsecureHostKey] = useState(false);
+  const [publicUrl, setPublicUrl] = useState('');
   const [hostKeyStats, setHostKeyStats] = useState<{ totalEntries: number; userFiles: number } | null>(null);
   const [confirmClearHostKeys, setConfirmClearHostKeys] = useState(false);
   const [clearingHostKeys, setClearingHostKeys] = useState(false);
@@ -79,6 +80,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
     setPasskeyEnabled(a.passkeyEnabled);
     setPasskeyEnforced(a.passkeyEnforced);
     setAllowInsecureHostKey(Boolean(a.allowInsecureHostKey));
+    setPublicUrl(a.publicUrl || '');
     setCallbackUrl(a.callbackUrl);
   }
 
@@ -198,6 +200,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
         passkeyEnabled,
         passkeyEnforced,
         allowInsecureHostKey,
+        publicUrl: publicUrl.trim(),
       });
       applyLoaded(res.authSettings);
       onSettingsUpdated(res.settings, res.user);
@@ -353,6 +356,44 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
           <span>{success}</span>
         </div>
       )}
+
+      {/* Public Domain / Base URL for curl API */}
+      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
+        <div className="flex items-start gap-3 pb-4 border-b border-slate-200">
+          <Globe className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+          <div>
+            <h2 className="font-display text-base font-semibold text-slate-900">
+              {tr('Öffentliche Domain / Basis-URL (API & curl)', 'Public Domain / Base URL (API & curl)')}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {tr(
+                'Wird in den curl-Upload-Beispielen (Zertifikate & Konto) statt der internen Server-IP angezeigt, z. B. hinter einem Reverse-Proxy.',
+                'Used in curl upload examples (Certificates & Account) instead of the internal server IP, e.g. behind a reverse proxy.'
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="max-w-xl">
+          <label htmlFor="admin-public-url" className="block text-xs font-medium text-slate-700 mb-1.5">
+            {tr('Öffentliche Basis-URL (optional)', 'Public Base URL (optional)')}
+          </label>
+          <input
+            id="admin-public-url"
+            type="text"
+            value={publicUrl}
+            onChange={(e) => setPublicUrl(e.target.value)}
+            placeholder="https://ssh.example.net"
+            className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+          />
+          <p className="text-[11px] text-slate-500 mt-1.5">
+            {tr(
+              'Beispiel: https://ssh.example.net (ohne abschließenden Schrägstrich). Bleibt das Feld leer, wird automatisch die aktuelle Browser-Adresse verwendet.',
+              'Example: https://ssh.example.net (without a trailing slash). Leave empty to automatically use the current browser address.'
+            )}
+          </p>
+        </div>
+      </section>
 
       {/* Section 1: SSO / OpenID Connect */}
       <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">

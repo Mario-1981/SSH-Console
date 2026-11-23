@@ -242,7 +242,8 @@ fn serialize_public_settings(state: &SharedState) -> serde_json::Value {
         "twoFactorEnforced": policy.two_factor_enabled && policy.two_factor_enforced,
         "passkeyEnabled": policy.passkey_enabled,
         "passkeyEnforced": policy.passkey_enabled && policy.passkey_enforced,
-        "allowInsecureHostKey": policy.allow_insecure_host_key
+        "allowInsecureHostKey": policy.allow_insecure_host_key,
+        "publicUrl": policy.public_url
     })
 }
 
@@ -270,6 +271,7 @@ fn serialize_admin_auth_settings(state: &SharedState, headers: &HeaderMap) -> se
         "passkeyEnabled": policy.passkey_enabled,
         "passkeyEnforced": policy.passkey_enabled && policy.passkey_enforced,
         "allowInsecureHostKey": policy.allow_insecure_host_key,
+        "publicUrl": policy.public_url,
         "callbackUrl": get_sso_callback_url(headers)
     })
 }
@@ -1968,6 +1970,50 @@ async fn api_list_servers(
     Ok(Json(json!({ "servers": servers })))
 }
 
+async fn api_list_server_categories(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let categories = state
+        .db
+        .list_server_categories(&user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(json!({ "categories": categories })))
+}
+
+async fn api_create_server_category(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<CreateServerCategoryRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let category = state
+        .db
+        .create_server_category(&user.id, &req.name)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(json!({ "category": category })))
+}
+
+async fn api_delete_server_category(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let deleted = state
+        .db
+        .delete_server_category(&id, &user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if deleted.is_none() {
+        return Err(err_resp(StatusCode::NOT_FOUND, "Kategorie nicht gefunden."));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn api_create_server(
     State(state): State<SharedState>,
     jar: CookieJar,
@@ -2010,6 +2056,7 @@ async fn api_create_server(
         ));
     }
     let ignore_host_key = policy.allow_insecure_host_key && req.ignore_host_key.unwrap_or(false);
+    let categories = req.categories.unwrap_or_default();
     let server = state
         .db
         .create_server(
@@ -2024,6 +2071,7 @@ async fn api_create_server(
             req.notes.as_deref().unwrap_or(""),
             ping_enabled,
             ignore_host_key,
+            &categories,
             shared_all,
             &shared_ids,
         )
@@ -2113,6 +2161,7 @@ async fn api_update_server(
         ));
     }
     let ignore_host_key = req.ignore_host_key.unwrap_or(existing.ignore_host_key);
+    let categories = req.categories.unwrap_or(existing.categories);
 
     let updated = state
         .db
@@ -2128,6 +2177,7 @@ async fn api_update_server(
             notes.trim(),
             ping_enabled,
             ignore_host_key,
+            &categories,
         )
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
         .ok_or_else(|| err_resp(StatusCode::FORBIDDEN, "Server konnte nicht aktualisiert werden."))?;
@@ -3651,6 +3701,11 @@ async fn main() {
         .route("/api/servers/:id", patch(api_update_server).delete(api_delete_server))
         .route("/api/servers/:id/check-bmc", post(api_check_bmc))
         .route("/api/servers/:id/share", patch(api_share_server))
+        .route(
+            "/api/server-categories",
+            get(api_list_server_categories).post(api_create_server_category),
+        )
+        .route("/api/server-categories/:id", delete(api_delete_server_category))
         .route("/api/host-keys/reset", post(api_reset_user_host_key))
         .route("/api/host-keys", delete(api_reset_user_host_key))
         .route(

@@ -183,6 +183,7 @@ function serializePublicSettings() {
     passkeyEnabled: s.passkeyEnabled,
     passkeyEnforced: s.passkeyEnforced,
     allowInsecureHostKey: s.allowInsecureHostKey,
+    publicUrl: s.publicUrl || '',
   };
 }
 
@@ -207,6 +208,7 @@ function serializeAdminAuthSettings(req: Request) {
     passkeyEnabled: s.passkeyEnabled,
     passkeyEnforced: s.passkeyEnforced,
     allowInsecureHostKey: s.allowInsecureHostKey,
+    publicUrl: s.publicUrl || '',
     callbackUrl: getSsoCallbackUrl(req),
   };
 }
@@ -1258,6 +1260,7 @@ async function startServer() {
           typeof body.passkeyEnforced === 'boolean' ? body.passkeyEnforced : undefined,
         allowInsecureHostKey:
           typeof body.allowInsecureHostKey === 'boolean' ? body.allowInsecureHostKey : undefined,
+        publicUrl: typeof body.publicUrl === 'string' ? body.publicUrl : undefined,
       });
 
       res.json({
@@ -1432,6 +1435,37 @@ async function startServer() {
   app.delete('/api/commands/:id', requireAuth, requireSecurityCompliant, handleDeleteCommand);
   app.delete('/api/admin/commands/:id', requireAuth, requireSecurityCompliant, handleDeleteCommand);
 
+  // Server Categories (reusable per-user category catalog)
+  app.get('/api/server-categories', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    res.json({ categories: store.listServerCategories(req.user!.id) });
+  });
+
+  app.post('/api/server-categories', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const name = typeof req.body?.name === 'string' ? req.body.name : '';
+    try {
+      const category = store.createServerCategory(req.user!.id, name);
+      res.status(201).json({ category });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Kategorie konnte nicht angelegt werden.',
+      });
+    }
+  });
+
+  app.delete(
+    '/api/server-categories/:id',
+    requireAuth,
+    requireSecurityCompliant,
+    (req: AuthedRequest, res) => {
+      const deleted = store.deleteServerCategory(req.params.id, req.user!.id);
+      if (!deleted) {
+        res.status(404).json({ error: 'Kategorie nicht gefunden.' });
+        return;
+      }
+      res.json({ ok: true });
+    }
+  );
+
   // User Target Servers (IP addresses — creator-private; admin may share)
   app.get('/api/servers', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     res.json({ servers: store.listAccessibleServers(req.user!.id) });
@@ -1446,6 +1480,7 @@ async function startServer() {
       port,
       sshUser,
       notes,
+      categories,
       pingEnabled,
       ignoreHostKey,
       sharedWithAll,
@@ -1488,6 +1523,7 @@ async function startServer() {
       port: Number(port) || 22,
       sshUser: cleanSshUser,
       notes: typeof notes === 'string' ? notes : '',
+      categories: Array.isArray(categories) ? categories : [],
       pingEnabled: pingEnabled !== undefined ? Boolean(pingEnabled) : true,
       ignoreHostKey: Boolean(ignoreHostKey),
       sharedWithAll: isAdmin ? Boolean(sharedWithAll) : false,
@@ -1501,8 +1537,18 @@ async function startServer() {
   });
 
   app.patch('/api/servers/:id', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
-    const { label, ipAddress, bmcIpAddress, bmcIpAddress2, port, sshUser, notes, pingEnabled, ignoreHostKey } =
-      req.body ?? {};
+    const {
+      label,
+      ipAddress,
+      bmcIpAddress,
+      bmcIpAddress2,
+      port,
+      sshUser,
+      notes,
+      categories,
+      pingEnabled,
+      ignoreHostKey,
+    } = req.body ?? {};
     if (ipAddress !== undefined && (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress))) {
       res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
       return;
@@ -1552,6 +1598,7 @@ async function startServer() {
         port: port !== undefined ? Number(port) : undefined,
         sshUser: typeof sshUser === 'string' ? sshUser : undefined,
         notes: typeof notes === 'string' ? notes : undefined,
+        categories: Array.isArray(categories) ? categories : undefined,
         pingEnabled: typeof pingEnabled === 'boolean' ? pingEnabled : undefined,
         ignoreHostKey: typeof ignoreHostKey === 'boolean' ? ignoreHostKey : undefined,
       });

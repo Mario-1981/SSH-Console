@@ -1,14 +1,31 @@
 import React, { useEffect, useState } from 'react';
-import { KeyRound, Copy, Check, Plus, Trash2, Terminal } from 'lucide-react';
+import { KeyRound, Copy, Check, Plus, Trash2, Terminal, Globe, RotateCcw, Save } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
-import type { UserApiKey } from '../types';
+import type { AppSettings, UserApiKey } from '../types';
+
+const LOCAL_URL_STORAGE_KEY = 'ssh_console_curl_base_url';
+
+function normalizeBaseUrlForCurl(raw: string, fallbackOrigin: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return fallbackOrigin;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withScheme.replace(/\/+$/, '');
+}
 
 interface ApiKeyCurlPanelProps {
   defaultCertName?: string;
+  publicUrl?: string;
+  isAdmin?: boolean;
+  onUpdateSettings?: (settings: AppSettings) => void;
 }
 
-export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCurlPanelProps) {
+export function ApiKeyCurlPanel({
+  defaultCertName = 'my-certificate',
+  publicUrl = '',
+  isAdmin = false,
+  onUpdateSettings,
+}: ApiKeyCurlPanelProps) {
   const { tr, formatDateTime } = useI18n();
   const [apiKeys, setApiKeys] = useState<UserApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +38,31 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
   const [curlMode, setCurlMode] = useState<'cert' | 'keypair' | 'replace-cert'>('cert');
   const [copiedTarget, setCopiedTarget] = useState<'key' | 'curl' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [domainNotice, setDomainNotice] = useState<string | null>(null);
+  const [savingGlobalUrl, setSavingGlobalUrl] = useState(false);
+
+  const browserOrigin =
+    typeof window !== 'undefined' ? window.location.origin : 'https://ssh.example.net';
+  const configuredGlobalUrl = (publicUrl || '').trim();
+
+  const [domainInput, setDomainInput] = useState<string>(() => {
+    if (configuredGlobalUrl) return configuredGlobalUrl;
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = window.localStorage.getItem(LOCAL_URL_STORAGE_KEY);
+        if (stored && stored.trim()) return stored.trim();
+      } catch {
+        // ignore storage restrictions
+      }
+    }
+    return '';
+  });
+
+  useEffect(() => {
+    if (configuredGlobalUrl) {
+      setDomainInput(configuredGlobalUrl);
+    }
+  }, [configuredGlobalUrl]);
 
   async function loadKeys() {
     try {
@@ -91,15 +133,84 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
     }
   }
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-server';
+  function handleDomainInputChange(value: string) {
+    setDomainInput(value);
+    setDomainNotice(null);
+    if (!isAdmin && typeof window !== 'undefined') {
+      try {
+        if (value.trim()) {
+          window.localStorage.setItem(LOCAL_URL_STORAGE_KEY, value.trim());
+        } else {
+          window.localStorage.removeItem(LOCAL_URL_STORAGE_KEY);
+        }
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }
+
+  async function handleSaveGlobalDomain() {
+    setError(null);
+    setDomainNotice(null);
+    setSavingGlobalUrl(true);
+    try {
+      const res = await api.updateAdminAuthSettings({ publicUrl: domainInput.trim() });
+      const savedUrl = res.settings.publicUrl || '';
+      setDomainInput(savedUrl);
+      onUpdateSettings?.(res.settings);
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.removeItem(LOCAL_URL_STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+      }
+      setDomainNotice(
+        savedUrl
+          ? tr(
+              `Öffentliche Domain „${savedUrl}“ global für alle Benutzer gespeichert.`,
+              `Public domain "${savedUrl}" saved globally for all users.`
+            )
+          : tr(
+              'Öffentliche Domain zurückgesetzt (verwendet nun wieder die aktuelle Browser-Adresse).',
+              'Public domain cleared (now using current browser address).'
+            )
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Öffentliche Domain konnte nicht gespeichert werden.', 'Could not save public domain.')
+      );
+    } finally {
+      setSavingGlobalUrl(false);
+    }
+  }
+
+  function handleResetLocalDomain() {
+    setDomainNotice(null);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem(LOCAL_URL_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+    }
+    setDomainInput(configuredGlobalUrl);
+  }
+
+  const effectiveOrigin = normalizeBaseUrlForCurl(
+    domainInput || configuredGlobalUrl,
+    browserOrigin
+  );
   const displayedApiKey = newlyCreatedKey?.plainKey || tr('<DEIN_API_KEY>', '<YOUR_API_KEY>');
 
   const curlSnippet =
     curlMode === 'cert'
-      ? `curl -X POST "${origin}/api/v1/certificates/upload" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "name=${defaultCertName}" \\\n  -F "private_key=@./zertifikat" \\\n  -F "public_key=@./zertifikat.pub" \\\n  -F "cert=@./zertifikat-cert.pub"`
+      ? `curl -X POST "${effectiveOrigin}/api/v1/certificates/upload" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "name=${defaultCertName}" \\\n  -F "private_key=@./zertifikat" \\\n  -F "public_key=@./zertifikat.pub" \\\n  -F "cert=@./zertifikat-cert.pub"`
       : curlMode === 'keypair'
-        ? `curl -X POST "${origin}/api/v1/certificates/upload" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "name=${defaultCertName}" \\\n  -F "private_key=@./zertifikat" \\\n  -F "public_key=@./zertifikat.pub"`
-        : `curl -X PATCH "${origin}/api/v1/certificates/${encodeURIComponent(defaultCertName)}" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "cert=@./zertifikat-cert.pub"`;
+        ? `curl -X POST "${effectiveOrigin}/api/v1/certificates/upload" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "name=${defaultCertName}" \\\n  -F "private_key=@./zertifikat" \\\n  -F "public_key=@./zertifikat.pub"`
+        : `curl -X PATCH "${effectiveOrigin}/api/v1/certificates/${encodeURIComponent(defaultCertName)}" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "cert=@./zertifikat-cert.pub"`;
 
   return (
     <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">
@@ -134,6 +245,12 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
       {error && (
         <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
           {error}
+        </div>
+      )}
+
+      {domainNotice && (
+        <div role="status" className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+          {domainNotice}
         </div>
       )}
 
@@ -195,6 +312,88 @@ export function ApiKeyCurlPanel({ defaultCertName = 'my-certificate' }: ApiKeyCu
           </code>
         </div>
       )}
+
+      {/* Configurable Public Domain / Base URL for curl */}
+      <div className="p-3.5 rounded-md bg-slate-50 border border-slate-200 space-y-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+          <label
+            htmlFor="curl-public-domain"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 whitespace-nowrap shrink-0"
+          >
+            <Globe className="w-3.5 h-3.5 text-slate-500" />
+            {tr('Domain / Basis-URL für curl:', 'Domain / Base URL for curl:')}
+          </label>
+          <input
+            id="curl-public-domain"
+            type="text"
+            value={domainInput}
+            onChange={(e) => handleDomainInputChange(e.target.value)}
+            placeholder="https://ssh.example.net"
+            className="flex-1 px-3 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+          />
+          <div className="flex items-center gap-2 shrink-0">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleSaveGlobalDomain}
+                disabled={savingGlobalUrl || domainInput.trim() === configuredGlobalUrl}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                title={tr(
+                  'Diese Domain global für alle Benutzer im curl-Beispiel speichern',
+                  'Save this domain globally for all users in the curl example'
+                )}
+              >
+                <Save className="w-3.5 h-3.5" />
+                {savingGlobalUrl
+                  ? tr('Speichert...', 'Saving...')
+                  : tr('Global speichern', 'Save Globally')}
+              </button>
+            )}
+            {domainInput.trim() && domainInput.trim() !== configuredGlobalUrl && !isAdmin && (
+              <button
+                type="button"
+                onClick={handleResetLocalDomain}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 hover:bg-slate-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {tr('Zurücksetzen', 'Reset')}
+              </button>
+            )}
+            {isAdmin && configuredGlobalUrl && domainInput.trim() === configuredGlobalUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDomainInput('');
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 hover:bg-slate-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                title={tr(
+                  'Feld leeren – anschließend „Global speichern“ klicken, um wieder die Browser-Adresse zu verwenden',
+                  'Clear field — then click "Save Globally" to fall back to the browser address'
+                )}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {tr('Leeren', 'Clear')}
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          {isAdmin
+            ? tr(
+                'Hinterlegen Sie Ihre öffentliche Domain (z. B. https://ssh.example.net), damit bei curl nicht die interne Server-IP angezeigt wird. Mit „Global speichern“ gilt die Domain sofort für alle Benutzer.',
+                'Enter your public domain (e.g. https://ssh.example.net) so curl shows your domain instead of the internal server IP. Click "Save Globally" to apply it for all users.'
+              )
+            : configuredGlobalUrl
+              ? tr(
+                  `Global konfigurierte Domain: ${configuredGlobalUrl}. Sie können die Adresse hier bei Bedarf lokal für Ihren Befehl anpassen.`,
+                  `Globally configured domain: ${configuredGlobalUrl}. You can override it locally here if needed.`
+                )
+              : tr(
+                  `Standardmäßig wird die aktuelle Browser-Adresse (${browserOrigin}) verwendet. Geben Sie hier optional eine Domain (z. B. https://ssh.example.net) ein.`,
+                  `Defaults to your current browser address (${browserOrigin}). Optionally enter a domain (e.g. https://ssh.example.net) here.`
+                )}
+        </p>
+      </div>
 
       {/* Ready-to-run curl command */}
       <div className="space-y-2.5">

@@ -7,6 +7,7 @@ import type {
   ExecutionLog,
   LoginResponse,
   RustProjectFile,
+  ServerCategory,
   SshCommand,
   User,
   UserApiKey,
@@ -304,6 +305,7 @@ export const api = {
     passkeyEnabled?: boolean;
     passkeyEnforced?: boolean;
     allowInsecureHostKey?: boolean;
+    publicUrl?: string;
   }) =>
     request<{ authSettings: AdminAuthSettings; settings: AppSettings; user: User | null }>(
       '/api/admin/auth/settings',
@@ -391,6 +393,21 @@ export const api = {
   // Servers
   listServers: () => request<{ servers: UserServer[] }>('/api/servers'),
 
+  // Server Categories
+  listServerCategories: () =>
+    request<{ categories: ServerCategory[] }>('/api/server-categories'),
+
+  createServerCategory: (name: string) =>
+    request<{ category: ServerCategory }>('/api/server-categories', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteServerCategory: (id: string) =>
+    request<{ ok: boolean }>(`/api/server-categories/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
   createServer: (payload: {
     label: string;
     ipAddress: string;
@@ -399,6 +416,7 @@ export const api = {
     port: number;
     sshUser: string;
     notes: string;
+    categories?: string[];
     pingEnabled?: boolean;
     ignoreHostKey?: boolean;
     sharedWithAll?: boolean;
@@ -419,6 +437,7 @@ export const api = {
       port?: number;
       sshUser?: string;
       notes?: string;
+      categories?: string[];
       pingEnabled?: boolean;
       ignoreHostKey?: boolean;
     }

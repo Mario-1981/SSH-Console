@@ -45,6 +45,7 @@ export default function App() {
     passkeyEnabled: false,
     passkeyEnforced: false,
     allowInsecureHostKey: false,
+    publicUrl: '',
   });
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -307,6 +308,8 @@ export default function App() {
                 user={user}
                 users={users}
                 certificates={certificates}
+                publicUrl={settings.publicUrl}
+                onUpdateSettings={setSettings}
                 onRefresh={async () => {
                   const res = await api.listCertificates();
                   setCertificates(res.certificates);
@@ -331,6 +334,7 @@ export default function App() {
                 user={user}
                 settings={settings}
                 onUserUpdated={handleUserSecurityUpdated}
+                onUpdateSettings={setSettings}
               />
             )}
 

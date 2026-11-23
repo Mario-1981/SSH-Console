@@ -18,6 +18,8 @@ import {
   Ban,
   Activity,
   SlidersHorizontal,
+  Tag,
+  X,
 } from 'lucide-react';
 import { api } from '../api';
 import { translateCategory, useI18n } from '../i18n';
@@ -80,10 +82,12 @@ export function DashboardView({
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [quickCommandId, setQuickCommandId] = useState<string>('');
-  const [rowCommandOverrides, setRowCommandOverrides] = useState<Record<string, string>>({});
   const [selectedCertId, setSelectedCertId] = useState<string>('');
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [includeUncategorized, setIncludeUncategorized] = useState(false);
+  const [categoryMatchMode, setCategoryMatchMode] = useState<'any' | 'all'>('any');
   const [search, setSearch] = useState('');
 
   const [runningBatch, setRunningBatch] = useState(false);
@@ -185,13 +189,83 @@ export function DashboardView({
     return { total: servers.length, online, offline, pending, disabled };
   }, [servers, statuses, effectivePingActive]);
 
+  const { availableCategories, uncategorizedCount } = useMemo(() => {
+    const map = new Map<string, { name: string; count: number }>();
+    let withoutCat = 0;
+    for (const srv of servers) {
+      const cats = srv.categories ?? [];
+      if (cats.length === 0) {
+        withoutCat++;
+        continue;
+      }
+      const seenForSrv = new Set<string>();
+      for (const cat of cats) {
+        const key = cat.toLowerCase();
+        if (seenForSrv.has(key)) continue;
+        seenForSrv.add(key);
+        const existing = map.get(key);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          map.set(key, { name: cat, count: 1 });
+        }
+      }
+    }
+    const list = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, locale));
+    return { availableCategories: list, uncategorizedCount: withoutCat };
+  }, [servers, locale]);
+
+  // Remove selected categories that no longer exist on any visible server
+  useEffect(() => {
+    const valid = new Set(availableCategories.map((c) => c.name.toLowerCase()));
+    setSelectedCategories((prev) => {
+      const next = prev.filter((c) => valid.has(c.toLowerCase()));
+      return next.length === prev.length ? prev : next;
+    });
+    if (uncategorizedCount === 0 && includeUncategorized) {
+      setIncludeUncategorized(false);
+    }
+  }, [availableCategories, uncategorizedCount, includeUncategorized]);
+
+  function toggleCategoryFilter(categoryName: string) {
+    const lower = categoryName.toLowerCase();
+    setSelectedCategories((prev) =>
+      prev.some((c) => c.toLowerCase() === lower)
+        ? prev.filter((c) => c.toLowerCase() !== lower)
+        : [...prev, categoryName]
+    );
+  }
+
+  function clearCategoryFilters() {
+    setSelectedCategories([]);
+    setIncludeUncategorized(false);
+  }
+
+  const hasCategoryFilter = selectedCategories.length > 0 || includeUncategorized;
+
   const filteredServers = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const selectedLower = selectedCategories.map((c) => c.toLowerCase());
     return servers.filter((srv) => {
       const pingOn = effectivePingActive && srv.pingEnabled !== false;
       const st = pingOn ? statuses[srv.id] : undefined;
       if (statusFilter === 'online' && !st?.online) return false;
       if (statusFilter === 'offline' && (!st || st.online)) return false;
+
+      const cats = srv.categories ?? [];
+      if (selectedLower.length > 0 || includeUncategorized) {
+        const catsLower = cats.map((c) => c.toLowerCase());
+        const matchesUncat = includeUncategorized && catsLower.length === 0;
+        let matchesCats = false;
+        if (selectedLower.length > 0) {
+          matchesCats =
+            categoryMatchMode === 'all'
+              ? selectedLower.every((sel) => catsLower.includes(sel))
+              : selectedLower.some((sel) => catsLower.includes(sel));
+        }
+        if (!matchesUncat && !matchesCats) return false;
+      }
+
       if (!q) return true;
       return (
         srv.label.toLowerCase().includes(q) ||
@@ -199,10 +273,20 @@ export function DashboardView({
         (srv.bmcIpAddress || '').toLowerCase().includes(q) ||
         (srv.bmcIpAddress2 || '').toLowerCase().includes(q) ||
         srv.sshUser.toLowerCase().includes(q) ||
-        srv.notes.toLowerCase().includes(q)
+        srv.notes.toLowerCase().includes(q) ||
+        cats.some((c) => c.toLowerCase().includes(q))
       );
     });
-  }, [servers, statuses, statusFilter, search, effectivePingActive]);
+  }, [
+    servers,
+    statuses,
+    statusFilter,
+    selectedCategories,
+    includeUncategorized,
+    categoryMatchMode,
+    search,
+    effectivePingActive,
+  ]);
 
   async function handleManualPingAll() {
     setError(null);
@@ -353,7 +437,7 @@ export function DashboardView({
   }
 
   function selectOnlineOnly() {
-    const ids = servers
+    const ids = filteredServers
       .filter((s) => effectivePingActive && s.pingEnabled !== false && statuses[s.id]?.online)
       .map((s) => s.id);
     setSelectedIds(ids);
@@ -363,35 +447,11 @@ export function DashboardView({
     setSelectedIds([]);
   }
 
-  function applyQuickCommandToSelected() {
-    if (!quickCommandId || selectedIds.length === 0) return;
-    setRowCommandOverrides((prev) => {
-      const next = { ...prev };
-      for (const id of selectedIds) {
-        next[id] = quickCommandId;
-      }
-      return next;
-    });
-  }
-
-  function setRowCommand(serverId: string, cmdId: string) {
-    setRowCommandOverrides((prev) => ({ ...prev, [serverId]: cmdId }));
-    if (cmdId && !selectedIds.includes(serverId)) {
-      setSelectedIds((prev) => [...prev, serverId]);
-    }
-  }
-
-  // Resolve final jobs: every checked server with either its row-specific command or the quick-select command
+  // Resolve final jobs: every checked server executes the selected command from the top bar
   const preparedJobs = useMemo(() => {
-    const jobs: Array<{ serverId: string; commandId: string }> = [];
-    for (const serverId of selectedIds) {
-      const cmdId = rowCommandOverrides[serverId] || quickCommandId;
-      if (cmdId) {
-        jobs.push({ serverId, commandId: cmdId });
-      }
-    }
-    return jobs;
-  }, [selectedIds, rowCommandOverrides, quickCommandId]);
+    if (!quickCommandId) return [];
+    return selectedIds.map((serverId) => ({ serverId, commandId: quickCommandId }));
+  }, [selectedIds, quickCommandId]);
 
   async function handleDispatchBatch() {
     setError(null);
@@ -647,8 +707,8 @@ export function DashboardView({
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               {tr(
-                'Weisen Sie einen Befehl allen markierten IPs gemeinsam zu oder wählen Sie in der Tabelle pro IP einen eigenen Befehl und schicken Sie alles gesammelt ab.',
-                'Assign one command to all selected IPs or choose individual commands per row, then dispatch everything in one batch.'
+                'Wählen Sie den gewünschten SSH-Befehl und das Zertifikat aus, markieren Sie die Ziel-IPs in der Tabelle und senden Sie den Auftrag gesammelt ab.',
+                'Choose the SSH command and certificate, check the target IPs in the table, and dispatch them in one batch.'
               )}
             </p>
           </div>
@@ -664,39 +724,29 @@ export function DashboardView({
           {/* Quick Command Selector */}
           <div className="lg:col-span-5">
             <label htmlFor="dash-quick-cmd" className="block text-xs font-medium text-slate-700 mb-1.5">
-              {tr('Schnellauswahl SSH-Befehl / Befehlskette', 'Quick-Select SSH Command / Chain')}
+              {tr('SSH-Befehl / Befehlskette', 'SSH Command / Chain')}
             </label>
-            <div className="flex items-center gap-2">
-              <select
-                id="dash-quick-cmd"
-                value={quickCommandId}
-                onChange={(e) => setQuickCommandId(e.target.value)}
-                disabled={activeCommands.length === 0}
-                className="flex-1 min-w-0 px-3 py-2 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
-              >
-                {activeCommands.length === 0 ? (
-                  <option value="">{tr('Keine sichtbaren Befehle vorhanden', 'No visible commands available')}</option>
-                ) : (
-                  activeCommands.map((cmd) => (
-                    <option key={cmd.id} value={cmd.id}>
-                      [{translateCategory(cmd.category, locale)}] {cmd.name}
-                      {cmd.kind === 'chain'
-                        ? tr(` (Kette · ${cmd.steps.length})`, ` (Chain · ${cmd.steps.length})`)
-                        : ''}
-                      {cmd.userId !== currentUser.id ? tr(' · Geteilt', ' · Shared') : ''}
-                    </option>
-                  ))
-                )}
-              </select>
-              <button
-                type="button"
-                onClick={applyQuickCommandToSelected}
-                disabled={!quickCommandId || selectedIds.length === 0}
-                className="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-              >
-                {tr('Auf markierte anwenden', 'Apply to selected')}
-              </button>
-            </div>
+            <select
+              id="dash-quick-cmd"
+              value={quickCommandId}
+              onChange={(e) => setQuickCommandId(e.target.value)}
+              disabled={activeCommands.length === 0}
+              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+            >
+              {activeCommands.length === 0 ? (
+                <option value="">{tr('Keine sichtbaren Befehle vorhanden', 'No visible commands available')}</option>
+              ) : (
+                activeCommands.map((cmd) => (
+                  <option key={cmd.id} value={cmd.id}>
+                    [{translateCategory(cmd.category, locale)}] {cmd.name}
+                    {cmd.kind === 'chain'
+                      ? tr(` (Kette · ${cmd.steps.length})`, ` (Chain · ${cmd.steps.length})`)
+                      : ''}
+                    {cmd.userId !== currentUser.id ? tr(' · Geteilt', ' · Shared') : ''}
+                  </option>
+                ))
+              )}
+            </select>
           </div>
 
           {/* Certificate Selector */}
@@ -816,11 +866,121 @@ export function DashboardView({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={tr('IP oder Servername suchen...', 'Search IP or server name...')}
+              placeholder={tr('IP, Kategorie oder Servername suchen...', 'Search IP, category, or server...')}
               className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
         </div>
+
+        {/* Category Filter Strip */}
+        {availableCategories.length > 0 && (
+          <div className="px-6 py-3 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 mr-1">
+              <Tag className="w-3.5 h-3.5 text-slate-500" />
+              {tr('Kategorien:', 'Categories:')}
+            </span>
+
+            <button
+              type="button"
+              onClick={clearCategoryFilters}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                !hasCategoryFilter
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+              }`}
+            >
+              {tr('Alle', 'All')}
+            </button>
+
+            {availableCategories.map((cat) => {
+              const active = selectedCategories.some(
+                (c) => c.toLowerCase() === cat.name.toLowerCase()
+              );
+              return (
+                <button
+                  key={cat.name}
+                  type="button"
+                  onClick={() => toggleCategoryFilter(cat.name)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                    active
+                      ? 'bg-blue-50 text-blue-800 border-blue-300'
+                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  <span>{cat.name}</span>
+                  <span
+                    className={`font-mono text-[11px] tabular-nums ${
+                      active ? 'text-blue-700' : 'text-slate-400'
+                    }`}
+                  >
+                    {cat.count}
+                  </span>
+                </button>
+              );
+            })}
+
+            {uncategorizedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setIncludeUncategorized((prev) => !prev)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                  includeUncategorized
+                    ? 'bg-blue-50 text-blue-800 border-blue-300'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                }`}
+              >
+                <span>{tr('Ohne Kategorie', 'Uncategorized')}</span>
+                <span
+                  className={`font-mono text-[11px] tabular-nums ${
+                    includeUncategorized ? 'text-blue-700' : 'text-slate-400'
+                  }`}
+                >
+                  {uncategorizedCount}
+                </span>
+              </button>
+            )}
+
+            {selectedCategories.length >= 2 && (
+              <div className="inline-flex items-center gap-1 ml-1 pl-2 border-l border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setCategoryMatchMode('any')}
+                  title={tr('Mindestens eine der gewählten Kategorien', 'Match any selected category')}
+                  className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors cursor-pointer ${
+                    categoryMatchMode === 'any'
+                      ? 'bg-slate-800 text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tr('ODER', 'ANY')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCategoryMatchMode('all')}
+                  title={tr('Alle gewählten Kategorien gleichzeitig', 'Match all selected categories')}
+                  className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors cursor-pointer ${
+                    categoryMatchMode === 'all'
+                      ? 'bg-slate-800 text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tr('UND', 'ALL')}
+                </button>
+              </div>
+            )}
+
+            {hasCategoryFilter && (
+              <button
+                type="button"
+                onClick={clearCategoryFilters}
+                className="inline-flex items-center gap-1 ml-auto text-xs text-slate-500 hover:text-slate-900 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                {tr('Filter zurücksetzen', 'Reset filter')}
+              </button>
+            )}
+          </div>
+        )}
 
         {servers.length === 0 ? (
           <div className="px-6 py-14 text-center">
@@ -863,7 +1023,6 @@ export function DashboardView({
                   <th className="py-2.5 px-4">{tr('Server · IP-Adresse', 'Server · IP Address')}</th>
                   <th className="py-2.5 px-4">BMC (HTTPS :443)</th>
                   <th className="py-2.5 px-4">{tr('Ping-Status', 'Ping Status')}</th>
-                  <th className="py-2.5 px-4">{tr('Zugewiesener Befehl', 'Assigned Command')}</th>
                   <th className="py-2.5 pl-4 pr-6 text-right">Ping</th>
                 </tr>
               </thead>
@@ -871,7 +1030,6 @@ export function DashboardView({
                 {filteredServers.map((srv) => {
                   const st = statuses[srv.id];
                   const isChecked = selectedIds.includes(srv.id);
-                  const assignedCmdId = rowCommandOverrides[srv.id] ?? '';
                   const isRowPinging = pingingServerId === srv.id || pingingAll;
                   const hasBmc1 = Boolean(srv.bmcIpAddress);
                   const hasBmc2 = Boolean(srv.bmcIpAddress2);
@@ -908,8 +1066,8 @@ export function DashboardView({
                           className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
                         />
                       </td>
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <p className="font-medium text-slate-900">
+                      <td className="py-3 px-4">
+                        <p className="font-medium text-slate-900 whitespace-nowrap">
                           {srv.label}
                           {srv.userId !== currentUser.id && (
                             <span className="ml-2 text-xs font-normal text-blue-800">
@@ -921,9 +1079,36 @@ export function DashboardView({
                             </span>
                           )}
                         </p>
-                        <p className="text-xs font-mono text-slate-500 tabular-nums">
+                        <p className="text-xs font-mono text-slate-500 tabular-nums whitespace-nowrap">
                           {srv.sshUser}@{srv.ipAddress}:{srv.port}
                         </p>
+                        {(srv.categories?.length ?? 0) > 0 && (
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {(srv.categories ?? []).map((cat) => {
+                              const active = selectedCategories.some(
+                                (c) => c.toLowerCase() === cat.toLowerCase()
+                              );
+                              return (
+                                <button
+                                  key={cat}
+                                  type="button"
+                                  onClick={() => toggleCategoryFilter(cat)}
+                                  title={tr(
+                                    `Filter für Kategorie „${cat}“ umschalten`,
+                                    `Toggle filter for category "${cat}"`
+                                  )}
+                                  className={`px-1.5 py-0.5 text-[11px] font-medium rounded border transition-colors cursor-pointer ${
+                                    active
+                                      ? 'bg-blue-50 text-blue-800 border-blue-300'
+                                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                                  }`}
+                                >
+                                  {cat}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
                         {activeBmcSlot && activeBmcIp ? (
@@ -1083,27 +1268,6 @@ export function DashboardView({
                             </p>
                           </div>
                         )}
-                      </td>
-                      <td className="py-3 px-4 min-w-[220px]">
-                        <select
-                          value={assignedCmdId}
-                          onChange={(e) => setRowCommand(srv.id, e.target.value)}
-                          disabled={activeCommands.length === 0}
-                          aria-label={tr(`Befehl für ${srv.label}`, `Command for ${srv.label}`)}
-                          className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        >
-                          <option value="">
-                            {quickCommandId
-                              ? tr('↳ Schnellauswahl übernehmen', '↳ Use quick-select command')
-                              : tr('Befehl auswählen...', 'Select command...')}
-                          </option>
-                          {activeCommands.map((cmd) => (
-                            <option key={cmd.id} value={cmd.id}>
-                              [{translateCategory(cmd.category, locale)}] {cmd.name}
-                              {cmd.kind === 'chain' ? tr(' (Kette)', ' (Chain)') : ''}
-                            </option>
-                          ))}
-                        </select>
                       </td>
                       <td className="py-3 pl-4 pr-6 text-right whitespace-nowrap">
                         <div className="inline-flex items-center gap-3">

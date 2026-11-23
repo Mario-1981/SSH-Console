@@ -66,6 +66,7 @@ pub struct AuthPolicySettings {
     pub passkey_enabled: bool,
     pub passkey_enforced: bool,
     pub allow_insecure_host_key: bool,
+    pub public_url: String,
 }
 
 impl AuthPolicySettings {
@@ -123,6 +124,15 @@ pub struct SshCommand {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ServerCategory {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UserServer {
     pub id: String,
     pub user_id: String,
@@ -136,6 +146,8 @@ pub struct UserServer {
     pub notes: String,
     pub ping_enabled: bool,
     pub ignore_host_key: bool,
+    #[serde(default)]
+    pub categories: Vec<String>,
     pub shared_with_all: bool,
     pub shared_with_user_ids: Vec<String>,
     pub created_at: String,
@@ -385,6 +397,12 @@ pub struct UpdateCommandRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CreateServerCategoryRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateServerRequest {
     pub label: Option<String>,
     #[serde(alias = "ip_address")]
@@ -401,6 +419,8 @@ pub struct CreateServerRequest {
     pub ping_enabled: Option<bool>,
     #[serde(alias = "ignore_host_key")]
     pub ignore_host_key: Option<bool>,
+    #[serde(default)]
+    pub categories: Option<Vec<String>>,
     #[serde(alias = "shared_with_all")]
     pub shared_with_all: Option<bool>,
     #[serde(alias = "shared_with_user_ids")]
@@ -425,6 +445,8 @@ pub struct UpdateServerRequest {
     pub ping_enabled: Option<bool>,
     #[serde(alias = "ignore_host_key")]
     pub ignore_host_key: Option<bool>,
+    #[serde(default)]
+    pub categories: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -638,6 +660,8 @@ pub struct AdminAuthSettingsPatchRequest {
     pub passkey_enforced: Option<bool>,
     #[serde(alias = "allow_insecure_host_key")]
     pub allow_insecure_host_key: Option<bool>,
+    #[serde(default, alias = "public_url")]
+    pub public_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -109,6 +109,13 @@ export function compileCommandChain(steps: CommandStep[], stopOnError: boolean):
   return parts.join(sep);
 }
 
+export interface ServerCategory {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface UserServer {
   id: string;
   userId: string;
@@ -120,6 +127,7 @@ export interface UserServer {
   port: number;
   sshUser: string;
   notes: string;
+  categories: string[];
   pingEnabled: boolean;
   ignoreHostKey: boolean;
   sharedWithAll: boolean;
@@ -197,6 +205,8 @@ export interface AppSettings {
   passkeyEnforced: boolean;
   // SSH Security
   allowInsecureHostKey: boolean;
+  // Public base URL / domain for curl API snippets (e.g. https://ssh.example.net)
+  publicUrl: string;
 }
 
 interface DatabaseSchema {
@@ -207,6 +217,7 @@ interface DatabaseSchema {
   webauthnCredentials: StoredWebAuthnCredential[];
   commands: SshCommand[];
   servers: UserServer[];
+  serverCategories: ServerCategory[];
   certificates: UserCertificateBundle[];
   logs: ExecutionLog[];
 }
@@ -303,6 +314,7 @@ function emptyDb(): DatabaseSchema {
       passkeyEnabled: false,
       passkeyEnforced: false,
       allowInsecureHostKey: false,
+      publicUrl: '',
     },
     users: [],
     sessions: [],
@@ -310,9 +322,27 @@ function emptyDb(): DatabaseSchema {
     webauthnCredentials: [],
     commands: [],
     servers: [],
+    serverCategories: [],
     certificates: [],
     logs: [],
   };
+}
+
+export function normalizeServerCategories(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of input) {
+    if (typeof item !== 'string') continue;
+    const clean = item.trim().replace(/\s+/g, ' ').slice(0, 48);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(clean);
+    if (result.length >= 20) break;
+  }
+  return result;
 }
 
 class Store {
@@ -358,11 +388,23 @@ class Store {
         ownerUsername: s.ownerUsername || idToUsername.get(s.userId) || '',
         bmcIpAddress: typeof s.bmcIpAddress === 'string' ? s.bmcIpAddress.trim() : '',
         bmcIpAddress2: typeof s.bmcIpAddress2 === 'string' ? s.bmcIpAddress2.trim() : '',
+        categories: normalizeServerCategories((s as Partial<UserServer>).categories),
         pingEnabled: typeof s.pingEnabled === 'boolean' ? s.pingEnabled : true,
         ignoreHostKey: Boolean(s.ignoreHostKey),
         sharedWithAll: Boolean(s.sharedWithAll),
         sharedWithUserIds: Array.isArray(s.sharedWithUserIds) ? s.sharedWithUserIds : [],
       }));
+
+      const migratedServerCategories: ServerCategory[] = Array.isArray(parsed.serverCategories)
+        ? parsed.serverCategories
+            .filter((c): c is ServerCategory => Boolean(c && typeof c.name === 'string' && c.name.trim()))
+            .map((c) => ({
+              id: typeof c.id === 'string' && c.id ? c.id : crypto.randomUUID(),
+              userId: typeof c.userId === 'string' ? c.userId : fallbackAdminId,
+              name: c.name.trim().replace(/\s+/g, ' ').slice(0, 48),
+              createdAt: typeof c.createdAt === 'string' ? c.createdAt : new Date().toISOString(),
+            }))
+        : [];
 
       const migratedCertificates: UserCertificateBundle[] = (parsed.certificates ?? []).map((cert) => ({
         ...cert,
@@ -429,6 +471,7 @@ class Store {
         passkeyEnabled,
         passkeyEnforced: Boolean(parsed.settings?.passkeyEnforced && passkeyEnabled),
         allowInsecureHostKey: Boolean(parsed.settings?.allowInsecureHostKey),
+        publicUrl: typeof parsed.settings?.publicUrl === 'string' ? parsed.settings.publicUrl : '',
       };
 
       const migratedWebauthn: StoredWebAuthnCredential[] = Array.isArray(parsed.webauthnCredentials)
@@ -450,6 +493,7 @@ class Store {
         webauthnCredentials: migratedWebauthn,
         commands: migratedCommands,
         servers: migratedServers,
+        serverCategories: migratedServerCategories,
         certificates: migratedCertificates,
       };
     } catch {
@@ -588,6 +632,7 @@ class Store {
     passkeyEnabled?: boolean;
     passkeyEnforced?: boolean;
     allowInsecureHostKey?: boolean;
+    publicUrl?: string;
   }): AppSettings {
     const s = this.db.settings;
     let ssoConfigChanged = false;
@@ -679,6 +724,35 @@ class Store {
 
     if (patch.allowInsecureHostKey !== undefined) {
       s.allowInsecureHostKey = Boolean(patch.allowInsecureHostKey);
+    }
+
+    if (patch.publicUrl !== undefined) {
+      const raw = patch.publicUrl.trim();
+      if (!raw) {
+        s.publicUrl = '';
+      } else {
+        if (/[\s"'`$\\<>;&|]/.test(raw)) {
+          throw new Error('Ungültige Zeichen in der öffentlichen Domain / URL.');
+        }
+        const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(candidate);
+        } catch {
+          throw new Error('Ungültige öffentliche Domain / Basis-URL (z. B. https://ssh.example.net).');
+        }
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+          throw new Error('Die öffentliche URL muss mit http:// oder https:// beginnen.');
+        }
+        if (!parsedUrl.hostname) {
+          throw new Error('Bitte geben Sie einen gültigen Hostnamen bzw. eine Domain an.');
+        }
+        if (parsedUrl.search || parsedUrl.hash || parsedUrl.username || parsedUrl.password) {
+          throw new Error('Die Basis-URL darf keine Zugangsdaten, Query-Parameter oder Fragmente enthalten.');
+        }
+        const cleanPath = parsedUrl.pathname.replace(/\/+$/, '');
+        s.publicUrl = `${parsedUrl.origin}${cleanPath === '/' ? '' : cleanPath}`;
+      }
     }
 
     this.save();
@@ -1306,6 +1380,72 @@ class Store {
     );
   }
 
+  // Server Categories (per-user reusable category catalog)
+  listServerCategories(userId: string): ServerCategory[] {
+    return this.db.serverCategories
+      .filter((c) => c.userId === userId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private ensureUserCategoriesExist(userId: string, names: string[]): void {
+    for (const rawName of names) {
+      const clean = rawName.trim().replace(/\s+/g, ' ').slice(0, 48);
+      if (!clean) continue;
+      const lower = clean.toLowerCase();
+      const exists = this.db.serverCategories.some(
+        (c) => c.userId === userId && c.name.toLowerCase() === lower
+      );
+      if (!exists) {
+        this.db.serverCategories.push({
+          id: crypto.randomUUID(),
+          userId,
+          name: clean,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  createServerCategory(userId: string, name: string): ServerCategory {
+    const clean = name.trim().replace(/\s+/g, ' ').slice(0, 48);
+    if (!clean) {
+      throw new Error('Bitte geben Sie einen Kategorienamen an.');
+    }
+    const lower = clean.toLowerCase();
+    const existing = this.db.serverCategories.find(
+      (c) => c.userId === userId && c.name.toLowerCase() === lower
+    );
+    if (existing) {
+      return existing;
+    }
+    const category: ServerCategory = {
+      id: crypto.randomUUID(),
+      userId,
+      name: clean,
+      createdAt: new Date().toISOString(),
+    };
+    this.db.serverCategories.push(category);
+    this.save();
+    return category;
+  }
+
+  deleteServerCategory(id: string, userId: string): boolean {
+    const target = this.db.serverCategories.find((c) => c.id === id && c.userId === userId);
+    if (!target) return false;
+    const targetLower = target.name.toLowerCase();
+    this.db.serverCategories = this.db.serverCategories.filter(
+      (c) => !(c.id === id && c.userId === userId)
+    );
+    // Remove deleted category from the owner's own servers
+    for (const srv of this.db.servers) {
+      if (srv.userId === userId && srv.categories.length > 0) {
+        srv.categories = srv.categories.filter((cat) => cat.toLowerCase() !== targetLower);
+      }
+    }
+    this.save();
+    return true;
+  }
+
   createServer(params: {
     userId: string;
     ownerUsername: string;
@@ -1316,6 +1456,7 @@ class Store {
     port: number;
     sshUser: string;
     notes: string;
+    categories?: string[];
     pingEnabled?: boolean;
     ignoreHostKey?: boolean;
     sharedWithAll?: boolean;
@@ -1325,6 +1466,8 @@ class Store {
     const sharedWithUserIds = sharedWithAll
       ? []
       : this.normalizeSharedUserIds(params.userId, params.sharedWithUserIds ?? []);
+    const categories = normalizeServerCategories(params.categories);
+    this.ensureUserCategoriesExist(params.userId, categories);
     const server: UserServer = {
       id: crypto.randomUUID(),
       userId: params.userId,
@@ -1336,6 +1479,7 @@ class Store {
       port: Math.min(65535, Math.max(1, Number(params.port) || 22)),
       sshUser: params.sshUser.trim() || 'root',
       notes: params.notes.trim(),
+      categories,
       pingEnabled: params.pingEnabled !== undefined ? Boolean(params.pingEnabled) : true,
       ignoreHostKey: Boolean(params.ignoreHostKey),
       sharedWithAll,
@@ -1358,6 +1502,7 @@ class Store {
       port?: number;
       sshUser?: string;
       notes?: string;
+      categories?: string[];
       pingEnabled?: boolean;
       ignoreHostKey?: boolean;
     }
@@ -1376,6 +1521,10 @@ class Store {
     }
     if (patch.sshUser !== undefined) srv.sshUser = patch.sshUser.trim() || 'root';
     if (patch.notes !== undefined) srv.notes = patch.notes.trim();
+    if (patch.categories !== undefined) {
+      srv.categories = normalizeServerCategories(patch.categories);
+      this.ensureUserCategoriesExist(ownerUserId, srv.categories);
+    }
     if (patch.pingEnabled !== undefined) srv.pingEnabled = Boolean(patch.pingEnabled);
     if (patch.ignoreHostKey !== undefined) srv.ignoreHostKey = Boolean(patch.ignoreHostKey);
     this.save();

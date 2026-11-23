@@ -17,12 +17,14 @@ import { api } from '../api';
 import { useI18n } from '../i18n';
 import { ApiKeyCurlPanel } from './ApiKeyCurlPanel';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
-import type { User, UserCertificate } from '../types';
+import type { AppSettings, User, UserCertificate } from '../types';
 
 interface CertificatesViewProps {
   user: User;
   users: User[];
   certificates: UserCertificate[];
+  publicUrl?: string;
+  onUpdateSettings?: (settings: AppSettings) => void;
   onRefresh: () => Promise<void>;
 }
 
@@ -38,7 +40,14 @@ function downloadTextFile(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-export function CertificatesView({ user, users, certificates, onRefresh }: CertificatesViewProps) {
+export function CertificatesView({
+  user,
+  users,
+  certificates,
+  publicUrl = '',
+  onUpdateSettings,
+  onRefresh,
+}: CertificatesViewProps) {
   const { locale, tr, formatDateTime } = useI18n();
   const isAdmin = user.role === 'admin';
   const [bundleName, setBundleName] = useState('');
@@ -525,7 +534,14 @@ export function CertificatesView({ user, users, certificates, onRefresh }: Certi
         </div>
       </div>
 
-      {showApiPanel && <ApiKeyCurlPanel defaultCertName={`${user.username}-ssh`} />}
+      {showApiPanel && (
+        <ApiKeyCurlPanel
+          defaultCertName={`${user.username}-ssh`}
+          publicUrl={publicUrl}
+          isAdmin={isAdmin}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
 
       {error && (
         <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">

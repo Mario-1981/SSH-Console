@@ -1,6 +1,6 @@
 use crate::models::{
     AdminAuthSettingsPatchRequest, AuthPolicySettings, CertInspection, CommandStep, ExecutionLog,
-    SshCommand, StoredCertificateForEdit, UserApiKeyPublic, UserCertificatePublic,
+    ServerCategory, SshCommand, StoredCertificateForEdit, UserApiKeyPublic, UserCertificatePublic,
     UserCertificateSecret, UserPublic, UserServer, WebAuthnCredentialPublic,
     WebAuthnCredentialStored,
 };
@@ -91,8 +91,16 @@ impl Database {
                 notes TEXT NOT NULL DEFAULT '',
                 ping_enabled INTEGER NOT NULL DEFAULT 1,
                 ignore_host_key INTEGER NOT NULL DEFAULT 0,
+                categories_json TEXT NOT NULL DEFAULT '[]',
                 shared_with_all INTEGER NOT NULL DEFAULT 0,
                 shared_with_user_ids TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_server_categories (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
 
@@ -167,6 +175,10 @@ impl Database {
         );
         let _ = conn.execute(
             "ALTER TABLE user_servers ADD COLUMN ignore_host_key INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE user_servers ADD COLUMN categories_json TEXT NOT NULL DEFAULT '[]'",
             [],
         );
         let _ = conn.execute(
@@ -295,6 +307,7 @@ impl Database {
             passkey_enabled: Self::setting_bool_locked(conn, "passkey_enabled", false),
             passkey_enforced: Self::setting_bool_locked(conn, "passkey_enforced", false),
             allow_insecure_host_key: Self::setting_bool_locked(conn, "allow_insecure_host_key", false),
+            public_url: Self::setting_str_locked(conn, "public_url", ""),
         }
     }
 
@@ -1166,17 +1179,213 @@ impl Database {
         Ok(())
     }
 
+    pub fn normalize_server_categories(input: &[String]) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for raw in input {
+            let collapsed = raw
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let clean: String = collapsed.chars().take(48).collect();
+            if clean.is_empty() {
+                continue;
+            }
+            let key = clean.to_lowercase();
+            if seen.insert(key) {
+                out.push(clean);
+                if out.len() >= 20 {
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    fn ensure_user_categories_locked(
+        conn: &Connection,
+        user_id: &str,
+        names: &[String],
+    ) -> Result<(), String> {
+        let clean_names = Self::normalize_server_categories(names);
+        if clean_names.is_empty() {
+            return Ok(());
+        }
+        let mut existing = std::collections::HashSet::new();
+        {
+            let mut stmt = conn
+                .prepare("SELECT name FROM user_server_categories WHERE user_id = ?1")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![user_id], |r| r.get::<_, String>(0))
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                if let Ok(name) = row {
+                    existing.insert(name.to_lowercase());
+                }
+            }
+        }
+        let now = Utc::now().to_rfc3339();
+        for name in clean_names {
+            let key = name.to_lowercase();
+            if existing.insert(key) {
+                let id = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO user_server_categories (id, user_id, name, created_at) VALUES (?1, ?2, ?3, ?4)",
+                    params![id, user_id, name, now],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn list_server_categories(&self, user_id: &str) -> Result<Vec<ServerCategory>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, name, created_at
+                 FROM user_server_categories
+                 WHERE user_id = ?1
+                 ORDER BY LOWER(name) ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![user_id], |r| {
+                Ok(ServerCategory {
+                    id: r.get(0)?,
+                    user_id: r.get(1)?,
+                    name: r.get(2)?,
+                    created_at: r.get(3)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn create_server_category(
+        &self,
+        user_id: &str,
+        raw_name: &str,
+    ) -> Result<ServerCategory, String> {
+        let normalized = Self::normalize_server_categories(&[raw_name.to_string()]);
+        let Some(name) = normalized.into_iter().next() else {
+            return Err("Kategoriename darf nicht leer sein.".to_string());
+        };
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let existing = conn
+            .query_row(
+                "SELECT id, user_id, name, created_at
+                 FROM user_server_categories
+                 WHERE user_id = ?1 AND LOWER(name) = LOWER(?2)
+                 LIMIT 1",
+                params![user_id, name],
+                |r| {
+                    Ok(ServerCategory {
+                        id: r.get(0)?,
+                        user_id: r.get(1)?,
+                        name: r.get(2)?,
+                        created_at: r.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if let Some(cat) = existing {
+            return Ok(cat);
+        }
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO user_server_categories (id, user_id, name, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![id, user_id, name, now],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(ServerCategory {
+            id,
+            user_id: user_id.to_string(),
+            name,
+            created_at: now,
+        })
+    }
+
+    pub fn delete_server_category(
+        &self,
+        id: &str,
+        user_id: &str,
+    ) -> Result<Option<ServerCategory>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let existing = conn
+            .query_row(
+                "SELECT id, user_id, name, created_at
+                 FROM user_server_categories
+                 WHERE id = ?1 AND user_id = ?2",
+                params![id, user_id],
+                |r| {
+                    Ok(ServerCategory {
+                        id: r.get(0)?,
+                        user_id: r.get(1)?,
+                        name: r.get(2)?,
+                        created_at: r.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some(cat) = existing else {
+            return Ok(None);
+        };
+        conn.execute(
+            "DELETE FROM user_server_categories WHERE id = ?1 AND user_id = ?2",
+            params![id, user_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // Remove the deleted category from all servers owned by this user
+        let target_lower = cat.name.to_lowercase();
+        let server_rows: Vec<(String, String)> = {
+            let mut stmt = conn
+                .prepare("SELECT id, categories_json FROM user_servers WHERE user_id = ?1")
+                .map_err(|e| e.to_string())?;
+            let mapped = stmt
+                .query_map(params![user_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .map_err(|e| e.to_string())?;
+            mapped.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        };
+        for (srv_id, cats_json) in server_rows {
+            let current: Vec<String> = serde_json::from_str(&cats_json).unwrap_or_default();
+            let filtered: Vec<String> = current
+                .iter()
+                .filter(|c| c.to_lowercase() != target_lower)
+                .cloned()
+                .collect();
+            if filtered.len() != current.len() {
+                let next_json = serde_json::to_string(&filtered).map_err(|e| e.to_string())?;
+                conn.execute(
+                    "UPDATE user_servers SET categories_json = ?1 WHERE id = ?2 AND user_id = ?3",
+                    params![next_json, srv_id, user_id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(Some(cat))
+    }
+
     pub fn list_all_servers(&self) -> Result<Vec<UserServer>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, ignore_host_key, shared_with_all, shared_with_user_ids, created_at
+                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, ignore_host_key, categories_json, shared_with_all, shared_with_user_ids, created_at
                  FROM user_servers ORDER BY label ASC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
-                let shared_json: String = r.get(13)?;
+                let categories_json: String = r.get(12)?;
+                let raw_categories: Vec<String> =
+                    serde_json::from_str(&categories_json).unwrap_or_default();
+                let categories = Self::normalize_server_categories(&raw_categories);
+                let shared_json: String = r.get(14)?;
                 let shared_with_user_ids: Vec<String> =
                     serde_json::from_str(&shared_json).unwrap_or_default();
                 Ok(UserServer {
@@ -1192,9 +1401,10 @@ impl Database {
                     notes: r.get(9)?,
                     ping_enabled: r.get::<_, i64>(10)? == 1,
                     ignore_host_key: r.get::<_, i64>(11)? == 1,
-                    shared_with_all: r.get::<_, i64>(12)? == 1,
+                    categories,
+                    shared_with_all: r.get::<_, i64>(13)? == 1,
                     shared_with_user_ids,
-                    created_at: r.get(14)?,
+                    created_at: r.get(15)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -1232,12 +1442,15 @@ impl Database {
         notes: &str,
         ping_enabled: bool,
         ignore_host_key: bool,
+        categories: &[String],
         shared_with_all: bool,
         shared_with_user_ids: &[String],
     ) -> Result<UserServer, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
+        let clean_categories = Self::normalize_server_categories(categories);
+        let categories_json = serde_json::to_string(&clean_categories).map_err(|e| e.to_string())?;
         let clean_shared: Vec<String> = if shared_with_all {
             vec![]
         } else {
@@ -1245,8 +1458,8 @@ impl Database {
         };
         let shared_json = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
         conn.execute(
-            "INSERT INTO user_servers (id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, ignore_host_key, shared_with_all, shared_with_user_ids, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            "INSERT INTO user_servers (id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, ignore_host_key, categories_json, shared_with_all, shared_with_user_ids, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 id,
                 user_id,
@@ -1260,12 +1473,14 @@ impl Database {
                 notes,
                 if ping_enabled { 1i64 } else { 0i64 },
                 if ignore_host_key { 1i64 } else { 0i64 },
+                categories_json,
                 if shared_with_all { 1i64 } else { 0i64 },
                 shared_json,
                 now
             ],
         )
         .map_err(|e| e.to_string())?;
+        Self::ensure_user_categories_locked(&conn, user_id, &clean_categories)?;
         Ok(UserServer {
             id,
             user_id: user_id.to_string(),
@@ -1279,6 +1494,7 @@ impl Database {
             notes: notes.to_string(),
             ping_enabled,
             ignore_host_key,
+            categories: clean_categories,
             shared_with_all,
             shared_with_user_ids: clean_shared,
             created_at: now,
@@ -1299,14 +1515,17 @@ impl Database {
         notes: &str,
         ping_enabled: bool,
         ignore_host_key: bool,
+        categories: &[String],
     ) -> Result<Option<UserServer>, String> {
+        let clean_categories = Self::normalize_server_categories(categories);
+        let categories_json = serde_json::to_string(&clean_categories).map_err(|e| e.to_string())?;
         {
             let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
             let changed = conn
                 .execute(
                     "UPDATE user_servers
-                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, bmc_ip_address2 = ?4, port = ?5, ssh_user = ?6, notes = ?7, ping_enabled = ?8, ignore_host_key = ?9
-                     WHERE id = ?10 AND user_id = ?11",
+                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, bmc_ip_address2 = ?4, port = ?5, ssh_user = ?6, notes = ?7, ping_enabled = ?8, ignore_host_key = ?9, categories_json = ?10
+                     WHERE id = ?11 AND user_id = ?12",
                     params![
                         label,
                         ip,
@@ -1317,6 +1536,7 @@ impl Database {
                         notes,
                         if ping_enabled { 1i64 } else { 0i64 },
                         if ignore_host_key { 1i64 } else { 0i64 },
+                        categories_json,
                         id,
                         owner_user_id
                     ],
@@ -1325,6 +1545,7 @@ impl Database {
             if changed == 0 {
                 return Ok(None);
             }
+            Self::ensure_user_categories_locked(&conn, owner_user_id, &clean_categories)?;
         }
         self.get_accessible_server(id, owner_user_id)
     }
@@ -1949,9 +2170,49 @@ impl Database {
                 passkey_enabled: false,
                 passkey_enforced: false,
                 allow_insecure_host_key: false,
+                public_url: String::new(),
             };
         };
         Self::read_auth_policy_locked(&conn)
+    }
+
+    fn normalize_public_url(raw: &str) -> Result<String, String> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Ok(String::new());
+        }
+        if trimmed.len() > 255 {
+            return Err("Öffentliche Domain / URL ist zu lang (max. 255 Zeichen).".into());
+        }
+        if trimmed.chars().any(|c| {
+            c.is_whitespace()
+                || c.is_control()
+                || matches!(
+                    c,
+                    '"' | '\'' | '`' | '$' | '\\' | '<' | '>' | ';' | '&' | '|' | '?' | '#' | '@'
+                )
+        }) {
+            return Err("Ungültige Zeichen in der öffentlichen Domain / Basis-URL.".into());
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        let (scheme, rest) = if lower.starts_with("https://") {
+            ("https://", &trimmed[8..])
+        } else if lower.starts_with("http://") {
+            ("http://", &trimmed[7..])
+        } else if trimmed.contains("://") {
+            return Err("Die öffentliche URL muss mit http:// oder https:// beginnen.".into());
+        } else {
+            ("https://", trimmed)
+        };
+
+        let clean_rest = rest.trim_end_matches('/');
+        let authority = clean_rest.split('/').next().unwrap_or("");
+        if authority.is_empty() || authority.starts_with(':') || authority.starts_with('.') {
+            return Err(
+                "Ungültige öffentliche Domain / Basis-URL (z. B. https://ssh.example.net).".into(),
+            );
+        }
+        Ok(format!("{scheme}{clean_rest}"))
     }
 
     pub fn update_auth_policy(
@@ -2077,6 +2338,9 @@ impl Database {
         if let Some(v) = patch.allow_insecure_host_key {
             s.allow_insecure_host_key = v;
         }
+        if let Some(ref v) = patch.public_url {
+            s.public_url = Self::normalize_public_url(v)?;
+        }
 
         Self::set_setting_locked(&conn, "sso_enabled", if s.sso_enabled { "1" } else { "0" })?;
         Self::set_setting_locked(&conn, "sso_provider_name", &s.sso_provider_name)?;
@@ -2133,6 +2397,7 @@ impl Database {
             "allow_insecure_host_key",
             if s.allow_insecure_host_key { "1" } else { "0" },
         )?;
+        Self::set_setting_locked(&conn, "public_url", &s.public_url)?;
 
         Ok(s)
     }

@@ -10,9 +10,10 @@ interface AccountViewProps {
   user: User;
   settings: AppSettings;
   onUserUpdated: (user: User) => void;
+  onUpdateSettings?: (settings: AppSettings) => void;
 }
 
-export function AccountView({ user, settings, onUserUpdated }: AccountViewProps) {
+export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }: AccountViewProps) {
   const { tr, formatDateTime } = useI18n();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -246,7 +247,12 @@ export function AccountView({ user, settings, onUserUpdated }: AccountViewProps)
       )}
 
       {/* Personal API Keys & curl Upload */}
-      <ApiKeyCurlPanel defaultCertName={`${user.username}-ssh`} />
+      <ApiKeyCurlPanel
+        defaultCertName={`${user.username}-ssh`}
+        publicUrl={settings.publicUrl}
+        isAdmin={user.role === 'admin'}
+        onUpdateSettings={onUpdateSettings}
+      />
     </div>
   );
 }

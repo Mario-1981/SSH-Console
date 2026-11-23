@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -16,11 +16,13 @@ import {
   Activity,
   Ban,
   RotateCcw,
+  Tag,
+  Check,
 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
-import type { AppSettings, BmcCheckResult, User, UserServer } from '../types';
+import type { AppSettings, BmcCheckResult, ServerCategory, User, UserServer } from '../types';
 
 interface ServersViewProps {
   user: User;
@@ -59,6 +61,13 @@ export function ServersView({
   const [notes, setNotes] = useState('');
   const [pingEnabled, setPingEnabled] = useState(true);
   const [ignoreHostKey, setIgnoreHostKey] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [savedCategories, setSavedCategories] = useState<ServerCategory[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [inlineCategoryName, setInlineCategoryName] = useState('');
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [shareOnCreate, setShareOnCreate] = useState(false);
   const [sharingServer, setSharingServer] = useState<UserServer | null>(null);
   const [search, setSearch] = useState('');
@@ -75,19 +84,159 @@ export function ServersView({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await api.listServerCategories();
+      setSavedCategories(res.categories);
+    } catch {
+      // ignore transient error
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCategories();
+  }, [loadCategories]);
+
+  const ownCategoryUsage = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const srv of servers) {
+      if (srv.userId !== user.id) continue;
+      for (const cat of srv.categories ?? []) {
+        const key = cat.toLowerCase();
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [servers, user.id]);
+
+  const selectableCategories = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of savedCategories) {
+      const key = c.name.toLowerCase();
+      if (!map.has(key)) map.set(key, c.name);
+    }
+    for (const srv of servers) {
+      for (const cat of srv.categories ?? []) {
+        const key = cat.toLowerCase();
+        if (!map.has(key)) map.set(key, cat);
+      }
+    }
+    for (const cat of selectedCategories) {
+      const key = cat.toLowerCase();
+      if (!map.has(key)) map.set(key, cat);
+    }
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b, locale));
+  }, [savedCategories, servers, selectedCategories, locale]);
+
+  const tableFilterCategories = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const srv of servers) {
+      for (const cat of srv.categories ?? []) {
+        const key = cat.toLowerCase();
+        if (!map.has(key)) map.set(key, cat);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b, locale));
+  }, [servers, locale]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return servers;
-    return servers.filter(
-      (s) =>
+    const catFilterLower = categoryFilter.toLowerCase();
+    return servers.filter((s) => {
+      const cats = s.categories ?? [];
+      if (categoryFilter === '__uncategorized__') {
+        if (cats.length > 0) return false;
+      } else if (categoryFilter) {
+        if (!cats.some((c) => c.toLowerCase() === catFilterLower)) return false;
+      }
+      if (!q) return true;
+      return (
         s.label.toLowerCase().includes(q) ||
         s.ipAddress.toLowerCase().includes(q) ||
         (s.bmcIpAddress || '').toLowerCase().includes(q) ||
         (s.bmcIpAddress2 || '').toLowerCase().includes(q) ||
         s.sshUser.toLowerCase().includes(q) ||
-        s.notes.toLowerCase().includes(q)
+        s.notes.toLowerCase().includes(q) ||
+        cats.some((c) => c.toLowerCase().includes(q))
+      );
+    });
+  }, [servers, search, categoryFilter]);
+
+  function toggleCategorySelection(categoryName: string) {
+    const lower = categoryName.toLowerCase();
+    setSelectedCategories((prev) =>
+      prev.some((c) => c.toLowerCase() === lower)
+        ? prev.filter((c) => c.toLowerCase() !== lower)
+        : [...prev, categoryName]
     );
-  }, [servers, search]);
+  }
+
+  async function handleCreateCategory(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    setError(null);
+    setCreatingCategory(true);
+    try {
+      await api.createServerCategory(trimmed);
+      setNewCategoryName('');
+      await loadCategories();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Kategorie konnte nicht angelegt werden.', 'Could not create category.')
+      );
+    } finally {
+      setCreatingCategory(false);
+    }
+  }
+
+  async function handleInlineAddCategory() {
+    const trimmed = inlineCategoryName.trim();
+    if (!trimmed) return;
+    setError(null);
+    setCreatingCategory(true);
+    try {
+      const res = await api.createServerCategory(trimmed);
+      const canonical = res.category.name;
+      setSelectedCategories((prev) =>
+        prev.some((c) => c.toLowerCase() === canonical.toLowerCase()) ? prev : [...prev, canonical]
+      );
+      setInlineCategoryName('');
+      await loadCategories();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Kategorie konnte nicht angelegt werden.', 'Could not create category.')
+      );
+    } finally {
+      setCreatingCategory(false);
+    }
+  }
+
+  async function handleDeleteCategory(cat: ServerCategory) {
+    setDeletingCategoryId(cat.id);
+    setError(null);
+    try {
+      await api.deleteServerCategory(cat.id);
+      const lower = cat.name.toLowerCase();
+      setSelectedCategories((prev) => prev.filter((c) => c.toLowerCase() !== lower));
+      if (categoryFilter.toLowerCase() === lower) {
+        setCategoryFilter('');
+      }
+      await Promise.all([loadCategories(), onRefresh()]);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Kategorie konnte nicht gelöscht werden.', 'Could not delete category.')
+      );
+    } finally {
+      setDeletingCategoryId(null);
+    }
+  }
 
   function resetForm() {
     setEditingId(null);
@@ -100,6 +249,8 @@ export function ServersView({
     setNotes('');
     setPingEnabled(true);
     setIgnoreHostKey(false);
+    setSelectedCategories([]);
+    setInlineCategoryName('');
     setShareOnCreate(false);
   }
 
@@ -115,6 +266,8 @@ export function ServersView({
     setNotes(srv.notes || '');
     setPingEnabled(srv.pingEnabled !== false);
     setIgnoreHostKey(Boolean(srv.ignoreHostKey));
+    setSelectedCategories(srv.categories ?? []);
+    setInlineCategoryName('');
     setShareOnCreate(false);
   }
 
@@ -134,6 +287,7 @@ export function ServersView({
           notes: notes.trim(),
           pingEnabled,
           ignoreHostKey,
+          categories: selectedCategories,
         });
         // Clear stale BMC check results when IPs changed
         setBmcResults((prev) => {
@@ -153,10 +307,11 @@ export function ServersView({
           notes: notes.trim(),
           pingEnabled,
           ignoreHostKey: allowInsecureHostKey ? ignoreHostKey : false,
+          categories: selectedCategories,
           ...(isAdmin && shareOnCreate ? { sharedWithAll: true, sharedWithUserIds: [] } : {}),
         });
       }
-      await onRefresh();
+      await Promise.all([onRefresh(), loadCategories()]);
       resetForm();
     } catch (err) {
       setError(
@@ -460,6 +615,84 @@ export function ServersView({
         </div>
       )}
 
+      {/* IP Categories Manager */}
+      <section className="bg-white border border-slate-200 rounded-lg p-5 space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <Tag className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+            <div>
+              <h2 className="font-display text-sm font-semibold text-slate-900">
+                {tr('IP-Kategorien verwalten', 'Manage IP Categories')}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {tr(
+                  'Legen Sie Kategorien an (z. B. Produktion, Webserver, Datenbank), ordnen Sie jeder IP eine oder mehrere Kategorien zu und filtern Sie danach im Dashboard.',
+                  'Define categories (e.g. Production, Web, Database), assign one or multiple categories to each IP, and filter by them on the Dashboard.'
+                )}
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleCreateCategory} className="flex items-center gap-2 shrink-0">
+            <input
+              type="text"
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              maxLength={48}
+              placeholder={tr('Neue Kategorie, z. B. Produktion', 'New category, e.g. Production')}
+              className="w-52 sm:w-56 px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+            <button
+              type="submit"
+              disabled={creatingCategory || !newCategoryName.trim()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {tr('Anlegen', 'Add')}
+            </button>
+          </form>
+        </div>
+
+        {savedCategories.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            {tr(
+              'Noch keine Kategorien angelegt. Erstellen Sie oben Ihre erste Kategorie oder direkt beim Anlegen einer IP.',
+              'No categories created yet. Add your first category above or directly when adding an IP.'
+            )}
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            {savedCategories.map((cat) => {
+              const count = ownCategoryUsage.get(cat.name.toLowerCase()) ?? 0;
+              return (
+                <span
+                  key={cat.id}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-800 bg-slate-50 border border-slate-200 rounded-md"
+                >
+                  <span>{cat.name}</span>
+                  <span className="font-mono text-[11px] text-slate-500 tabular-nums">
+                    {count}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCategory(cat)}
+                    disabled={deletingCategoryId === cat.id}
+                    title={tr(
+                      `Kategorie „${cat.name}“ löschen (wird auch von Ihren IPs entfernt)`,
+                      `Delete category "${cat.name}" (also removed from your IPs)`
+                    )}
+                    className="ml-0.5 text-slate-400 hover:text-red-700 disabled:opacity-40 cursor-pointer transition-colors"
+                    aria-label={tr(`Kategorie ${cat.name} löschen`, `Delete category ${cat.name}`)}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
         <div className="flex items-center justify-between gap-4">
           <h2 className="font-display text-base font-semibold text-slate-900">
@@ -603,6 +836,86 @@ export function ServersView({
           </div>
         </div>
 
+        {/* Multi-Category Assignment */}
+        <div className="pt-2 border-t border-slate-100 space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-700">
+              {tr('Kategorien zuordnen (Mehrfachauswahl)', 'Assign Categories (Multi-select)')}
+              {selectedCategories.length > 0 && (
+                <span className="ml-1.5 font-mono text-[11px] text-blue-700">
+                  ({selectedCategories.length} {tr('gewählt', 'selected')})
+                </span>
+              )}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={inlineCategoryName}
+                onChange={(e) => setInlineCategoryName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleInlineAddCategory();
+                  }
+                }}
+                maxLength={48}
+                placeholder={tr('Schnell neue Kategorie hinzufügen...', 'Quick add new category...')}
+                className="w-48 sm:w-52 px-2.5 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <button
+                type="button"
+                onClick={handleInlineAddCategory}
+                disabled={creatingCategory || !inlineCategoryName.trim()}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <Plus className="w-3 h-3" />
+                {tr('Hinzufügen', 'Add')}
+              </button>
+            </div>
+          </div>
+
+          {selectableCategories.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {selectableCategories.map((catName) => {
+                const isSelected = selectedCategories.some(
+                  (c) => c.toLowerCase() === catName.toLowerCase()
+                );
+                return (
+                  <button
+                    key={catName}
+                    type="button"
+                    onClick={() => toggleCategorySelection(catName)}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-50 text-blue-800 border-blue-300'
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    {isSelected && <Check className="w-3 h-3 text-blue-700 shrink-0" />}
+                    <span>{catName}</span>
+                  </button>
+                );
+              })}
+              {selectedCategories.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategories([])}
+                  className="px-2 py-1 text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
+                >
+                  {tr('Auswahl leeren', 'Clear')}
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400">
+              {tr(
+                'Keine Kategorien vorhanden – geben Sie rechts einen Namen ein, um direkt eine Kategorie anzulegen und auszuwählen.',
+                'No categories yet — type a name on the right to create and select one right away.'
+              )}
+            </p>
+          )}
+        </div>
+
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-1">
           <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
             <input
@@ -679,15 +992,35 @@ export function ServersView({
           <h2 className="font-display text-base font-semibold text-slate-900">
             {tr(`Gespeicherte Zielserver (${filtered.length})`, `Saved Target Servers (${filtered.length})`)}
           </h2>
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={tr('Nach IP, BMC oder Name filtern...', 'Filter by IP, BMC, or name...')}
-              className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+            {tableFilterCategories.length > 0 && (
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                aria-label={tr('Nach Kategorie filtern', 'Filter by category')}
+                className="w-full sm:w-48 px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="">{tr('Alle Kategorien', 'All categories')}</option>
+                {tableFilterCategories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+                <option value="__uncategorized__">
+                  {tr('Ohne Kategorie', 'Uncategorized')}
+                </option>
+              </select>
+            )}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={tr('Nach IP, Kategorie oder Name filtern...', 'Filter by IP, category, or name...')}
+                className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+            </div>
           </div>
         </div>
 
@@ -738,8 +1071,34 @@ export function ServersView({
 
                   return (
                     <tr key={srv.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-6 font-medium text-slate-900 whitespace-nowrap">
-                        {srv.label}
+                      <td className="py-3 px-6 font-medium text-slate-900">
+                        <p className="whitespace-nowrap">{srv.label}</p>
+                        {(srv.categories?.length ?? 0) > 0 && (
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {(srv.categories ?? []).map((cat) => (
+                              <button
+                                key={cat}
+                                type="button"
+                                onClick={() =>
+                                  setCategoryFilter((prev) =>
+                                    prev.toLowerCase() === cat.toLowerCase() ? '' : cat
+                                  )
+                                }
+                                title={tr(
+                                  `Nach Kategorie „${cat}“ filtern`,
+                                  `Filter by category "${cat}"`
+                                )}
+                                className={`px-1.5 py-0.5 text-[11px] font-medium rounded border transition-colors cursor-pointer ${
+                                  categoryFilter.toLowerCase() === cat.toLowerCase()
+                                    ? 'bg-blue-50 text-blue-800 border-blue-300'
+                                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                                }`}
+                              >
+                                {cat}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono text-xs text-slate-800 tabular-nums whitespace-nowrap">
                         <p>{srv.ipAddress}</p>
