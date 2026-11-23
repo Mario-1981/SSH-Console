@@ -1,0 +1,64 @@
+> [🏠 Home](Home) · [🇩🇪 Deutsche Version](DE-Fehlerbehebung-und-FAQ)
+
+# Troubleshooting & FAQ
+
+---
+
+## SSH Execution & Host Keys
+
+### `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!`
+- **Cause**: The target server's SSH host key changed (typically after an OS reinstall, VM rebuild, or IP reassignment).
+- **Fix**: Verify the change is legitimate, then click **Reset Host Key** for that server in **My Servers (IPs)** (or purge it as an admin under **Admin → Authentication & SSO → Known Hosts**). On the next connection, the new host key will be trusted automatically.
+
+### Command fails with `Passphrase erforderlich` / `Passphrase required`
+- **Cause**: The selected private key is passphrase-encrypted and has no passphrase stored in SSH Console.
+- **Fix**: Either enter the passphrase in the unlock field on the **Dashboard** / **SSH Shell** right before running, or save the passphrase encrypted under **SSH Keys & Certificates → Passphrase**.
+
+### `Permission denied (publickey)` when using a 3-file certificate
+- Check on **SSH Keys & Certificates** that the certificate is **not expired** (`validBefore`) and that the server's **SSH User** (e.g. `root` or `deploy`) is listed in the certificate's **Principals**.
+- Verify `/etc/ssh/sshd_config` on the target server contains `TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub` and `sshd` was reloaded.
+
+---
+
+## Interactive SSH Shell
+
+### WebSocket disconnects immediately or fails behind Nginx/Apache
+- Ensure your reverse proxy forwards `Upgrade` and `Connection: upgrade` headers and has a long `proxy_read_timeout` (e.g. `3600s`). See [Installation & Deployment](EN-Installation-and-Deployment#reverse-proxy-configuration-https--websockets).
+- Check browser dev tools for mixed-content errors (`ws://` vs `wss://`): serve SSH Console over HTTPS and configure **Public URL** with `https://...`.
+
+---
+
+## Ping Dashboard & BMC
+
+### Dashboard shows `tcp-ping` instead of `icmp-ping`
+- **Cause**: Either `/bin/ping` is not installed, or the process lacks ICMP permission (common inside restricted containers or hardened systemd units with empty `CapabilityBoundingSet`).
+- **Behavior**: SSH Console automatically falls back to a TCP connect probe on each server's SSH port (default `22`), which reliably confirms SSH reachability without needing raw sockets.
+
+### Why is an offline IP checked less frequently than my configured interval?
+- **Cause**: Adaptive **Offline Backoff** is active (default: after `5` consecutive offline pings, interval increases by `× 5`).
+- **Fix**: As soon as the IP answers online again (auto or manual ping), it resets to the standard interval immediately. To adjust or disable backoff, set `After [0] × offline` in the Dashboard's **Auto-Ping Controls** bar (Admin only).
+
+### Can I still ping a server manually if auto-ping is disabled?
+- **Yes.** Global, account, and per-IP switches only pause *periodic* auto-ping. Clicking **Check** or **Check All** always runs an immediate reachability check.
+
+---
+
+## SSO, 2FA & Passkeys
+
+### Passkeys or Security Keys fail to register or sign in
+- WebAuthn requires **HTTPS** with a valid certificate (or `http://localhost` in development). Plain IP addresses over HTTP (e.g. `http://192.168.1.10:3000`) are rejected by browsers.
+- Make sure **Admin → Authentication & SSO → Public URL** matches the exact origin in the browser address bar.
+
+### SSO callback returns redirect URI mismatch
+- Set **Public URL** under **Admin → Authentication & SSO** to your exact external URL (without trailing slash, e.g. `https://ssh.example.net`).
+- Register `https://ssh.example.net/api/auth/sso/callback` verbatim in your Identity Provider.
+
+### A user lost their 2FA device or Passkey
+- Any administrator can go to **Admin → Users** and click **Reset 2FA / Passkeys** for that account. If 2FA/Passkeys are enforced, the user will be prompted to set them up fresh on their next login.
+
+---
+
+## Database & Vault
+
+### What happens if `vault.key` is lost?
+- **Critical:** `vault.key` encrypts all SSH private keys, stored key passphrases, TOTP secrets, and the SSO client secret. If `vault.key` is lost and cannot be restored from backup, encrypted certificates must be re-uploaded and 2FA/SSO secrets re-entered. Always back up `vault.key` alongside `ssh-console.sqlite`.
