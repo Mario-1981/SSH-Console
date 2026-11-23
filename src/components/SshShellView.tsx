@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -13,6 +13,8 @@ import {
   KeyRound,
   Server,
   AlertTriangle,
+  Plus,
+  X,
 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
@@ -20,6 +22,7 @@ import type { ActiveTab, User, UserCertificate, UserServer } from '../types';
 
 interface SshShellViewProps {
   user: User;
+  isVisible?: boolean;
   opensshAvailable: boolean;
   allowInsecureHostKey?: boolean;
   servers: UserServer[];
@@ -30,26 +33,86 @@ interface SshShellViewProps {
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'preview' | 'closed' | 'error';
 
-export function SshShellView({
+interface ShellTabMeta {
+  id: string;
+  number: number;
+  initialServerId: string;
+  selectedServerId: string;
+  title: string;
+  subtitle: string;
+  connState: ConnectionState;
+  isLive: boolean;
+}
+
+interface SshShellTabPaneProps {
+  tabId: string;
+  tabNumber: number;
+  initialServerId: string;
+  isActive: boolean;
+  isVisible: boolean;
+  isExpanded: boolean;
+  user: User;
+  allowInsecureHostKey: boolean;
+  servers: UserServer[];
+  certificates: UserCertificate[];
+  onToggleExpand: () => void;
+  onExitExpand: () => void;
+  onMetaChange: (
+    tabId: string,
+    patch: Pick<ShellTabMeta, 'title' | 'subtitle' | 'connState' | 'isLive' | 'selectedServerId'>
+  ) => void;
+  onSessionEnded: () => Promise<void>;
+}
+
+const MAX_SHELL_TABS = 12;
+
+function getTabDotClass(state: ConnectionState, dark = false): string {
+  switch (state) {
+    case 'connected':
+      return 'bg-emerald-500';
+    case 'connecting':
+      return 'bg-amber-400 animate-pulse';
+    case 'preview':
+      return 'bg-sky-400';
+    case 'error':
+      return 'bg-red-500';
+    case 'closed':
+      return dark ? 'bg-slate-500' : 'bg-slate-400';
+    default:
+      return dark ? 'bg-slate-600' : 'bg-slate-300';
+  }
+}
+
+function SshShellTabPane({
+  tabId,
+  tabNumber,
+  initialServerId,
+  isActive,
+  isVisible,
+  isExpanded,
   user,
-  opensshAvailable,
-  allowInsecureHostKey = false,
+  allowInsecureHostKey,
   servers,
   certificates,
-  onNavigate,
+  onToggleExpand,
+  onExitExpand,
+  onMetaChange,
   onSessionEnded,
-}: SshShellViewProps) {
+}: SshShellTabPaneProps) {
   const { tr } = useI18n();
+
+  const initialServer =
+    servers.find((s) => s.id === initialServerId) ?? servers[0];
 
   const [targetMode, setTargetMode] = useState<'saved' | 'custom'>(
     servers.length > 0 ? 'saved' : 'custom'
   );
-  const [selectedServerId, setSelectedServerId] = useState<string>(servers[0]?.id ?? '');
+  const [selectedServerId, setSelectedServerId] = useState<string>(initialServer?.id ?? '');
   const [customIp, setCustomIp] = useState('');
   const [customPort, setCustomPort] = useState(22);
   const [customIgnoreHostKey, setCustomIgnoreHostKey] = useState(false);
   const [sshUser, setSshUser] = useState(
-    servers[0]?.sshUser || user.defaultSshUser || 'root'
+    initialServer?.sshUser || user.defaultSshUser || 'root'
   );
   const [selectedCertId, setSelectedCertId] = useState<string>(certificates[0]?.id ?? '');
 
@@ -60,7 +123,6 @@ export function SshShellView({
   const [hostKeyNotice, setHostKeyNotice] = useState<string | null>(null);
   const [resettingHostKey, setResettingHostKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -89,6 +151,58 @@ export function SshShellView({
       setSelectedCertId(certificates[0].id);
     }
   }, [certificates, selectedCertId]);
+
+  const selectedCert = certificates.find((c) => c.id === selectedCertId);
+  const selectedServer = servers.find((s) => s.id === selectedServerId);
+  const isLive = connState === 'connected' || connState === 'connecting';
+
+  // Report tab metadata up to tab bar
+  useEffect(() => {
+    let title = tr(`Tab ${tabNumber}`, `Tab ${tabNumber}`);
+    let subtitle = '';
+
+    if (
+      activeTargetLabel &&
+      (connState === 'connected' || connState === 'connecting' || connState === 'preview')
+    ) {
+      if (targetMode === 'saved' && selectedServer) {
+        title = selectedServer.label;
+        subtitle = activeTargetLabel;
+      } else {
+        title = activeTargetLabel;
+      }
+    } else if (targetMode === 'saved' && selectedServer) {
+      title = selectedServer.label;
+      subtitle = `${selectedServer.ipAddress}:${selectedServer.port}`;
+    } else if (targetMode === 'custom' && customIp.trim()) {
+      const effectiveUser = sshUser.trim() || user.defaultSshUser || 'root';
+      title = `${effectiveUser}@${customIp.trim()}`;
+      subtitle = `Port ${customPort}`;
+    }
+
+    onMetaChange(tabId, {
+      title,
+      subtitle,
+      connState,
+      isLive,
+      selectedServerId: targetMode === 'saved' ? selectedServerId : '',
+    });
+  }, [
+    tabId,
+    tabNumber,
+    activeTargetLabel,
+    connState,
+    isLive,
+    targetMode,
+    selectedServer,
+    selectedServerId,
+    customIp,
+    customPort,
+    sshUser,
+    user.defaultSshUser,
+    onMetaChange,
+    tr,
+  ]);
 
   function handleSelectServer(id: string) {
     setSelectedServerId(id);
@@ -125,7 +239,7 @@ export function SshShellView({
     }
   }
 
-  // Initialize xterm.js once
+  // Initialize xterm.js once per tab
   useEffect(() => {
     const container = terminalHostRef.current;
     if (!container) return;
@@ -164,10 +278,14 @@ export function SshShellView({
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(container);
-    fit.fit();
+    try {
+      fit.fit();
+    } catch {
+      // ignore if hidden during initial mount
+    }
 
     term.writeln(
-      '\x1b[1;34mSSH Console\x1b[0m \x1b[90m— Interaktive OpenSSH-Shell (serverseitig)\x1b[0m'
+      `\x1b[1;34mSSH Console\x1b[0m \x1b[90m— Tab #${tabNumber} · Interaktive OpenSSH-Shell (serverseitig)\x1b[0m`
     );
     term.writeln(
       '\x1b[90mWählen Sie oben Ziel-IP und Zertifikat aus und klicken Sie auf „Verbinden“.\x1b[0m'
@@ -188,6 +306,7 @@ export function SshShellView({
     });
 
     const observer = new ResizeObserver(() => {
+      if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
       try {
         fit.fit();
       } catch {
@@ -200,7 +319,11 @@ export function SshShellView({
     fitRef.current = fit;
 
     return () => {
+      const hadLiveSocket = wsRef.current !== null;
       closeSocket(true);
+      if (hadLiveSocket) {
+        void onSessionEndedRef.current();
+      }
       observer.disconnect();
       dataDisposable.dispose();
       resizeDisposable.dispose();
@@ -210,17 +333,21 @@ export function SshShellView({
     };
   }, []);
 
-  // Re-fit terminal when toggling expanded view
+  // Re-fit & focus terminal when tab becomes active, view becomes visible, or fullscreen toggles
   useEffect(() => {
+    if (!isActive || !isVisible) return;
     const id = window.setTimeout(() => {
       try {
         fitRef.current?.fit();
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          termRef.current?.focus();
+        }
       } catch {
         // ignore
       }
     }, 50);
     return () => window.clearTimeout(id);
-  }, [isExpanded]);
+  }, [isActive, isVisible, isExpanded]);
 
   async function handleConnect(e?: React.FormEvent) {
     if (e) e.preventDefault();
@@ -445,9 +572,6 @@ export function SshShellView({
     }
   }
 
-  const selectedCert = certificates.find((c) => c.id === selectedCertId);
-  const selectedServer = servers.find((s) => s.id === selectedServerId);
-  const isLive = connState === 'connected' || connState === 'connecting';
   const effectiveIgnoreHostKey =
     targetMode === 'saved'
       ? Boolean(allowInsecureHostKey && selectedServer?.ignoreHostKey)
@@ -495,57 +619,16 @@ export function SshShellView({
   })();
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
-            SSH-Shell
-          </h1>
-          <p className="text-sm text-slate-600 mt-1">
-            {tr(
-              'Öffnen Sie direkt im Browser eine passwortlose, interaktive SSH-Sitzung (PTY) über den Server zu einer gewählten IP-Adresse.',
-              'Open a passwordless interactive SSH session (PTY) directly in your browser through the server to any selected target IP.'
-            )}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {certificates.length === 0 && (
-            <button
-              type="button"
-              onClick={() => onNavigate('certificates')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <KeyRound className="w-3.5 h-3.5" />
-              {tr('Zertifikat hochladen', 'Upload Certificate')}
-            </button>
-          )}
-          {servers.length === 0 && (
-            <button
-              type="button"
-              onClick={() => onNavigate('servers')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Server className="w-3.5 h-3.5" />
-              {tr('Server anlegen', 'Add Server')}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {!opensshAvailable && (
-        <div className="px-4 py-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-          <span>
-            {tr(
-              'In dieser Vorschau-Sandbox ist kein /usr/bin/ssh installiert. Beim Verbinden wird die Zertifikatsprüfung und ein TCP-Test im Terminal angezeigt. Auf Debian 13 (Trixie) startet hier direkt eine echte interaktive OpenSSH-Shell.',
-              'No /usr/bin/ssh binary is installed in this preview sandbox. Connecting displays certificate verification and a live TCP check in the terminal. On Debian 13 (Trixie), this opens a real interactive OpenSSH shell.'
-            )}
-          </span>
-        </div>
-      )}
-
-      {error && (
+    <div
+      className={
+        isActive
+          ? isExpanded
+            ? 'flex-1 min-h-0 flex flex-col'
+            : 'space-y-4'
+          : 'hidden'
+      }
+    >
+      {error && !isExpanded && (
         <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
           {error}
         </div>
@@ -554,14 +637,18 @@ export function SshShellView({
       {/* Connection Setup Bar */}
       <form
         onSubmit={handleConnect}
-        className="bg-white border border-slate-200 rounded-lg p-5 space-y-4"
+        className={
+          isExpanded
+            ? 'hidden'
+            : 'bg-white border border-slate-200 rounded-b-lg rounded-tr-lg p-5 space-y-4'
+        }
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 text-xs">
             <button
               type="button"
               onClick={() => setTargetMode('saved')}
-              disabled={servers.length === 0}
+              disabled={servers.length === 0 || isLive}
               className={`px-3 py-1.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
                 targetMode === 'saved'
                   ? 'bg-white text-slate-900 shadow-xs'
@@ -573,7 +660,8 @@ export function SshShellView({
             <button
               type="button"
               onClick={() => setTargetMode('custom')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors cursor-pointer ${
+              disabled={isLive}
+              className={`px-3 py-1.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
                 targetMode === 'custom'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -594,11 +682,11 @@ export function SshShellView({
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
           {targetMode === 'saved' ? (
             <div className="md:col-span-4">
-              <label htmlFor="shell-server" className="block text-xs font-medium text-slate-700 mb-1">
+              <label htmlFor={`${tabId}-server`} className="block text-xs font-medium text-slate-700 mb-1">
                 {tr('Ziel-Server (IP)', 'Target Server (IP)')}
               </label>
               <select
-                id="shell-server"
+                id={`${tabId}-server`}
                 value={selectedServerId}
                 onChange={(e) => handleSelectServer(e.target.value)}
                 disabled={isLive}
@@ -614,11 +702,11 @@ export function SshShellView({
           ) : (
             <>
               <div className="md:col-span-3">
-                <label htmlFor="shell-ip" className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor={`${tabId}-ip`} className="block text-xs font-medium text-slate-700 mb-1">
                   {tr('Ziel-IP-Adresse', 'Target IP Address')}
                 </label>
                 <input
-                  id="shell-ip"
+                  id={`${tabId}-ip`}
                   type="text"
                   value={customIp}
                   onChange={(e) => setCustomIp(e.target.value)}
@@ -628,11 +716,11 @@ export function SshShellView({
                 />
               </div>
               <div className="md:col-span-1">
-                <label htmlFor="shell-port" className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor={`${tabId}-port`} className="block text-xs font-medium text-slate-700 mb-1">
                   Port
                 </label>
                 <input
-                  id="shell-port"
+                  id={`${tabId}-port`}
                   type="number"
                   min={1}
                   max={65535}
@@ -646,11 +734,11 @@ export function SshShellView({
           )}
 
           <div className="md:col-span-2">
-            <label htmlFor="shell-ssh-user" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor={`${tabId}-ssh-user`} className="block text-xs font-medium text-slate-700 mb-1">
               {tr('SSH-Benutzer', 'SSH User')}
             </label>
             <input
-              id="shell-ssh-user"
+              id={`${tabId}-ssh-user`}
               type="text"
               value={sshUser}
               onChange={(e) => setSshUser(e.target.value)}
@@ -661,11 +749,11 @@ export function SshShellView({
           </div>
 
           <div className="md:col-span-4">
-            <label htmlFor="shell-cert" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor={`${tabId}-cert`} className="block text-xs font-medium text-slate-700 mb-1">
               {tr('SSH-Zertifikat / Schlüsselpaar', 'SSH Certificate / Keypair')}
             </label>
             <select
-              id="shell-cert"
+              id={`${tabId}-cert`}
               value={selectedCertId}
               onChange={(e) => setSelectedCertId(e.target.value)}
               disabled={isLive || certificates.length === 0}
@@ -823,8 +911,10 @@ export function SshShellView({
 
       {/* Interactive Terminal Surface */}
       <section
-        className={`rounded-lg border border-slate-800 bg-slate-950 overflow-hidden shadow-sm flex flex-col ${
-          isExpanded ? 'fixed inset-4 z-50' : ''
+        className={`bg-slate-950 overflow-hidden flex flex-col ${
+          isExpanded
+            ? 'flex-1 min-h-0'
+            : 'rounded-lg border border-slate-800 shadow-sm'
         }`}
       >
         <div className="h-11 px-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
@@ -854,6 +944,26 @@ export function SshShellView({
                 {statusMessage}
               </span>
             )}
+            {isExpanded && isLive && (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-red-300 hover:text-white hover:bg-red-900/60 rounded transition-colors cursor-pointer"
+              >
+                <Unplug className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{tr('Trennen', 'Disconnect')}</span>
+              </button>
+            )}
+            {isExpanded && !isLive && (
+              <button
+                type="button"
+                onClick={onExitExpand}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-sky-300 hover:text-white hover:bg-slate-800 rounded transition-colors cursor-pointer"
+              >
+                <Plug className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{tr('Verbindung konfigurieren', 'Configure Connection')}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleClearTerminal}
@@ -865,7 +975,7 @@ export function SshShellView({
             </button>
             <button
               type="button"
-              onClick={() => setIsExpanded((v) => !v)}
+              onClick={onToggleExpand}
               title={
                 isExpanded
                   ? tr('Vollbild verlassen', 'Exit fullscreen')
@@ -893,6 +1003,308 @@ export function SshShellView({
           }`}
         />
       </section>
+    </div>
+  );
+}
+
+export function SshShellView({
+  user,
+  isVisible = true,
+  opensshAvailable,
+  allowInsecureHostKey = false,
+  servers,
+  certificates,
+  onNavigate,
+  onSessionEnded,
+}: SshShellViewProps) {
+  const { tr } = useI18n();
+  const nextTabNumberRef = useRef(2);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const [tabs, setTabs] = useState<ShellTabMeta[]>(() => [
+    {
+      id: 'shell-tab-1',
+      number: 1,
+      initialServerId: servers[0]?.id ?? '',
+      selectedServerId: servers[0]?.id ?? '',
+      title: servers[0]?.label ?? 'Tab 1',
+      subtitle: servers[0] ? `${servers[0].ipAddress}:${servers[0].port}` : '',
+      connState: 'idle',
+      isLive: false,
+    },
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string>('shell-tab-1');
+
+  const handleMetaChange = useCallback(
+    (
+      tabId: string,
+      patch: Pick<ShellTabMeta, 'title' | 'subtitle' | 'connState' | 'isLive' | 'selectedServerId'>
+    ) => {
+      setTabs((prev) => {
+        let changed = false;
+        const next = prev.map((t) => {
+          if (t.id !== tabId) return t;
+          if (
+            t.title === patch.title &&
+            t.subtitle === patch.subtitle &&
+            t.connState === patch.connState &&
+            t.isLive === patch.isLive &&
+            t.selectedServerId === patch.selectedServerId
+          ) {
+            return t;
+          }
+          changed = true;
+          return { ...t, ...patch };
+        });
+        return changed ? next : prev;
+      });
+    },
+    []
+  );
+
+  function handleAddTab() {
+    if (tabs.length >= MAX_SHELL_TABS) return;
+    const number = nextTabNumberRef.current++;
+    const id = `shell-tab-${number}`;
+    const usedServerIds = new Set(tabs.map((t) => t.selectedServerId).filter(Boolean));
+    const nextServer = servers.find((s) => !usedServerIds.has(s.id)) ?? servers[0];
+
+    const newTab: ShellTabMeta = {
+      id,
+      number,
+      initialServerId: nextServer?.id ?? '',
+      selectedServerId: nextServer?.id ?? '',
+      title: nextServer?.label ?? tr(`Tab ${number}`, `Tab ${number}`),
+      subtitle: nextServer ? `${nextServer.ipAddress}:${nextServer.port}` : '',
+      connState: 'idle',
+      isLive: false,
+    };
+
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(id);
+    if (isExpanded) {
+      setIsExpanded(false);
+    }
+  }
+
+  function handleCloseTab(e: React.MouseEvent<HTMLButtonElement>, tabId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const index = tabs.findIndex((t) => t.id === tabId);
+    if (index === -1) return;
+
+    if (tabs.length === 1) {
+      const number = nextTabNumberRef.current++;
+      const id = `shell-tab-${number}`;
+      const freshTab: ShellTabMeta = {
+        id,
+        number,
+        initialServerId: servers[0]?.id ?? '',
+        selectedServerId: servers[0]?.id ?? '',
+        title: servers[0]?.label ?? tr(`Tab ${number}`, `Tab ${number}`),
+        subtitle: servers[0] ? `${servers[0].ipAddress}:${servers[0].port}` : '',
+        connState: 'idle',
+        isLive: false,
+      };
+      setTabs([freshTab]);
+      setActiveTabId(id);
+      setIsExpanded(false);
+      return;
+    }
+
+    const remaining = tabs.filter((t) => t.id !== tabId);
+    setTabs(remaining);
+    if (activeTabId === tabId) {
+      const fallback = remaining[Math.max(0, index - 1)] ?? remaining[0];
+      setActiveTabId(fallback.id);
+    }
+  }
+
+  const activeConnectionCount = tabs.filter((t) => t.connState === 'connected').length;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+              SSH-Shell
+            </h1>
+            {activeConnectionCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 tabular-nums">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                {activeConnectionCount === 1
+                  ? tr('1 aktive Verbindung', '1 active connection')
+                  : tr(
+                      `${activeConnectionCount} aktive Verbindungen`,
+                      `${activeConnectionCount} active connections`
+                    )}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-600 mt-1">
+            {tr(
+              'Öffnen Sie eine oder mehrere parallele, passwortlose SSH-Sitzungen (PTY) direkt im Browser und wechseln Sie bequem per Tabs dazwischen.',
+              'Open one or more parallel passwordless interactive SSH sessions (PTY) directly in your browser and switch smoothly between tabs.'
+            )}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {certificates.length === 0 && (
+            <button
+              type="button"
+              onClick={() => onNavigate('certificates')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              {tr('Zertifikat hochladen', 'Upload Certificate')}
+            </button>
+          )}
+          {servers.length === 0 && (
+            <button
+              type="button"
+              onClick={() => onNavigate('servers')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Server className="w-3.5 h-3.5" />
+              {tr('Server anlegen', 'Add Server')}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!opensshAvailable && (
+        <div className="px-4 py-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <span>
+            {tr(
+              'In dieser Vorschau-Sandbox ist kein /usr/bin/ssh installiert. Beim Verbinden wird die Zertifikatsprüfung und ein TCP-Test im Terminal angezeigt. Auf Debian 13 (Trixie) startet hier direkt eine echte interaktive OpenSSH-Shell.',
+              'No /usr/bin/ssh binary is installed in this preview sandbox. Connecting displays certificate verification and a live TCP check in the terminal. On Debian 13 (Trixie), this opens a real interactive OpenSSH shell.'
+            )}
+          </span>
+        </div>
+      )}
+
+      {/* Multi-Tab Shell Workspace (stays structurally stable across fullscreen toggle) */}
+      <div
+        className={
+          isExpanded
+            ? 'fixed inset-4 z-50 flex flex-col bg-slate-950 rounded-lg border border-slate-800 shadow-2xl overflow-hidden'
+            : ''
+        }
+      >
+        {/* Tab Bar */}
+        <div
+          role="tablist"
+          aria-label={tr('SSH-Sitzungen', 'SSH Sessions')}
+          className={
+            isExpanded
+              ? 'flex items-center gap-1 px-2 pt-2 bg-slate-950 border-b border-slate-800 overflow-x-auto shrink-0'
+              : 'flex items-end gap-1 overflow-x-auto -mb-px relative z-10'
+          }
+        >
+          {tabs.map((tab) => {
+            const isCurrent = tab.id === activeTabId;
+            return (
+              <div
+                key={tab.id}
+                role="tab"
+                aria-selected={isCurrent}
+                tabIndex={isCurrent ? 0 : -1}
+                onClick={() => setActiveTabId(tab.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setActiveTabId(tab.id);
+                  }
+                }}
+                title={tab.subtitle ? `${tab.title} (${tab.subtitle})` : tab.title}
+                className={`group inline-flex items-center gap-2 pl-3 pr-2 py-2 text-xs font-medium rounded-t-md border transition-colors cursor-pointer select-none max-w-[230px] shrink-0 ${
+                  isExpanded
+                    ? isCurrent
+                      ? 'bg-slate-900 text-slate-100 border-slate-700 border-b-slate-900'
+                      : 'bg-slate-950 text-slate-400 border-transparent hover:text-slate-200 hover:bg-slate-900/60'
+                    : isCurrent
+                    ? 'bg-white text-slate-900 border-slate-200 border-b-white'
+                    : 'bg-slate-100/80 text-slate-600 border-slate-200/80 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${getTabDotClass(
+                    tab.connState,
+                    isExpanded
+                  )}`}
+                />
+                <span className="truncate">{tab.title}</span>
+                <button
+                  type="button"
+                  onClick={(e) => handleCloseTab(e, tab.id)}
+                  aria-label={tr(`Tab ${tab.title} schließen`, `Close tab ${tab.title}`)}
+                  title={
+                    tab.isLive
+                      ? tr('Verbindung trennen und Tab schließen', 'Disconnect and close tab')
+                      : tr('Tab schließen', 'Close tab')
+                  }
+                  className={`p-0.5 rounded transition-colors cursor-pointer shrink-0 ${
+                    isExpanded
+                      ? 'text-slate-500 hover:text-slate-100 hover:bg-slate-800'
+                      : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/80'
+                  }`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={handleAddTab}
+            disabled={tabs.length >= MAX_SHELL_TABS}
+            title={
+              tabs.length >= MAX_SHELL_TABS
+                ? tr(
+                    `Maximal ${MAX_SHELL_TABS} parallele Tabs möglich`,
+                    `Maximum of ${MAX_SHELL_TABS} parallel tabs reached`
+                  )
+                : tr('Neuen SSH-Tab öffnen', 'Open new SSH tab')
+            }
+            className={`inline-flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-t-md transition-colors cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
+              isExpanded
+                ? 'text-slate-400 hover:text-white hover:bg-slate-900'
+                : 'text-slate-600 hover:text-blue-700 hover:bg-slate-100 mb-0.5'
+            }`}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{tr('Neuer Tab', 'New Tab')}</span>
+          </button>
+        </div>
+
+        {/* Tab Panes (all tabs stay mounted to preserve live SSH WebSockets & scrollback) */}
+        <div className={isExpanded ? 'flex-1 min-h-0 flex flex-col' : ''}>
+          {tabs.map((tab) => (
+            <SshShellTabPane
+              key={tab.id}
+              tabId={tab.id}
+              tabNumber={tab.number}
+              initialServerId={tab.initialServerId}
+              isActive={tab.id === activeTabId}
+              isVisible={isVisible}
+              isExpanded={isExpanded}
+              user={user}
+              allowInsecureHostKey={allowInsecureHostKey}
+              servers={servers}
+              certificates={certificates}
+              onToggleExpand={() => setIsExpanded((v) => !v)}
+              onExitExpand={() => setIsExpanded(false)}
+              onMetaChange={handleMetaChange}
+              onSessionEnded={onSessionEnded}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

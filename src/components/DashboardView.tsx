@@ -11,6 +11,7 @@ import {
   Terminal,
   AlertTriangle,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CheckSquare,
   ExternalLink,
@@ -54,6 +55,40 @@ function formatBmcUrl(ipAddress: string): string {
   return `https://${host}`;
 }
 
+type PageSizeOption = 10 | 20 | 50 | 'all';
+const PAGE_SIZE_OPTIONS: PageSizeOption[] = [10, 20, 50, 'all'];
+const PAGE_SIZE_STORAGE_KEY = 'ssh_console_dashboard_page_size';
+
+function loadSavedPageSize(): PageSizeOption {
+  try {
+    const raw = window.localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
+    if (raw === '10') return 10;
+    if (raw === '20') return 20;
+    if (raw === '50') return 50;
+    if (raw === 'all') return 'all';
+  } catch {
+    // ignore storage errors
+  }
+  return 20;
+}
+
+function buildPageNumbers(current: number, total: number): Array<number | 'ellipsis'> {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, idx) => idx + 1);
+  }
+  const pages: Array<number | 'ellipsis'> = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+
+  if (start > 2) pages.push('ellipsis');
+  for (let p = start; p <= end; p++) {
+    pages.push(p);
+  }
+  if (end < total - 1) pages.push('ellipsis');
+  pages.push(total);
+  return pages;
+}
+
 export function DashboardView({
   currentUser,
   settings,
@@ -89,6 +124,8 @@ export function DashboardView({
   const [includeUncategorized, setIncludeUncategorized] = useState(false);
   const [categoryMatchMode, setCategoryMatchMode] = useState<'any' | 'all'>('any');
   const [search, setSearch] = useState('');
+  const [pageSize, setPageSize] = useState<PageSizeOption>(loadSavedPageSize);
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   const [runningBatch, setRunningBatch] = useState(false);
   const [batchResults, setBatchResults] = useState<ExecutionLog[]>([]);
@@ -279,6 +316,49 @@ export function DashboardView({
     categoryMatchMode,
     search,
   ]);
+
+  const totalPages =
+    pageSize === 'all' ? 1 : Math.max(1, Math.ceil(filteredServers.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, selectedCategories, includeUncategorized, categoryMatchMode, search, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  function handleChangePageSize(nextSize: PageSizeOption) {
+    setPageSize(nextSize);
+    setCurrentPage(1);
+    try {
+      window.localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(nextSize));
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  const paginatedServers = useMemo(() => {
+    if (pageSize === 'all') return filteredServers;
+    const start = (safePage - 1) * pageSize;
+    return filteredServers.slice(start, start + pageSize);
+  }, [filteredServers, pageSize, safePage]);
+
+  const pageRangeStart =
+    filteredServers.length === 0
+      ? 0
+      : pageSize === 'all'
+      ? 1
+      : (safePage - 1) * pageSize + 1;
+  const pageRangeEnd =
+    filteredServers.length === 0
+      ? 0
+      : pageSize === 'all'
+      ? filteredServers.length
+      : Math.min(filteredServers.length, safePage * pageSize);
 
   async function handleManualPingAll() {
     setError(null);
@@ -485,8 +565,18 @@ export function DashboardView({
     }
   }
 
-  const allVisibleSelected =
-    filteredServers.length > 0 && filteredServers.every((s) => selectedIds.includes(s.id));
+  const allPageSelected =
+    paginatedServers.length > 0 && paginatedServers.every((s) => selectedIds.includes(s.id));
+
+  function toggleCurrentPageSelection(checked: boolean) {
+    const pageIds = paginatedServers.map((s) => s.id);
+    if (checked) {
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+    } else {
+      const pageIdSet = new Set(pageIds);
+      setSelectedIds((prev) => prev.filter((id) => !pageIdSet.has(id)));
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -1119,9 +1209,12 @@ export function DashboardView({
                   <th className="py-2.5 pl-6 pr-2 w-10">
                     <input
                       type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={(e) => (e.target.checked ? selectAllVisible() : clearSelection())}
-                      aria-label={tr('Alle sichtbaren Server auswählen', 'Select all visible servers')}
+                      checked={allPageSelected}
+                      onChange={(e) => toggleCurrentPageSelection(e.target.checked)}
+                      aria-label={tr(
+                        'Alle Server dieser Seite auswählen',
+                        'Select all servers on this page'
+                      )}
                       className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
                     />
                   </th>
@@ -1132,7 +1225,7 @@ export function DashboardView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-sm">
-                {filteredServers.map((srv) => {
+                {paginatedServers.map((srv) => {
                   const st = statuses[srv.id];
                   const isChecked = selectedIds.includes(srv.id);
                   const isRowPinging = pingingServerId === srv.id || pingingAll;
@@ -1468,6 +1561,113 @@ export function DashboardView({
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination & Page Size Footer */}
+        {filteredServers.length > 0 && (
+          <div className="px-6 py-3 border-t border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600">
+              <span className="tabular-nums">
+                {pageSize === 'all'
+                  ? tr(
+                      `Alle ${filteredServers.length} Einträge`,
+                      `All ${filteredServers.length} entries`
+                    )
+                  : tr(
+                      `Zeige ${pageRangeStart}–${pageRangeEnd} von ${filteredServers.length}`,
+                      `Showing ${pageRangeStart}–${pageRangeEnd} of ${filteredServers.length}`
+                    )}
+              </span>
+
+              <div className="inline-flex items-center gap-2">
+                <span className="text-slate-500 whitespace-nowrap">
+                  {tr('Pro Seite:', 'Per page:')}
+                </span>
+                <div
+                  role="group"
+                  aria-label={tr('Einträge pro Seite', 'Items per page')}
+                  className="inline-flex items-center gap-0.5 p-0.5 bg-slate-200/70 rounded-md"
+                >
+                  {PAGE_SIZE_OPTIONS.map((opt) => {
+                    const active = pageSize === opt;
+                    return (
+                      <button
+                        key={String(opt)}
+                        type="button"
+                        onClick={() => handleChangePageSize(opt)}
+                        className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer tabular-nums ${
+                          active
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {opt === 'all' ? tr('Alle', 'All') : opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {pageSize !== 'all' && (
+              <div className="flex items-center justify-between sm:justify-end gap-1.5">
+                <span className="text-xs text-slate-500 mr-1.5 tabular-nums sm:hidden">
+                  {tr(`Seite ${safePage} / ${totalPages}`, `Page ${safePage} / ${totalPages}`)}
+                </span>
+
+                <div className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage <= 1}
+                    aria-label={tr('Vorherige Seite', 'Previous page')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">{tr('Zurück', 'Prev')}</span>
+                  </button>
+
+                  <div className="hidden sm:inline-flex items-center gap-1">
+                    {buildPageNumbers(safePage, totalPages).map((item, idx) =>
+                      item === 'ellipsis' ? (
+                        <span
+                          key={`ellipsis-${idx}`}
+                          className="px-1.5 text-xs text-slate-400 select-none"
+                        >
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setCurrentPage(item)}
+                          aria-current={item === safePage ? 'page' : undefined}
+                          className={`min-w-7 px-2 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer tabular-nums ${
+                            item === safePage
+                              ? 'bg-blue-700 text-white border-blue-700'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      )
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage >= totalPages}
+                    aria-label={tr('Nächste Seite', 'Next page')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
+                  >
+                    <span className="hidden sm:inline">{tr('Weiter', 'Next')}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

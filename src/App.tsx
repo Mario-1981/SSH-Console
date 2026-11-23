@@ -49,6 +49,7 @@ export default function App() {
   });
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [shellMounted, setShellMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [commands, setCommands] = useState<SshCommand[]>([]);
@@ -98,9 +99,16 @@ export default function App() {
   useEffect(() => {
     setUnauthorizedHandler(() => {
       setUser(null);
+      setShellMounted(false);
     });
     return () => setUnauthorizedHandler(null);
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'shell') {
+      setShellMounted(true);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     bootstrap();
@@ -152,6 +160,7 @@ export default function App() {
   async function handleLogout() {
     await api.logout();
     setUser(null);
+    setShellMounted(false);
     setCommands([]);
     setServers([]);
     setCertificates([]);
@@ -273,19 +282,22 @@ export default function App() {
               />
             )}
 
-            {effectiveTab === 'shell' && (
-              <SshShellView
-                user={user}
-                opensshAvailable={opensshAvailable}
-                allowInsecureHostKey={settings.allowInsecureHostKey}
-                servers={servers}
-                certificates={certificates}
-                onNavigate={setActiveTab}
-                onSessionEnded={async () => {
-                  const res = await api.listLogs();
-                  setLogs(res.logs);
-                }}
-              />
+            {shellMounted && !securitySetupRequired && (
+              <div className={effectiveTab === 'shell' ? '' : 'hidden'}>
+                <SshShellView
+                  user={user}
+                  isVisible={effectiveTab === 'shell'}
+                  opensshAvailable={opensshAvailable}
+                  allowInsecureHostKey={settings.allowInsecureHostKey}
+                  servers={servers}
+                  certificates={certificates}
+                  onNavigate={setActiveTab}
+                  onSessionEnded={async () => {
+                    const res = await api.listLogs();
+                    setLogs(res.logs);
+                  }}
+                />
+              </div>
             )}
 
             {effectiveTab === 'servers' && (
