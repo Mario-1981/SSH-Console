@@ -1,4 +1,8 @@
-> [🏠 Startseite](Home) · [🇬🇧 English Version](EN-Overview-and-Architecture)
+---
+title: Überblick & Architektur
+lang: de
+alt_url: /en/overview.html
+---
 
 # Überblick & Architektur
 
@@ -40,7 +44,7 @@
 
 SSH Console besteht aus **einem gemeinsamen React-/TypeScript-Frontend** und **zwei funktionsgleichen Backends**:
 
-| Komponente | Produktions-Backend (Debian 13 / Trixie) | Entwicklungs-Backend (Node.js) |
+| Komponente | Produktions-Backend (Debian 13 / Docker) | Entwicklungs-Backend (Node.js) |
 | --- | --- | --- |
 | **Laufzeitumgebung** | Natives Rust (`Axum` + `Tokio`) | Node.js 20+ (`Express` + `tsx`) |
 | **Datenbank** | SQLite (`WAL`-Modus) unter `/var/lib/ssh-console/ssh-console.sqlite` | Lokaler JSON-Speicher unter `data/trixiessh.json` |
@@ -69,3 +73,7 @@ SSH Console besteht aus **einem gemeinsamen React-/TypeScript-Frontend** und **z
 6. **SSH-Host-Key-Prüfung**
    - Getrennte `known_hosts`-Dateien pro Benutzer mit `StrictHostKeyChecking=accept-new`.
    - Harmlose Erstverbindungs-Hinweise (`Permanently added ... to the list of known hosts`) werden automatisch ausgeblendet; echte Schlüsseländerungen (`REMOTE HOST IDENTIFICATION HAS CHANGED`) bleiben hingegen vollständig sichtbar.
+
+---
+
+Weiter: **[Installation & Docker](./installation.html)**

@@ -1,4 +1,8 @@
-> [🏠 Home](Home) · [🇩🇪 Deutsche Version](DE-Dashboard-Ping-und-BMC)
+---
+title: Dashboard, Auto-Ping & BMC
+lang: en
+alt_url: /de/dashboard-ping-bmc.html
+---
 
 # Dashboard, Auto-Ping & BMC Monitoring
 
@@ -12,7 +16,9 @@ The **Dashboard** gives you real-time visibility into your entire server fleet, 
 
 Instead of firing pings to all servers simultaneously at the start of every cycle, SSH Console distributes probes **evenly across the configured interval `T`**:
 
-$$\text{Launch time}(i) = \text{CycleStart} + \left\lfloor \frac{i \cdot T}{N} \right\rfloor$$
+```text
+LaunchTime(i) = CycleStart + floor((i * T) / N)
+```
 
 - Servers are sorted deterministically by ID so **every individual IP is still checked at its exact configured interval `T`**, while network traffic stays smooth and constant:
   - **10 IPs @ 60 s interval**: ~1 ping every **6.0 s**
@@ -61,7 +67,7 @@ Three independent switches control **periodic auto-ping only**:
   - Click one or more category chips (or **Uncategorized**) to filter the fleet.
   - When two or more categories are selected, switch between **`ANY` (OR)** and **`ALL` (AND)** matching.
   - Click any category tag directly on a server row to toggle that filter.
-- **Combined Search & Status Filter**: Combine category filters with **All / Online / Offline** pills and free-text search (label, IP, BMC IP, SSH user, notes, categories).
+- **Combined Search & Status Filter**: Combine category filters with **All / Online / Offline** filters and free-text search (label, IP, BMC IP, SSH user, notes, categories).
 - **Pagination**: Choose **`10`**, **`20`**, **`50`**, or **`All`** servers per page (persisted in your browser). Selection checkboxes work cleanly per page or across filtered views.
 
 ---
@@ -84,3 +90,7 @@ Three independent switches control **periodic auto-ping only**:
 2. Check the desired target servers in the table below (or use **Select All** on the current page).
 3. Click **Dispatch Batch** to execute in parallel across all selected targets.
 4. **Immediate Results View**: Execution results (`stdout`, `stderr`, exit code, duration, and collapsible SSH command details) appear **directly below the Quick Select bar and above the IP list**, so you never have to scroll past hundreds of servers to read command output.
+
+---
+
+Next: **[SSH Shell, Commands & Host Keys](./ssh-shell-commands.html)**

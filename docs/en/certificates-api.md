@@ -1,4 +1,8 @@
-> [🏠 Home](Home) · [🇩🇪 Deutsche Version](DE-Zertifikate-Passphrases-und-API)
+---
+title: Certificates, Passphrases & API
+lang: en
+alt_url: /de/zertifikate-api.html
+---
 
 # Certificates, Passphrases & `curl` Upload API
 
@@ -32,7 +36,7 @@ On every upload or update, SSH Console automatically parses and verifies:
    ```bash
    sudo systemctl reload ssh
    ```
-3. Generate a user key and sign it with a short validity window (e.g. 24 hours or 90 days):
+3. Generate a user key and sign it with a short validity window (e.g. 7 days):
    ```bash
    ssh-keygen -t ed25519 -f zertifikat -N ""
    ssh-keygen -s ssh_user_ca -I "ops-alice" -n root,deploy -V +7d zertifikat.pub
@@ -153,3 +157,7 @@ All endpoints accept both `multipart/form-data` and `application/json`:
 | `passphrase` | No | `key_passphrase`, `keyPassphrase` | Optional passphrase for an encrypted private key (stored with AES-256-GCM) |
 | `clear_passphrase` | No | `clearPassphrase` | Set to `true` on `PATCH`/`PUT` to delete a stored passphrase |
 | `remove_cert` | No | `removeCert` | Set to `true` on `PATCH`/`PUT` to remove `cert` and convert to a 2-file keypair |
+
+---
+
+Next: **[Troubleshooting & FAQ](./troubleshooting.html)**

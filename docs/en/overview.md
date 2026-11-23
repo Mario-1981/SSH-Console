@@ -1,4 +1,8 @@
-> [🏠 Home](Home) · [🇩🇪 Deutsche Version](DE-Startseite-und-Architektur)
+---
+title: Overview & Architecture
+lang: en
+alt_url: /de/ueberblick.html
+---
 
 # Overview & Architecture
 
@@ -28,7 +32,7 @@
   - Automated `curl` Upload & Rotation API (`/api/v1/certificates/...`) using personal `sshc_...` API keys.
 - **Enterprise Authentication & Role Separation**
   - Closed registration: one-time initial administrator setup, all subsequent accounts created by administrators (or via OIDC SSO auto-provisioning).
-  - OIDC / OAuth 2.0 SSO with PKCE (`S256`), discovery, and mandatory anti-lockout connection test.
+  - OIDC / OAuth 2.0 SSO with PKCE (`S256`), auto-discovery, and mandatory anti-lockout connection test.
   - Optional or enforced 2FA (TOTP Authenticator Apps + recovery codes, FIDO2/WebAuthn Security Keys) and passwordless Passkeys.
   - Private-by-default resources (servers, commands, certificates, logs) with granular administrator sharing.
 - **Bilingual Interface (`DE / EN`)**
@@ -40,7 +44,7 @@
 
 SSH Console ships with **one shared React/TypeScript frontend** and **two feature-parity backends**:
 
-| Component | Production Backend (Debian 13 / Trixie) | Development Backend (Node.js) |
+| Component | Production Backend (Debian 13 / Docker) | Development Backend (Node.js) |
 | --- | --- | --- |
 | **Runtime** | Native Rust (`Axum` + `Tokio`) | Node.js 20+ (`Express` + `tsx`) |
 | **Database** | SQLite (`WAL` mode) at `/var/lib/ssh-console/ssh-console.sqlite` | Local JSON store at `data/trixiessh.json` |
@@ -68,4 +72,8 @@ SSH Console ships with **one shared React/TypeScript frontend** and **two featur
    - Sharing a certificate grants execution rights **without** exposing private key bytes or stored passphrases.
 6. **SSH Host-Key Protection**
    - Per-user managed `known_hosts` files with `StrictHostKeyChecking=accept-new`.
-   - Benign first-connection `Permanently added ... to the list of known hosts` warnings are automatically hidden, while genuine `REMOTE HOST IDENTIFICATION HAS CHANGED` warnings remain visible so MITM or host rebuilds are immediately noticeable.
+   - Benign first-connection `Permanently added ... to the list of known hosts` warnings are automatically hidden, while genuine `REMOTE HOST IDENTIFICATION HAS CHANGED` warnings remain visible.
+
+---
+
+Next: **[Installation & Docker](./installation.html)**

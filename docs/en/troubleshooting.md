@@ -1,4 +1,8 @@
-> [🏠 Home](Home) · [🇩🇪 Deutsche Version](DE-Fehlerbehebung-und-FAQ)
+---
+title: Troubleshooting & FAQ
+lang: en
+alt_url: /de/fehlerbehebung.html
+---
 
 # Troubleshooting & FAQ
 
@@ -23,15 +27,15 @@
 ## Interactive SSH Shell
 
 ### WebSocket disconnects immediately or fails behind Nginx/Apache
-- Ensure your reverse proxy forwards `Upgrade` and `Connection: upgrade` headers and has a long `proxy_read_timeout` (e.g. `3600s`). See [Installation & Deployment](EN-Installation-and-Deployment#reverse-proxy-configuration-https--websockets).
-- Check browser dev tools for mixed-content errors (`ws://` vs `wss://`): serve SSH Console over HTTPS and configure **Public URL** with `https://...`.
+- Ensure your reverse proxy forwards `Upgrade` and `Connection: upgrade` headers and has a long `proxy_read_timeout` (e.g. `3600s`). See [Installation & Docker](./installation.html#reverse-proxy-configuration-https--websockets).
+- Serve SSH Console over HTTPS and configure **Public URL** with `https://...`.
 
 ---
 
 ## Ping Dashboard & BMC
 
 ### Dashboard shows `tcp-ping` instead of `icmp-ping`
-- **Cause**: Either `/bin/ping` is not installed, or the process lacks ICMP permission (common inside restricted containers or hardened systemd units with empty `CapabilityBoundingSet`).
+- **Cause**: Either `/bin/ping` is not installed, or the process lacks ICMP permission (common inside restricted containers without `--cap-add=NET_RAW` or hardened systemd units with empty `CapabilityBoundingSet`).
 - **Behavior**: SSH Console automatically falls back to a TCP connect probe on each server's SSH port (default `22`), which reliably confirms SSH reachability without needing raw sockets.
 
 ### Why is an offline IP checked less frequently than my configured interval?

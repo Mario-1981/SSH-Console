@@ -1,4 +1,8 @@
-> [🏠 Startseite](Home) · [🇬🇧 English Version](EN-Certificates-Passphrases-and-API)
+---
+title: Zertifikate, Passphrases & API
+lang: de
+alt_url: /en/certificates-api.html
+---
 
 # Zertifikate, Passphrases & `curl`-Upload-API
 
@@ -151,3 +155,7 @@ curl -H "X-API-Key: sshc_IHR_API_KEY" \
 | `passphrase` | Nein | `key_passphrase`, `keyPassphrase` | Optionale Passphrase für verschlüsselten privaten Schlüssel (AES-256-GCM) |
 | `clear_passphrase` | Nein | `clearPassphrase` | Bei `PATCH`/`PUT` auf `true` setzen, um eine hinterlegte Passphrase zu entfernen |
 | `remove_cert` | Nein | `removeCert` | Bei `PATCH`/`PUT` auf `true` setzen, um `cert` zu entfernen (Umwandlung in 2-Dateien-Schlüsselpaar) |
+
+---
+
+Weiter: **[Fehlerbehebung & FAQ](./fehlerbehebung.html)**

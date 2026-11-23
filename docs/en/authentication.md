@@ -1,4 +1,8 @@
-> [🏠 Home](Home) · [🇩🇪 Deutsche Version](DE-Authentifizierung-SSO-2FA-Passkeys)
+---
+title: Authentication, SSO, 2FA & Passkeys
+lang: en
+alt_url: /de/authentifizierung.html
+---
 
 # Authentication, SSO, 2FA & Passkeys
 
@@ -64,3 +68,7 @@ Administrators can independently **enable** and optionally **enforce** Passkeys:
 - Multiple passkeys per account can be registered, renamed, audited by last-used timestamp, and revoked individually.
 
 > **Requirement:** WebAuthn (Security Keys & Passkeys) requires a secure context (`https://` with a valid certificate, or `http://localhost` during local development). Always set the matching **Public URL** under Admin → Authentication & SSO when running behind a reverse proxy.
+
+---
+
+Next: **[Dashboard, Auto-Ping & BMC](./dashboard-ping-bmc.html)**

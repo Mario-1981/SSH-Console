@@ -1,4 +1,8 @@
-> [🏠 Home](Home) · [🇩🇪 Deutsche Version](DE-SSH-Shell-und-Befehle)
+---
+title: SSH Shell, Commands & Host Keys
+lang: en
+alt_url: /de/ssh-shell-befehle.html
+---
 
 # SSH Shell, Commands & Host Keys
 
@@ -67,3 +71,7 @@ Every single and batch SSH command execution is recorded in the **Audit Log**:
 - Exit code, execution duration (`ms`), full `stdout`, and `stderr`
 
 Standard users see only their own execution history; administrators can filter and inspect logs across all users.
+
+---
+
+Next: **[Certificates, Passphrases & API](./certificates-api.html)**

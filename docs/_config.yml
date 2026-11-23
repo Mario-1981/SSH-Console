@@ -1,0 +1,12 @@
+title: SSH Console Docs
+description: Self-Hosted OpenSSH Certificate, Multi-Tab SSH Shell, Ping & BMC Console
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

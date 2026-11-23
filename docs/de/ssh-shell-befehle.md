@@ -1,4 +1,8 @@
-> [🏠 Startseite](Home) · [🇬🇧 English Version](EN-SSH-Shell-and-Commands)
+---
+title: SSH-Shell, Befehle & Host-Keys
+lang: de
+alt_url: /en/ssh-shell-commands.html
+---
 
 # SSH-Shell, Befehle & Host-Keys
 
@@ -67,3 +71,7 @@ Jede einzelne und gesammelte SSH-Befehlsausführung wird im **Audit-Log** protok
 - Exit-Code, Ausführungsdauer (`ms`), vollständiges `stdout` und `stderr`
 
 Normale Benutzer sehen ausschließlich ihre eigenen Ausführungen; Administratoren können die Logs aller Benutzer filtern und einsehen.
+
+---
+
+Weiter: **[Zertifikate, Passphrases & API](./zertifikate-api.html)**

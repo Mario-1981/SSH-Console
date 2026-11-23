@@ -1,12 +1,55 @@
-> [🏠 Startseite](Home) · [🇬🇧 English Version](EN-Installation-and-Deployment)
+---
+title: Installation & Docker
+lang: de
+alt_url: /en/installation.html
+---
 
 # Installation & Betrieb
 
-SSH Console ist primär für **Debian 13 (Trixie)** als native Rust-Anwendung mit vorab gebautem React-Frontend ausgelegt und lässt sich zusätzlich per **Docker** oder **Node.js** (Entwicklung) betreiben.
+SSH Console steht als **Docker-Image (inkl. GitHub Container Registry / GHCR)** sowie als natives **Debian-13-(Trixie)-Paket** bereit und lässt sich zur lokalen Entwicklung zusätzlich direkt mit **Node.js** betreiben.
 
 ---
 
-## Option 1: Debian-13-`.deb`-Paket (Empfohlen)
+## Option 1: Docker & Docker Compose (Empfohlen für Container)
+
+Das Repository enthält ein **eigenständiges 3-stufiges `Dockerfile`** (baut sowohl das React-Frontend als auch das native Debian-13-Rust-Backend komplett im Container) sowie eine gehärtete **`docker-compose.yml`**.
+
+### Fertiges Image aus der GitHub Container Registry (GHCR) ziehen
+
+Der Workflow `.github/workflows/release-docker.yml` baut und veröffentlicht Images automatisch unter `ghcr.io/<owner>/<repo>` bei jedem Push auf `main`, bei Version-Tags (`v*`, Multi-Arch `amd64` + `arm64`) oder per manuellem Start:
+
+```bash
+SSH_CONSOLE_IMAGE=ghcr.io/<owner>/<repo>:latest docker compose pull
+SSH_CONSOLE_IMAGE=ghcr.io/<owner>/<repo>:latest docker compose up -d
+```
+
+### Lokal mit Docker Compose bauen & starten
+
+```bash
+docker compose up -d --build
+```
+
+### Direkt mit der Docker CLI bauen & starten
+
+```bash
+docker build -t ssh-console:latest .
+
+docker run -d \
+  --name ssh-console \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  --cap-drop=ALL \
+  --cap-add=NET_RAW \
+  --security-opt no-new-privileges:true \
+  -v ssh-console-data:/var/lib/ssh-console \
+  ssh-console:latest
+```
+
+> **Hinweis:** `--cap-add=NET_RAW` ermöglicht natives ICMP-Ping (`/bin/ping`) im Container. Ohne diese Capability nutzt SSH Console automatisch den TCP-Connect-Ping auf den jeweiligen SSH-Port.
+
+---
+
+## Option 2: Debian-13-(Trixie)-`.deb`-Paket
 
 Laden Sie das aktuelle `.deb`-Paket aus den GitHub Releases herunter (automatisch gebaut über `.github/workflows/release-deb.yml`) und installieren Sie es:
 
@@ -30,9 +73,7 @@ sudo journalctl -u ssh-console -f
 
 Öffnen Sie anschließend `http://<server-ip>:3000` (bzw. Ihre HTTPS-Reverse-Proxy-Domain) im Browser und schließen Sie die einmalige Admin-Ersteinrichtung ab.
 
----
-
-## Option 2: `.deb`-Paket selbst aus dem Quellcode bauen
+### `.deb`-Paket lokal bauen
 
 Auf einem Debian-13-System (Trixie) mit Node.js 20+ und Rust 1.85+:
 
@@ -44,51 +85,9 @@ cargo build --release
 ./debian/build-deb.sh
 ```
 
-Oder direkt auf dem aktuellen Debian-13-Host installieren:
-
-```bash
-cd rust-app
-chmod +x debian/install-trixie.sh
-./debian/install-trixie.sh
-```
-
 ---
 
-## Option 3: Docker & Docker Compose (Empfohlen für Container)
-
-Das Repository enthält ein **eigenständiges 3-stufiges `Dockerfile`** (baut sowohl das React-Frontend als auch das native Debian-13-Rust-Backend komplett im Container) sowie eine gehärtete **`docker-compose.yml`**:
-
-### Schnellstart mit Docker Compose
-
-```bash
-docker compose up -d --build
-```
-
-### Direkt mit der Docker CLI bauen & starten
-
-```bash
-docker build -t ssh-console:latest .
-
-docker run -d \
-  --name ssh-console \
-  --restart unless-stopped \
-  -p 3000:3000 \
-  --cap-drop=ALL \
-  --cap-add=NET_RAW \
-  --security-opt no-new-privileges:true \
-  -v ssh-console-data:/var/lib/ssh-console \
-  ssh-console:latest
-```
-
-### Automatische GHCR-Multi-Arch-Images (`amd64` & `arm64`)
-
-Der Workflow `.github/workflows/release-docker.yml` baut und veröffentlicht automatisch Multi-Arch-Images in der GitHub Container Registry (`ghcr.io/<owner>/<repo>`) bei Version-Tags (`v*`) oder manuell über **Actions → Build & Publish Docker Image (GHCR) → Run workflow**.
-
-> **Hinweis:** `--cap-add=NET_RAW` ermöglicht natives ICMP-Ping (`/bin/ping`) im Container. Ohne diese Capability nutzt SSH Console automatisch den TCP-Connect-Ping auf den jeweiligen SSH-Port.
-
----
-
-## Option 4: Lokale Entwicklung (Node.js / Express)
+## Option 3: Lokale Entwicklung (Node.js / Express)
 
 Voraussetzungen: **Node.js 20+** (empfohlen 22) und OpenSSH-Client (`ssh`).
 
@@ -109,9 +108,7 @@ npm run build
 
 ## Konfiguration
 
-### Produktionsdienst (`/etc/default/ssh-console`)
-
-Anpassungen in `/etc/default/ssh-console` vornehmen und mit `sudo systemctl restart ssh-console` aktivieren:
+### Umgebungsvariablen (`/etc/default/ssh-console` oder Docker `environment`)
 
 | Variable | Standard | Beschreibung |
 | --- | --- | --- |
@@ -171,13 +168,13 @@ ssh.example.net {
 }
 ```
 
-Tragen Sie nach der HTTPS-Einrichtung Ihre öffentliche URL (z. B. `https://ssh.example.net`) unter **Admin → Anmeldung & SSO → Öffentliche URL** ein. Dadurch stimmen `curl`-Beispiele, SSO-Callback-URLs und WebAuthn-Origins exakt mit Ihrer Domain überein.
+Tragen Sie nach der HTTPS-Einrichtung Ihre öffentliche URL (z. B. `https://ssh.example.net`) unter **Admin → Anmeldung & SSO → Öffentliche URL** ein.
 
 ---
 
 ## Backup & Wiederherstellung
 
-Alle persistenten Daten liegen in `/var/lib/ssh-console`:
+Alle persistenten Daten liegen in `/var/lib/ssh-console` (bzw. im Docker-Volume `ssh-console-data`):
 
 | Datei | Wichtigkeit | Beschreibung |
 | --- | --- | --- |
@@ -185,7 +182,7 @@ Alle persistenten Daten liegen in `/var/lib/ssh-console`:
 | `vault.key` (`0600`) | **Kritisch** | 256-Bit AES-256-GCM-Masterschlüssel. **Ohne diese Datei können verschlüsselte SSH-Schlüssel und hinterlegte Passphrases nicht mehr entschlüsselt werden!** |
 | `known_hosts/` | Empfohlen | Benutzerbezogene SSH-Host-Key-Datenbanken |
 
-### Konsistentes Online-Backup
+### Konsistentes Online-Backup (Debian-Host)
 
 ```bash
 sudo mkdir -p /var/backups/ssh-console
@@ -206,3 +203,7 @@ sudo chown -R ssh-console:ssh-console /var/lib/ssh-console
 sudo chmod 0600 /var/lib/ssh-console/vault.key
 sudo systemctl start ssh-console
 ```
+
+---
+
+Weiter: **[Authentifizierung, SSO, 2FA & Passkeys](./authentifizierung.html)**

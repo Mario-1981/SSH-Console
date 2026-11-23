@@ -1,4 +1,8 @@
-> [🏠 Startseite](Home) · [🇬🇧 English Version](EN-Dashboard-Ping-and-BMC)
+---
+title: Dashboard, Auto-Ping & BMC
+lang: de
+alt_url: /en/dashboard-ping-bmc.html
+---
 
 # Dashboard, Auto-Ping & BMC-Monitoring
 
@@ -12,7 +16,9 @@ Das **Dashboard** bietet Live-Übersicht über alle Server-IPs, BMC-Schnittstell
 
 Statt zu Zyklusbeginn alle Server gleichzeitig anzupingen, verteilt SSH Console die Prüfungen **gleichmäßig über das eingestellte Intervall `T`**:
 
-$$\text{Startzeit}(i) = \text{Zyklusstart} + \left\lfloor \frac{i \cdot T}{N} \right\rfloor$$
+```text
+Startzeit(i) = Zyklusstart + floor((i * T) / N)
+```
 
 - Durch eine stabile Sortierung nach Server-ID wird **jede einzelne IP weiterhin exakt im konfigurierten Intervall `T`** geprüft, während die Netzwerklast konstant und gleichmäßig bleibt:
   - **10 IPs bei 60 s Intervall**: ~1 Ping alle **6,0 s**
@@ -84,3 +90,7 @@ Drei unabhängige Schalter steuern **ausschließlich den regelmäßigen Auto-Pin
 2. Ziel-Server in der Tabelle darunter markieren (einzeln oder per Seiten-Auswahlbox).
 3. Auf **Sammelauftrag ausführen** klicken – die Ausführung erfolgt parallel auf allen markierten Zielen.
 4. **Direkte Ergebnisanzeige**: Die Ausgaben (`stdout`, `stderr`, Exit-Code, Laufzeit und aufklappbarer SSH-Aufruf) erscheinen **direkt nach der Schnellauswahl und vor der IP-Liste**, sodass Ergebnisse auch bei großen Serverlisten sofort ohne Scrollen sichtbar sind.
+
+---
+
+Weiter: **[SSH-Shell, Befehle & Host-Keys](./ssh-shell-befehle.html)**

@@ -1,4 +1,8 @@
-> [🏠 Startseite](Home) · [🇬🇧 English Version](EN-Troubleshooting-and-FAQ)
+---
+title: Fehlerbehebung & FAQ
+lang: de
+alt_url: /en/troubleshooting.html
+---
 
 # Fehlerbehebung & FAQ
 
@@ -23,7 +27,7 @@
 ## Interaktive SSH-Shell
 
 ### WebSocket trennt sofort oder verbindet hinter Nginx/Apache nicht
-- Prüfen Sie, ob der Reverse-Proxy `Upgrade` und `Connection: upgrade` weiterleitet und ein ausreichend hohes `proxy_read_timeout` (z. B. `3600s`) gesetzt ist. Siehe [Installation & Betrieb](DE-Installation-und-Betrieb#reverse-proxy-konfiguration-https--websockets).
+- Prüfen Sie, ob der Reverse-Proxy `Upgrade` und `Connection: upgrade` weiterleitet und ein ausreichend hohes `proxy_read_timeout` (z. B. `3600s`) gesetzt ist. Siehe [Installation & Docker](./installation.html#reverse-proxy-konfiguration-https--websockets).
 - Stellen Sie sicher, dass SSH Console über HTTPS ausgeliefert wird (`wss://`) und unter **Öffentliche URL** `https://...` eingetragen ist.
 
 ---
@@ -31,7 +35,7 @@
 ## Ping-Dashboard & BMC
 
 ### Dashboard zeigt `tcp-ping` statt `icmp-ping`
-- **Ursache**: `/bin/ping` ist nicht installiert oder der Prozess besitzt keine ICMP-Rechte (häufig in restriktiven Containern oder gehärteten systemd-Units mit leerem `CapabilityBoundingSet`).
+- **Ursache**: `/bin/ping` ist nicht installiert oder der Prozess besitzt keine ICMP-Rechte (häufig in restriktiven Containern ohne `--cap-add=NET_RAW` oder gehärteten systemd-Units mit leerem `CapabilityBoundingSet`).
 - **Verhalten**: SSH Console wechselt automatisch auf einen TCP-Connect-Test auf den SSH-Port des Servers (Standard `22`), der die Erreichbarkeit auch ohne Raw-Sockets zuverlässig ermittelt.
 
 ### Warum wird eine Offline-IP seltener geprüft als mein eingestelltes Intervall?

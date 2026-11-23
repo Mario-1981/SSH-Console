@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="{{ page.lang | default: 'en' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}</title>
+  <meta name="description" content="{{ page.description | default: site.description }}">
+  <link rel="stylesheet" href="{{ '/assets/style.css' | relative_url }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="topbar-left">
+        <button class="menu-toggle" type="button" aria-label="Menu" onclick="document.body.classList.toggle('sidebar-open')">
+          &#9776;
+        </button>
+        <a class="brand" href="{{ '/' | relative_url }}">
+          <span class="brand-mark">&gt;_</span>
+          <span class="brand-name">SSH Console</span>
+          <span class="brand-sub">Docs</span>
+        </a>
+      </div>
+      <nav class="lang-switch" aria-label="Language">
+        {% if page.lang == 'de' %}
+          {% if page.alt_url %}
+            <a class="lang-btn" href="{{ page.alt_url | relative_url }}">EN</a>
+          {% else %}
+            <a class="lang-btn" href="{{ '/en/overview.html' | relative_url }}">EN</a>
+          {% endif %}
+          <span class="lang-btn active">DE</span>
+        {% elsif page.lang == 'en' %}
+          <span class="lang-btn active">EN</span>
+          {% if page.alt_url %}
+            <a class="lang-btn" href="{{ page.alt_url | relative_url }}">DE</a>
+          {% else %}
+            <a class="lang-btn" href="{{ '/de/ueberblick.html' | relative_url }}">DE</a>
+          {% endif %}
+        {% else %}
+          <a class="lang-btn" href="{{ '/en/overview.html' | relative_url }}">English</a>
+          <a class="lang-btn" href="{{ '/de/ueberblick.html' | relative_url }}">Deutsch</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" aria-label="Documentation Navigation">
+      <div class="nav-group">
+        <a class="nav-link {% if page.url == '/' or page.url == '/index.html' %}active{% endif %}" href="{{ '/' | relative_url }}">
+          Home / Startseite
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-heading">English</div>
+        <a class="nav-link {% if page.url contains '/en/overview' %}active{% endif %}" href="{{ '/en/overview.html' | relative_url }}">Overview &amp; Architecture</a>
+        <a class="nav-link {% if page.url contains '/en/installation' %}active{% endif %}" href="{{ '/en/installation.html' | relative_url }}">Installation &amp; Docker</a>
+        <a class="nav-link {% if page.url contains '/en/authentication' %}active{% endif %}" href="{{ '/en/authentication.html' | relative_url }}">Auth, SSO, 2FA &amp; Passkeys</a>
+        <a class="nav-link {% if page.url contains '/en/dashboard-ping-bmc' %}active{% endif %}" href="{{ '/en/dashboard-ping-bmc.html' | relative_url }}">Dashboard, Auto-Ping &amp; BMC</a>
+        <a class="nav-link {% if page.url contains '/en/ssh-shell-commands' %}active{% endif %}" href="{{ '/en/ssh-shell-commands.html' | relative_url }}">SSH Shell, Commands &amp; Host Keys</a>
+        <a class="nav-link {% if page.url contains '/en/certificates-api' %}active{% endif %}" href="{{ '/en/certificates-api.html' | relative_url }}">Certificates, Passphrases &amp; API</a>
+        <a class="nav-link {% if page.url contains '/en/troubleshooting' %}active{% endif %}" href="{{ '/en/troubleshooting.html' | relative_url }}">Troubleshooting &amp; FAQ</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-heading">Deutsch</div>
+        <a class="nav-link {% if page.url contains '/de/ueberblick' %}active{% endif %}" href="{{ '/de/ueberblick.html' | relative_url }}">Überblick &amp; Architektur</a>
+        <a class="nav-link {% if page.url contains '/de/installation' %}active{% endif %}" href="{{ '/de/installation.html' | relative_url }}">Installation &amp; Docker</a>
+        <a class="nav-link {% if page.url contains '/de/authentifizierung' %}active{% endif %}" href="{{ '/de/authentifizierung.html' | relative_url }}">Auth, SSO, 2FA &amp; Passkeys</a>
+        <a class="nav-link {% if page.url contains '/de/dashboard-ping-bmc' %}active{% endif %}" href="{{ '/de/dashboard-ping-bmc.html' | relative_url }}">Dashboard, Auto-Ping &amp; BMC</a>
+        <a class="nav-link {% if page.url contains '/de/ssh-shell-befehle' %}active{% endif %}" href="{{ '/de/ssh-shell-befehle.html' | relative_url }}">SSH-Shell, Befehle &amp; Host-Keys</a>
+        <a class="nav-link {% if page.url contains '/de/zertifikate-api' %}active{% endif %}" href="{{ '/de/zertifikate-api.html' | relative_url }}">Zertifikate, Passphrases &amp; API</a>
+        <a class="nav-link {% if page.url contains '/de/fehlerbehebung' %}active{% endif %}" href="{{ '/de/fehlerbehebung.html' | relative_url }}">Fehlerbehebung &amp; FAQ</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" onclick="document.body.classList.remove('sidebar-open')"></div>
+
+    <main class="content">
+      <article class="prose">
+        {{ content }}
+      </article>
+      <footer class="footer">
+        <span>SSH Console Documentation · Debian 13 (Trixie) &amp; Docker</span>
+        <span>
+          <a href="{{ '/en/overview.html' | relative_url }}">English</a> ·
+          <a href="{{ '/de/ueberblick.html' | relative_url }}">Deutsch</a>
+        </span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>
