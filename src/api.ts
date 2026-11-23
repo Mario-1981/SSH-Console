@@ -445,6 +445,33 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // SSH Host-Keys (known_hosts)
+  resetHostKey: (payload: { serverId?: string; ipAddress?: string; port?: number }) =>
+    request<{
+      ok: boolean;
+      ipAddress: string;
+      port: number;
+      removedCount: number;
+      remainingCount: number;
+    }>('/api/host-keys/reset', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getAdminHostKeyStats: () =>
+    request<{ totalEntries: number; userFiles: number }>('/api/admin/host-keys'),
+
+  clearAllAdminHostKeys: (filter?: { ipAddress?: string; port?: number }) =>
+    request<{
+      ok: boolean;
+      removedCount: number;
+      totalEntries: number;
+      affectedFiles: number;
+    }>('/api/admin/host-keys', {
+      method: 'DELETE',
+      body: JSON.stringify(filter ?? {}),
+    }),
+
   // Certificates
   listCertificates: () => request<{ certificates: UserCertificate[] }>('/api/certificates'),
 

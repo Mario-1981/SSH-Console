@@ -38,6 +38,7 @@ use uuid::Uuid;
 const SESSION_COOKIE: &str = "ssh_console_session";
 
 pub(crate) struct AppState {
+    pub(crate) data_dir: PathBuf,
     pub(crate) db: Database,
     vault: Vault,
     ping: ping::SharedPingState,
@@ -2995,6 +2996,8 @@ async fn api_execute(
     }
 
     let policy = state.db.get_auth_policy();
+    let known_hosts_path = ssh::user_known_hosts_path(&state.data_dir, &user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let mut logs = Vec::new();
     for target in req.targets {
         let (ip, port, ssh_user, label, ignore_host_key) = if let Some(srv_id) = target.server_id {
@@ -3036,6 +3039,7 @@ async fn api_execute(
             &cert,
             plain_key,
             ignore_host_key,
+            &known_hosts_path,
         )
         .await
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -3282,6 +3286,8 @@ async fn api_execute_batch(
     }
 
     let policy = state.db.get_auth_policy();
+    let known_hosts_path = ssh::user_known_hosts_path(&state.data_dir, &user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let mut logs = Vec::new();
     for job in req.jobs {
         let srv = state
@@ -3309,6 +3315,7 @@ async fn api_execute_batch(
             &cert,
             plain_key,
             ignore_host_key,
+            &known_hosts_path,
         )
         .await
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -3345,6 +3352,112 @@ async fn api_execute_batch(
     }
 
     Ok(Json(json!({ "results": logs })))
+}
+
+async fn api_reset_user_host_key(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    body: Option<Json<ResetHostKeyRequest>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let req = body.map(|Json(b)| b).unwrap_or_default();
+
+    let (target_ip, target_port) = if let Some(srv_id) = req
+        .server_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let srv = state
+            .db
+            .get_accessible_server(srv_id, &user.id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Server nicht gefunden."))?;
+        (srv.ip_address, srv.port)
+    } else if let Some(raw_ip) = req
+        .ip_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let ip = ssh::validate_ip(raw_ip).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        let port = req.port.unwrap_or(22);
+        if port == 0 {
+            return Err(err_resp(StatusCode::BAD_REQUEST, "Ungültiger SSH-Port."));
+        }
+        (ip, port)
+    } else {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Server-ID oder IP-Adresse erforderlich.",
+        ));
+    };
+
+    let (removed_count, remaining_count) =
+        ssh::remove_user_host_key(&state.data_dir, &user.id, &target_ip, Some(target_port))
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "ipAddress": target_ip,
+        "port": target_port,
+        "removedCount": removed_count,
+        "remainingCount": remaining_count
+    })))
+}
+
+async fn api_admin_host_key_stats(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _ = require_admin(&state, &jar, &headers)?;
+    let (total_entries, user_files) = ssh::global_known_hosts_stats(&state.data_dir);
+    Ok(Json(json!({
+        "totalEntries": total_entries,
+        "userFiles": user_files
+    })))
+}
+
+async fn api_admin_clear_host_keys(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    body: Option<Json<AdminDeleteHostKeysRequest>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _ = require_admin(&state, &jar, &headers)?;
+    let req = body.map(|Json(b)| b).unwrap_or_default();
+
+    let ip_filter = match req
+        .ip_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(raw_ip) => {
+            let valid =
+                ssh::validate_ip(raw_ip).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+            Some(valid)
+        }
+        None => None,
+    };
+
+    let port_filter = match req.port {
+        Some(0) => return Err(err_resp(StatusCode::BAD_REQUEST, "Ungültiger SSH-Port.")),
+        other => other,
+    };
+
+    let (removed_count, total_entries, affected_files) =
+        ssh::clear_global_host_keys(&state.data_dir, ip_filter.as_deref(), port_filter)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "removedCount": removed_count,
+        "totalEntries": total_entries,
+        "affectedFiles": affected_files
+    })))
 }
 
 fn collect_source_files(root: &Path, dir: &Path, out: &mut Vec<serde_json::Value>) {
@@ -3420,6 +3533,7 @@ async fn main() {
     }));
     let ping_notify = Arc::new(Notify::new());
     let state = Arc::new(AppState {
+        data_dir,
         db,
         vault,
         ping: ping_state,
@@ -3537,6 +3651,12 @@ async fn main() {
         .route("/api/servers/:id", patch(api_update_server).delete(api_delete_server))
         .route("/api/servers/:id/check-bmc", post(api_check_bmc))
         .route("/api/servers/:id/share", patch(api_share_server))
+        .route("/api/host-keys/reset", post(api_reset_user_host_key))
+        .route("/api/host-keys", delete(api_reset_user_host_key))
+        .route(
+            "/api/admin/host-keys",
+            get(api_admin_host_key_stats).delete(api_admin_clear_host_keys),
+        )
         .route("/api/certificates", get(api_list_certs).post(api_upload_cert))
         .route("/api/certificates/generate-test", post(api_generate_test_cert))
         .route(

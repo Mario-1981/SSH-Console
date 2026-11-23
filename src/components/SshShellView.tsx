@@ -57,6 +57,8 @@ export function SshShellView({
   const [activeTargetLabel, setActiveTargetLabel] = useState<string>('');
   const [activeCertLabel, setActiveCertLabel] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [hostKeyNotice, setHostKeyNotice] = useState<string | null>(null);
+  const [resettingHostKey, setResettingHostKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -65,6 +67,7 @@ export function SshShellView({
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pingTimerRef = useRef<number | null>(null);
+  const connectAttemptRef = useRef<number>(0);
   const onSessionEndedRef = useRef(onSessionEnded);
   onSessionEndedRef.current = onSessionEnded;
 
@@ -103,6 +106,7 @@ export function SshShellView({
   }
 
   function closeSocket(silent = false) {
+    connectAttemptRef.current += 1;
     stopKeepalive();
     const ws = wsRef.current;
     wsRef.current = null;
@@ -220,6 +224,9 @@ export function SshShellView({
 
   async function handleConnect(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    if (connState === 'connected' || connState === 'connecting') {
+      return;
+    }
     setError(null);
     setStatusMessage(null);
 
@@ -244,6 +251,7 @@ export function SshShellView({
     }
 
     closeSocket(true);
+    const attemptId = ++connectAttemptRef.current;
     setConnState('connecting');
 
     const term = termRef.current;
@@ -270,6 +278,10 @@ export function SshShellView({
         cols,
         rows,
       });
+
+      if (connectAttemptRef.current !== attemptId) {
+        return;
+      }
 
       setActiveTargetLabel(
         `${ticketRes.sshUser}@${ticketRes.targetIp}:${ticketRes.targetPort}`
@@ -377,7 +389,9 @@ export function SshShellView({
     }
   }
 
-  function handleDisconnect() {
+  function handleDisconnect(e: React.MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.stopPropagation();
     closeSocket(false);
     termRef.current?.writeln(
       `\r\n\x1b[33m[${tr('Verbindung getrennt', 'Disconnected')}]\x1b[0m`
@@ -390,9 +404,54 @@ export function SshShellView({
     termRef.current?.focus();
   }
 
+  async function handleResetHostKey() {
+    setError(null);
+    setHostKeyNotice(null);
+    if (targetMode === 'saved' && !selectedServerId) {
+      setError(tr('Bitte wählen Sie zuerst einen Server aus.', 'Please select a server first.'));
+      return;
+    }
+    if (targetMode === 'custom' && !customIp.trim()) {
+      setError(tr('Bitte geben Sie zuerst eine Ziel-IP-Adresse ein.', 'Please enter a target IP address first.'));
+      return;
+    }
+    setResettingHostKey(true);
+    try {
+      const res = await api.resetHostKey(
+        targetMode === 'saved'
+          ? { serverId: selectedServerId }
+          : { ipAddress: customIp.trim(), port: customPort }
+      );
+      const msg =
+        res.removedCount > 0
+          ? tr(
+              `Alter Host-Key für ${res.ipAddress}:${res.port} gelöscht (${res.removedCount} Eintrag/Einträge entfernt).`,
+              `Old host key for ${res.ipAddress}:${res.port} deleted (${res.removedCount} entry/entries removed).`
+            )
+          : tr(
+              `Für ${res.ipAddress}:${res.port} war kein gespeicherter Host-Key vorhanden.`,
+              `No stored host key was found for ${res.ipAddress}:${res.port}.`
+            );
+      setHostKeyNotice(msg);
+      termRef.current?.writeln(`\r\n\x1b[32m[Host-Key] ${msg}\x1b[0m`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Host-Key konnte nicht gelöscht werden.', 'Could not delete host key.')
+      );
+    } finally {
+      setResettingHostKey(false);
+    }
+  }
+
   const selectedCert = certificates.find((c) => c.id === selectedCertId);
   const selectedServer = servers.find((s) => s.id === selectedServerId);
   const isLive = connState === 'connected' || connState === 'connecting';
+  const effectiveIgnoreHostKey =
+    targetMode === 'saved'
+      ? Boolean(allowInsecureHostKey && selectedServer?.ignoreHostKey)
+      : Boolean(allowInsecureHostKey && customIgnoreHostKey);
 
   const statusBadge = (() => {
     switch (connState) {
@@ -638,6 +697,7 @@ export function SshShellView({
           <div className="md:col-span-2 flex items-center gap-2">
             {isLive ? (
               <button
+                key="disconnect-btn"
                 type="button"
                 onClick={handleDisconnect}
                 className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors cursor-pointer whitespace-nowrap"
@@ -647,6 +707,7 @@ export function SshShellView({
               </button>
             ) : (
               <button
+                key="connect-btn"
                 type="submit"
                 disabled={certificates.length === 0}
                 className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
@@ -667,8 +728,8 @@ export function SshShellView({
           </div>
         </div>
 
-        {targetMode === 'custom' ? (
-          <div className="pt-1 border-t border-slate-100">
+        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          {targetMode === 'custom' ? (
             <label
               className={`inline-flex items-center gap-2 text-xs ${
                 allowInsecureHostKey && !isLive
@@ -695,10 +756,8 @@ export function SshShellView({
                 )}
               </span>
             </label>
-          </div>
-        ) : (
-          selectedServer?.ignoreHostKey && (
-            <div className="pt-1 border-t border-slate-100 text-xs flex items-center gap-1.5">
+          ) : selectedServer?.ignoreHostKey ? (
+            <div className="text-xs flex items-center gap-1.5">
               <AlertTriangle
                 className={`w-3.5 h-3.5 shrink-0 ${
                   allowInsecureHostKey ? 'text-amber-600' : 'text-slate-400'
@@ -723,7 +782,42 @@ export function SshShellView({
                 </span>
               )}
             </div>
-          )
+          ) : (
+            <span className="text-xs text-slate-500">
+              {tr(
+                'Host-Key-Prüfung aktiv (StrictHostKeyChecking=accept-new)',
+                'Host key verification active (StrictHostKeyChecking=accept-new)'
+              )}
+            </span>
+          )}
+
+          {!effectiveIgnoreHostKey && (
+            <button
+              type="button"
+              onClick={handleResetHostKey}
+              disabled={
+                resettingHostKey ||
+                isLive ||
+                (targetMode === 'saved' ? !selectedServerId : !customIp.trim())
+              }
+              title={tr(
+                'Gespeicherten SSH Host-Key für diese IP/Port-Kombination aus known_hosts entfernen (z. B. nach Neuinstallation des Zielservers)',
+                'Remove the stored SSH host key for this IP/port from known_hosts (e.g. after reinstalling the target server)'
+              )}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded border border-slate-200 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-slate-600" />
+              {resettingHostKey
+                ? tr('Löscht Host-Key...', 'Deleting host key...')
+                : tr('Alten Host-Key löschen', 'Delete Old Host Key')}
+            </button>
+          )}
+        </div>
+
+        {hostKeyNotice && (
+          <div className="px-3 py-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
+            {hostKeyNotice}
+          </div>
         )}
       </form>
 

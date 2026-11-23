@@ -263,10 +263,28 @@ pub async fn handle_ssh_websocket(
         }
     };
 
+    let known_hosts_path = if ticket.ignore_host_key {
+        None
+    } else {
+        match crate::ssh::user_known_hosts_path(&state.data_dir, &ticket.user_id) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+                let _ = ws_tx
+                    .send(Message::Text(
+                        json!({ "type": "error", "message": format!("known_hosts konnte nicht vorbereitet werden: {e}") })
+                            .to_string(),
+                    ))
+                    .await;
+                return;
+            }
+        }
+    };
+
     let host_key_display = if ticket.ignore_host_key {
         "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     } else {
-        "-o StrictHostKeyChecking=accept-new"
+        "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=<known_hosts>"
     };
 
     let ssh_invocation = if has_cert {
@@ -308,9 +326,13 @@ pub async fn handle_ssh_websocket(
             .arg("StrictHostKeyChecking=no")
             .arg("-o")
             .arg("UserKnownHostsFile=/dev/null");
-    } else {
+    } else if let Some(ref kh_path) = known_hosts_path {
         cmd.arg("-o")
-            .arg("StrictHostKeyChecking=accept-new");
+            .arg("StrictHostKeyChecking=accept-new")
+            .arg("-o")
+            .arg(format!("UserKnownHostsFile={}", kh_path.display()))
+            .arg("-o")
+            .arg("HashKnownHosts=no");
     }
 
     cmd.arg("-o")

@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
@@ -53,6 +54,9 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
   const [passkeyEnforced, setPasskeyEnforced] = useState(false);
   const [allowInsecureHostKey, setAllowInsecureHostKey] = useState(false);
+  const [hostKeyStats, setHostKeyStats] = useState<{ totalEntries: number; userFiles: number } | null>(null);
+  const [confirmClearHostKeys, setConfirmClearHostKeys] = useState(false);
+  const [clearingHostKeys, setClearingHostKeys] = useState(false);
 
   function applyLoaded(a: AdminAuthSettings) {
     setSsoEnabled(a.ssoEnabled);
@@ -82,8 +86,12 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
     setLoading(true);
     setError(null);
     try {
-      const res = await api.getAdminAuthSettings();
+      const [res, hkStats] = await Promise.all([
+        api.getAdminAuthSettings(),
+        api.getAdminHostKeyStats().catch(() => null),
+      ]);
       applyLoaded(res.authSettings);
+      if (hkStats) setHostKeyStats(hkStats);
       onSettingsUpdated(res.settings);
     } catch (err) {
       setError(
@@ -265,6 +273,36 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
       setTimeout(() => setCopiedCallback(false), 1800);
     } catch {
       // clipboard unavailable
+    }
+  }
+
+  async function handleClearAllHostKeys() {
+    setClearingHostKeys(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await api.clearAllAdminHostKeys();
+      setHostKeyStats({ totalEntries: res.totalEntries, userFiles: 0 });
+      setConfirmClearHostKeys(false);
+      setSuccess(
+        res.removedCount > 0
+          ? tr(
+              `Alle gespeicherten SSH Host-Keys wurden global gelöscht (${res.removedCount} Einträge aus ${res.affectedFiles} Benutzerdatei(en) entfernt).`,
+              `All stored SSH host keys have been globally deleted (${res.removedCount} entries removed across ${res.affectedFiles} user file(s)).`
+            )
+          : tr(
+              'Keine gespeicherten SSH Host-Keys vorhanden – es mussten keine Einträge gelöscht werden.',
+              'No stored SSH host keys found — nothing to remove.'
+            )
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Host-Keys konnten nicht gelöscht werden.', 'Could not delete host keys.')
+      );
+    } finally {
+      setClearingHostKeys(false);
     }
   }
 
@@ -808,6 +846,61 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               </span>
             </div>
           </label>
+
+          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-slate-900">
+                {tr(
+                  'Gespeicherte SSH Host-Keys (known_hosts) global zurücksetzen',
+                  'Globally Reset Stored SSH Host Keys (known_hosts)'
+                )}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {hostKeyStats !== null
+                  ? tr(
+                      `Aktuell gespeichert: ${hostKeyStats.totalEntries} Host-Key-Einträge (${hostKeyStats.userFiles} Benutzer). Bei erneutem Verbinden werden neue Host-Keys automatisch per accept-new akzeptiert.`,
+                      `Currently stored: ${hostKeyStats.totalEntries} host key entries (${hostKeyStats.userFiles} users). New host keys will be accepted automatically via accept-new on next connection.`
+                    )
+                  : tr(
+                      'Löscht alle gespeicherten SSH Host-Keys aller Benutzer, damit neu installierte Zielsysteme wieder per accept-new verbunden werden können.',
+                      'Clears all stored SSH host keys across all users so reinstalled hosts can be trusted again via accept-new.'
+                    )}
+              </p>
+            </div>
+
+            {confirmClearHostKeys ? (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleClearAllHostKeys}
+                  disabled={clearingHostKeys}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {clearingHostKeys
+                    ? tr('Löscht...', 'Deleting...')
+                    : tr('Ja, alle Host-Keys löschen', 'Yes, Delete All Host Keys')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearHostKeys(false)}
+                  disabled={clearingHostKeys}
+                  className="px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  {tr('Abbrechen', 'Cancel')}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmClearHostKeys(true)}
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {tr('Alle Host-Keys global löschen', 'Delete All Host Keys Globally')}
+              </button>
+            )}
+          </div>
         </div>
       </section>
 

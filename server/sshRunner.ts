@@ -4,6 +4,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { decryptSecret, type SshCommand, type UserCertificateBundle } from './store.ts';
+import { getUserKnownHostsPath } from './knownHosts.ts';
 
 let cachedSshBinary: string | null | undefined;
 
@@ -92,6 +93,7 @@ export interface SshExecutionResult {
 }
 
 export async function executeSshCommand(params: {
+  userId: string;
   ipAddress: string;
   port: number;
   sshUser: string;
@@ -103,9 +105,9 @@ export async function executeSshCommand(params: {
   const started = Date.now();
   const sshBinary = findOpenSshBinary();
   const hasCert = Boolean(params.certificate.certContent && params.certificate.certContent.trim());
-  const hostKeyArgs = params.ignoreHostKey
+  const displayHostKeyArgs = params.ignoreHostKey
     ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
-    : ['-o', 'StrictHostKeyChecking=accept-new'];
+    : ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=<known_hosts>'];
 
   const displayInvocation = [
     'ssh',
@@ -120,7 +122,7 @@ export async function executeSshCommand(params: {
     'PasswordAuthentication=no',
     '-o',
     'KbdInteractiveAuthentication=no',
-    ...hostKeyArgs,
+    ...displayHostKeyArgs,
     '-o',
     'ConnectTimeout=10',
     '-p',
@@ -148,6 +150,17 @@ export async function executeSshCommand(params: {
         fs.writeFileSync(certPath, params.certificate.certContent, { mode: 0o644 });
       }
 
+      const liveHostKeyArgs = params.ignoreHostKey
+        ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
+        : [
+            '-o',
+            'StrictHostKeyChecking=accept-new',
+            '-o',
+            `UserKnownHostsFile=${getUserKnownHostsPath(params.userId)}`,
+            '-o',
+            'HashKnownHosts=no',
+          ];
+
       const args = [
         '-i',
         privKeyPath,
@@ -160,7 +173,7 @@ export async function executeSshCommand(params: {
         'PasswordAuthentication=no',
         '-o',
         'KbdInteractiveAuthentication=no',
-        ...hostKeyArgs,
+        ...liveHostKeyArgs,
         '-o',
         'ConnectTimeout=10',
         '-p',

@@ -645,3 +645,24 @@ pub struct AdminAuthSettingsPatchRequest {
 pub struct OidcDiscoverRequest {
     pub issuer_url: String,
 }
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetHostKeyRequest {
+    #[serde(default, alias = "server_id")]
+    pub server_id: Option<String>,
+    #[serde(default, alias = "ip_address")]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminDeleteHostKeysRequest {
+    #[serde(default, alias = "ip_address")]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+

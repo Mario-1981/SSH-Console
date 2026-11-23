@@ -2,6 +2,8 @@ use crate::models::{CertInspection, CommandStep, SshCommand, UserCertificateSecr
 use std::fs;
 use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::Command as StdCommand;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::process::Command;
@@ -63,6 +65,239 @@ pub fn validate_ssh_user(user: &str) -> Result<String, String> {
         return Err(format!("Ungültiger SSH-Benutzername: '{trimmed}'"));
     }
     Ok(trimmed.to_string())
+}
+
+fn ensure_known_hosts_dir(data_dir: &Path) -> Result<PathBuf, String> {
+    let dir = data_dir.join("known_hosts");
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("known_hosts-Verzeichnis konnte nicht erstellt werden: {e}"))?;
+    let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
+    Ok(dir)
+}
+
+fn sanitize_user_id_for_filename(user_id: &str) -> Result<String, String> {
+    let clean: String = user_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if clean.is_empty() {
+        return Err("Ungültige Benutzer-ID für known_hosts.".into());
+    }
+    Ok(clean)
+}
+
+pub fn user_known_hosts_path(data_dir: &Path, user_id: &str) -> Result<PathBuf, String> {
+    let dir = ensure_known_hosts_dir(data_dir)?;
+    let file_name = format!("{}.known_hosts", sanitize_user_id_for_filename(user_id)?);
+    let file_path = dir.join(file_name);
+    if !file_path.exists() {
+        fs::write(&file_path, "")
+            .map_err(|e| format!("known_hosts-Datei konnte nicht erstellt werden: {e}"))?;
+        let _ = fs::set_permissions(&file_path, fs::Permissions::from_mode(0o600));
+    }
+    Ok(file_path)
+}
+
+fn count_known_hosts_file(path: &Path) -> usize {
+    let Ok(content) = fs::read_to_string(path) else {
+        return 0;
+    };
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .count()
+}
+
+fn matches_host_token(token: &str, ip_lower: &str, port: Option<u16>) -> bool {
+    let clean = token.trim().to_ascii_lowercase();
+    if clean.is_empty() {
+        return false;
+    }
+    match port {
+        None => clean == ip_lower || clean.starts_with(&format!("[{ip_lower}]:")),
+        Some(22) => clean == ip_lower || clean == format!("[{ip_lower}]:22"),
+        Some(p) => clean == format!("[{ip_lower}]:{p}"),
+    }
+}
+
+fn remove_matching_entries_from_file(
+    file_path: &Path,
+    ip: &str,
+    port: Option<u16>,
+) -> Result<(usize, usize), String> {
+    let clean_ip = validate_ip(ip)?;
+    if !file_path.exists() {
+        return Ok((0, 0));
+    }
+
+    let before_count = count_known_hosts_file(file_path);
+
+    // 1. Zuerst OpenSSH ssh-keygen -R nutzen (entfernt auch evtl. gehashte |1|-Einträge)
+    if Path::new("/usr/bin/ssh-keygen").exists() {
+        let targets: Vec<String> = match port {
+            None | Some(22) => vec![clean_ip.clone(), format!("[{clean_ip}]:22")],
+            Some(p) => vec![format!("[{clean_ip}]:{p}")],
+        };
+        for target in targets {
+            let _ = StdCommand::new("/usr/bin/ssh-keygen")
+                .arg("-R")
+                .arg(&target)
+                .arg("-f")
+                .arg(file_path)
+                .output();
+        }
+        let backup = PathBuf::from(format!("{}.old", file_path.display()));
+        if backup.exists() {
+            let _ = fs::remove_file(backup);
+        }
+    }
+
+    // 2. Deterministische Klartext-Filterung (IPv4, IPv6, [ip]:port, kommagetrennte Host-Listen)
+    let ip_lower = clean_ip.to_ascii_lowercase();
+    let content = fs::read_to_string(file_path)
+        .map_err(|e| format!("known_hosts konnte nicht gelesen werden: {e}"))?;
+    let mut next_lines: Vec<String> = Vec::new();
+
+    for raw_line in content.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            next_lines.push(raw_line.to_string());
+            continue;
+        }
+
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        let host_idx = if parts.first().is_some_and(|p| p.starts_with('@')) && parts.len() >= 4 {
+            1
+        } else {
+            0
+        };
+        if parts.len() < host_idx + 3 {
+            next_lines.push(raw_line.to_string());
+            continue;
+        }
+
+        let host_tokens: Vec<&str> = parts[host_idx].split(',').collect();
+        let remaining_tokens: Vec<&str> = host_tokens
+            .iter()
+            .copied()
+            .filter(|tok| !matches_host_token(tok, &ip_lower, port))
+            .collect();
+
+        if remaining_tokens.is_empty() {
+            continue;
+        }
+        if remaining_tokens.len() != host_tokens.len() {
+            let mut rebuilt: Vec<String> = parts.iter().map(|s| (*s).to_string()).collect();
+            rebuilt[host_idx] = remaining_tokens.join(",");
+            next_lines.push(rebuilt.join(" "));
+        } else {
+            next_lines.push(raw_line.to_string());
+        }
+    }
+
+    let next_content = if next_lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", next_lines.join("\n"))
+    };
+    fs::write(file_path, next_content)
+        .map_err(|e| format!("known_hosts konnte nicht geschrieben werden: {e}"))?;
+    let _ = fs::set_permissions(file_path, fs::Permissions::from_mode(0o600));
+
+    let remaining_count = count_known_hosts_file(file_path);
+    let removed_count = before_count.saturating_sub(remaining_count);
+    Ok((removed_count, remaining_count))
+}
+
+pub fn remove_user_host_key(
+    data_dir: &Path,
+    user_id: &str,
+    ip: &str,
+    port: Option<u16>,
+) -> Result<(usize, usize), String> {
+    let file_path = user_known_hosts_path(data_dir, user_id)?;
+    remove_matching_entries_from_file(&file_path, ip, port)
+}
+
+fn list_known_hosts_files(data_dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if let Ok(dir) = ensure_known_hosts_dir(data_dir) {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file()
+                    && path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.ends_with(".known_hosts"))
+                {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    let legacy = data_dir.join("known_hosts.txt");
+    if legacy.is_file() {
+        files.push(legacy);
+    }
+    files
+}
+
+pub fn global_known_hosts_stats(data_dir: &Path) -> (usize, usize) {
+    let mut total_entries = 0usize;
+    let mut user_files = 0usize;
+    for path in list_known_hosts_files(data_dir) {
+        let count = count_known_hosts_file(&path);
+        if count > 0 {
+            total_entries += count;
+            user_files += 1;
+        }
+    }
+    (total_entries, user_files)
+}
+
+pub fn clear_global_host_keys(
+    data_dir: &Path,
+    ip: Option<&str>,
+    port: Option<u16>,
+) -> Result<(usize, usize, usize), String> {
+    let files = list_known_hosts_files(data_dir);
+    let mut removed_count = 0usize;
+    let mut affected_files = 0usize;
+
+    if let Some(target_ip) = ip {
+        for path in &files {
+            let (removed, _) = remove_matching_entries_from_file(path, target_ip, port)?;
+            if removed > 0 {
+                removed_count += removed;
+                affected_files += 1;
+            }
+        }
+        let (total_entries, _) = global_known_hosts_stats(data_dir);
+        return Ok((removed_count, total_entries, affected_files));
+    }
+
+    for path in &files {
+        let count = count_known_hosts_file(path);
+        if count > 0 {
+            removed_count += count;
+            affected_files += 1;
+        }
+        let _ = fs::write(path, "");
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+
+    Ok((removed_count, 0, affected_files))
 }
 
 fn detect_private_key_format(private_key: &str) -> String {
@@ -431,6 +666,7 @@ pub async fn run_ssh_command(
     cert: &UserCertificateSecret,
     private_key_plain: Zeroizing<Vec<u8>>,
     ignore_host_key: bool,
+    known_hosts_path: &Path,
 ) -> Result<SshRunOutput, String> {
     let started = Instant::now();
     let tmp_dir = TempDir::new().map_err(|e| format!("TempDir-Fehler: {e}"))?;
@@ -456,7 +692,7 @@ pub async fn run_ssh_command(
     let host_key_display = if ignore_host_key {
         "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     } else {
-        "-o StrictHostKeyChecking=accept-new"
+        "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=<known_hosts>"
     };
 
     let ssh_invocation = if has_cert {
@@ -499,7 +735,11 @@ pub async fn run_ssh_command(
             .arg("UserKnownHostsFile=/dev/null");
     } else {
         cmd.arg("-o")
-            .arg("StrictHostKeyChecking=accept-new");
+            .arg("StrictHostKeyChecking=accept-new")
+            .arg("-o")
+            .arg(format!("UserKnownHostsFile={}", known_hosts_path.display()))
+            .arg("-o")
+            .arg("HashKnownHosts=no");
     }
 
     cmd.arg("-o")

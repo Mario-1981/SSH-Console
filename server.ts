@@ -7,6 +7,11 @@ import { createServer as createViteServer } from 'vite';
 import { generateTestOpenSshCertBundle } from './server/certGen.ts';
 import { validateAndParseCertificateBundle } from './server/opensshCert.ts';
 import {
+  clearGlobalHostKeys,
+  getGlobalKnownHostsStats,
+  removeUserHostKey,
+} from './server/knownHosts.ts';
+import {
   executeSshCommand,
   findOpenSshBinary,
   validateSshUsername,
@@ -1618,6 +1623,89 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  // SSH Host-Key Management (per-IP reset for users, global stats & purge for admin)
+  const handleUserHostKeyReset = (req: AuthedRequest, res: Response) => {
+    const { serverId, ipAddress, port } = req.body ?? {};
+    let targetIp = '';
+    let targetPort: number | undefined;
+
+    if (typeof serverId === 'string' && serverId.trim()) {
+      const server = store.getAccessibleServer(serverId.trim(), req.user!.id);
+      if (!server) {
+        res.status(404).json({ error: 'Server nicht gefunden oder keine Berechtigung.' });
+        return;
+      }
+      targetIp = server.ipAddress;
+      targetPort = server.port;
+    } else {
+      const rawIp = typeof ipAddress === 'string' ? ipAddress.trim() : '';
+      if (!validateTargetIp(rawIp)) {
+        res.status(400).json({ error: `Ungültige Ziel-IP-Adresse: ${rawIp || '(leer)'}` });
+        return;
+      }
+      targetIp = rawIp;
+      if (port !== undefined && port !== null && port !== '') {
+        const parsedPort = Number(port);
+        if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+          res.status(400).json({ error: 'Ungültiger SSH-Port (1–65535).' });
+          return;
+        }
+        targetPort = parsedPort;
+      }
+    }
+
+    try {
+      const result = removeUserHostKey(req.user!.id, targetIp, targetPort);
+      res.json({
+        ok: true,
+        ipAddress: targetIp,
+        port: targetPort ?? 22,
+        removedCount: result.removedCount,
+        remainingCount: result.remainingCount,
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Host-Key konnte nicht gelöscht werden.',
+      });
+    }
+  };
+
+  app.post('/api/host-keys/reset', requireAuth, requireSecurityCompliant, handleUserHostKeyReset);
+  app.delete('/api/host-keys', requireAuth, requireSecurityCompliant, handleUserHostKeyReset);
+
+  app.get('/api/admin/host-keys', requireAuth, requireAdmin, (_req: AuthedRequest, res) => {
+    res.json(getGlobalKnownHostsStats());
+  });
+
+  app.delete('/api/admin/host-keys', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
+    const { ipAddress, port } = req.body ?? {};
+    let filter: { ipAddress?: string; port?: number } | undefined;
+    if (typeof ipAddress === 'string' && ipAddress.trim()) {
+      const rawIp = ipAddress.trim();
+      if (!validateTargetIp(rawIp)) {
+        res.status(400).json({ error: `Ungültige Ziel-IP-Adresse: ${rawIp}` });
+        return;
+      }
+      const parsedPort = port !== undefined && port !== null && port !== '' ? Number(port) : undefined;
+      if (
+        parsedPort !== undefined &&
+        (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)
+      ) {
+        res.status(400).json({ error: 'Ungültiger SSH-Port (1–65535).' });
+        return;
+      }
+      filter = { ipAddress: rawIp, port: parsedPort };
+    }
+    try {
+      const result = clearGlobalHostKeys(filter);
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Host-Keys konnten nicht gelöscht werden.',
+      });
+    }
+  });
+
   // User 3-File SSH Certificates (zertifikat, zertifikat.pub, zertifikat-cert.pub — creator-private; admin may share)
   function serializeCertificate(c: ReturnType<typeof store.listAccessibleCertificates>[number]) {
     return {
@@ -2155,6 +2243,7 @@ async function startServer() {
     const logs = await Promise.all(
       resolvedTargets.map(async (target) => {
         const result = await executeSshCommand({
+          userId: req.user!.id,
           ipAddress: target.ipAddress,
           port: target.port,
           sshUser: target.sshUser,
@@ -2302,6 +2391,7 @@ async function startServer() {
     const logs = await Promise.all(
       resolvedJobs.map(async ({ server, command }) => {
         const result = await executeSshCommand({
+          userId: req.user!.id,
           ipAddress: server.ipAddress,
           port: server.port,
           sshUser: server.sshUser,

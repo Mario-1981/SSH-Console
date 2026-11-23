@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Writable } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
+import { getUserKnownHostsPath } from './knownHosts.ts';
 import { findOpenSshBinary } from './sshRunner.ts';
 import { decryptSecret, store, type UserCertificateBundle } from './store.ts';
 
@@ -294,7 +295,7 @@ async function runSandboxPreviewShell(
 
   const hostKeyArgs = ticket.ignoreHostKey
     ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
-    : ['-o', 'StrictHostKeyChecking=accept-new'];
+    : ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=<known_hosts>'];
 
   const displayInvocation = [
     'ssh',
@@ -401,9 +402,9 @@ function startLiveOpenSshShell(
   let logged = false;
 
   const hasCert = Boolean(certificate.certContent && certificate.certContent.trim());
-  const hostKeyArgs = ticket.ignoreHostKey
+  const displayHostKeyArgs = ticket.ignoreHostKey
     ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
-    : ['-o', 'StrictHostKeyChecking=accept-new'];
+    : ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=<known_hosts>'];
   const displayInvocation = [
     'ssh',
     '-tt',
@@ -416,7 +417,7 @@ function startLiveOpenSshShell(
     'PasswordAuthentication=no',
     '-o',
     'KbdInteractiveAuthentication=no',
-    ...hostKeyArgs,
+    ...displayHostKeyArgs,
     '-o',
     'ConnectTimeout=10',
     '-p',
@@ -478,6 +479,17 @@ function startLiveOpenSshShell(
       fs.writeFileSync(certPath, certificate.certContent, { mode: 0o644 });
     }
 
+    const liveHostKeyArgs = ticket.ignoreHostKey
+      ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
+      : [
+          '-o',
+          'StrictHostKeyChecking=accept-new',
+          '-o',
+          `UserKnownHostsFile=${getUserKnownHostsPath(ticket.userId)}`,
+          '-o',
+          'HashKnownHosts=no',
+        ];
+
     const sshArgs = [
       '-tt',
       '-i',
@@ -489,7 +501,7 @@ function startLiveOpenSshShell(
       'PasswordAuthentication=no',
       '-o',
       'KbdInteractiveAuthentication=no',
-      ...hostKeyArgs,
+      ...liveHostKeyArgs,
       '-o',
       'ConnectTimeout=10',
       '-o',
