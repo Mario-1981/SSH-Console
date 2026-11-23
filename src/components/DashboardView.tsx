@@ -794,7 +794,122 @@ export function DashboardView({
         </div>
       </section>
 
-      {/* Main IP Table with Online/Offline Ping Status and Per-IP Command Selector */}
+      {/* Batch Execution Output Console */}
+      {(runningBatch || batchResults.length > 0) && (
+        <section className="bg-[#0B1120] text-slate-100 rounded-lg border border-slate-800 overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/60">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-slate-400" />
+              <span className="text-xs font-medium text-slate-200">
+                {tr('Ergebnisse der Sammelausführung', 'Batch Execution Results')}
+              </span>
+            </div>
+            {!runningBatch && (
+              <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
+                <span className="text-emerald-400">
+                  {batchResults.filter((r) => r.exitCode === 0).length} OK
+                </span>
+                <span className="text-slate-600">·</span>
+                <span className="text-red-400">
+                  {batchResults.filter((r) => r.exitCode !== 0).length} {tr('Fehler', 'Failed')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBatchResults([])}
+                  title={tr('Ergebnisse schließen', 'Close results')}
+                  aria-label={tr('Ergebnisse schließen', 'Close results')}
+                  className="ml-1 p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="p-5 space-y-4 font-mono text-xs leading-relaxed">
+            {runningBatch ? (
+              <div className="py-8 text-center text-slate-400 flex items-center justify-center gap-2">
+                <CheckSquare className="w-4 h-4" />
+                <span>
+                  {tr(
+                    `Führe ${preparedJobs.length} SSH-Aufträge parallel per Schlüssel/Zertifikat aus...`,
+                    `Executing ${preparedJobs.length} SSH jobs in parallel...`
+                  )}
+                </span>
+              </div>
+            ) : (
+              batchResults.map((res) => {
+                const ok = res.exitCode === 0;
+                const showCmd = Boolean(expandedInvocations[res.id]);
+                return (
+                  <div
+                    key={res.id}
+                    className="border border-slate-800 rounded-md overflow-hidden bg-slate-950/50"
+                  >
+                    <div className="px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-slate-900/70">
+                      <div className="flex items-center gap-2">
+                        {ok ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        ) : (
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                        )}
+                        <span className="text-slate-100 font-medium">
+                          {res.serverLabel} ({res.sshUser}@{res.targetIp}:{res.targetPort})
+                        </span>
+                        <span className="text-slate-500">·</span>
+                        <span className="text-blue-300">{res.commandName}</span>
+                      </div>
+                      <div className="flex items-center gap-3 tabular-nums">
+                        <span className={ok ? 'text-emerald-400' : 'text-red-400'}>
+                          Exit {res.exitCode}
+                        </span>
+                        <span className="text-slate-400">{res.durationMs} ms</span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-2.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedInvocations((prev) => ({ ...prev, [res.id]: !prev[res.id] }))
+                        }
+                        className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
+                      >
+                        {showCmd ? (
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        )}
+                        {tr('OpenSSH-Aufruf anzeigen', 'Show OpenSSH invocation')}
+                      </button>
+
+                      {showCmd && (
+                        <pre className="p-2.5 rounded bg-slate-900 text-slate-300 text-[11px] whitespace-pre-wrap break-all border border-slate-800">
+                          {res.sshInvocation}
+                        </pre>
+                      )}
+
+                      {res.stdout && (
+                        <pre className="text-slate-200 whitespace-pre-wrap break-words">
+                          {res.stdout}
+                        </pre>
+                      )}
+
+                      {res.stderr && (
+                        <pre className="text-amber-300 whitespace-pre-wrap break-words border-t border-slate-800 pt-2.5">
+                          {res.stderr}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Main IP Table with Online/Offline Ping Status */}
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -1356,112 +1471,6 @@ export function DashboardView({
           </div>
         )}
       </section>
-
-      {/* Batch Execution Output Console */}
-      {(runningBatch || batchResults.length > 0) && (
-        <section className="bg-[#0B1120] text-slate-100 rounded-lg border border-slate-800 overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/60">
-            <div className="flex items-center gap-2">
-              <Terminal className="w-4 h-4 text-slate-400" />
-              <span className="text-xs font-medium text-slate-200">
-                {tr('Ergebnisse der Sammelausführung', 'Batch Execution Results')}
-              </span>
-            </div>
-            {!runningBatch && (
-              <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
-                <span className="text-emerald-400">
-                  {batchResults.filter((r) => r.exitCode === 0).length} OK
-                </span>
-                <span className="text-slate-600">·</span>
-                <span className="text-red-400">
-                  {batchResults.filter((r) => r.exitCode !== 0).length} {tr('Fehler', 'Failed')}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="p-5 space-y-4 font-mono text-xs leading-relaxed">
-            {runningBatch ? (
-              <div className="py-8 text-center text-slate-400 flex items-center justify-center gap-2">
-                <CheckSquare className="w-4 h-4" />
-                <span>
-                  {tr(
-                    `Führe ${preparedJobs.length} SSH-Aufträge parallel per Schlüssel/Zertifikat aus...`,
-                    `Executing ${preparedJobs.length} SSH jobs in parallel...`
-                  )}
-                </span>
-              </div>
-            ) : (
-              batchResults.map((res) => {
-                const ok = res.exitCode === 0;
-                const showCmd = Boolean(expandedInvocations[res.id]);
-                return (
-                  <div
-                    key={res.id}
-                    className="border border-slate-800 rounded-md overflow-hidden bg-slate-950/50"
-                  >
-                    <div className="px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-slate-900/70">
-                      <div className="flex items-center gap-2">
-                        {ok ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        ) : (
-                          <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                        )}
-                        <span className="text-slate-100 font-medium">
-                          {res.serverLabel} ({res.sshUser}@{res.targetIp}:{res.targetPort})
-                        </span>
-                        <span className="text-slate-500">·</span>
-                        <span className="text-blue-300">{res.commandName}</span>
-                      </div>
-                      <div className="flex items-center gap-3 tabular-nums">
-                        <span className={ok ? 'text-emerald-400' : 'text-red-400'}>
-                          Exit {res.exitCode}
-                        </span>
-                        <span className="text-slate-400">{res.durationMs} ms</span>
-                      </div>
-                    </div>
-
-                    <div className="p-4 space-y-2.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedInvocations((prev) => ({ ...prev, [res.id]: !prev[res.id] }))
-                        }
-                        className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
-                      >
-                        {showCmd ? (
-                          <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        )}
-                        {tr('OpenSSH-Aufruf anzeigen', 'Show OpenSSH invocation')}
-                      </button>
-
-                      {showCmd && (
-                        <pre className="p-2.5 rounded bg-slate-900 text-slate-300 text-[11px] whitespace-pre-wrap break-all border border-slate-800">
-                          {res.sshInvocation}
-                        </pre>
-                      )}
-
-                      {res.stdout && (
-                        <pre className="text-slate-200 whitespace-pre-wrap break-words">
-                          {res.stdout}
-                        </pre>
-                      )}
-
-                      {res.stderr && (
-                        <pre className="text-amber-300 whitespace-pre-wrap break-words border-t border-slate-800 pt-2.5">
-                          {res.stderr}
-                        </pre>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
