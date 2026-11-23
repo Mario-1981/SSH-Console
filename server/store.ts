@@ -151,6 +151,7 @@ export interface UserCertificateBundle {
   publicKeyFileName: string;
   certFileName: string;
   privateKeyEncrypted: EncryptedBlob;
+  passphraseEncrypted?: EncryptedBlob;
   publicKeyContent: string;
   certContent: string;
   metadata: ParsedCertMetadata;
@@ -186,6 +187,8 @@ export interface AppSettings {
   initializedAt: string | null;
   pingAllowed: boolean;
   pingIntervalSec: number;
+  pingOfflineThreshold: number;
+  pingOfflineMultiplier: number;
   // SSO (OIDC / OAuth2)
   ssoEnabled: boolean;
   ssoProviderName: string;
@@ -298,6 +301,8 @@ function emptyDb(): DatabaseSchema {
       initializedAt: null,
       pingAllowed: true,
       pingIntervalSec: 60,
+      pingOfflineThreshold: 5,
+      pingOfflineMultiplier: 5,
       ssoEnabled: false,
       ssoProviderName: 'SSO',
       ssoIssuerUrl: '',
@@ -425,6 +430,8 @@ class Store {
       }));
 
       const rawInterval = Number(parsed.settings?.pingIntervalSec);
+      const rawOfflineThreshold = Number(parsed.settings?.pingOfflineThreshold);
+      const rawOfflineMultiplier = Number(parsed.settings?.pingOfflineMultiplier);
       const baseSettings = emptyDb().settings;
       const ssoEnabled = Boolean(parsed.settings?.ssoEnabled);
       const ssoTestedAt =
@@ -446,6 +453,12 @@ class Store {
         pingIntervalSec: Number.isFinite(rawInterval)
           ? Math.min(3600, Math.max(10, Math.round(rawInterval)))
           : 60,
+        pingOfflineThreshold: Number.isFinite(rawOfflineThreshold)
+          ? Math.min(100, Math.max(0, Math.round(rawOfflineThreshold)))
+          : 5,
+        pingOfflineMultiplier: Number.isFinite(rawOfflineMultiplier)
+          ? Math.min(60, Math.max(2, Math.round(rawOfflineMultiplier)))
+          : 5,
         ssoEnabled,
         ssoProviderName:
           typeof parsed.settings?.ssoProviderName === 'string' && parsed.settings.ssoProviderName.trim()
@@ -521,6 +534,8 @@ class Store {
   updateGlobalPingSettings(patch: {
     pingAllowed?: boolean;
     pingIntervalSec?: number;
+    pingOfflineThreshold?: number;
+    pingOfflineMultiplier?: number;
   }): AppSettings {
     if (patch.pingAllowed !== undefined) {
       this.db.settings.pingAllowed = Boolean(patch.pingAllowed);
@@ -531,6 +546,20 @@ class Store {
         throw new Error('Ping-Intervall muss zwischen 10 und 3600 Sekunden liegen.');
       }
       this.db.settings.pingIntervalSec = n;
+    }
+    if (patch.pingOfflineThreshold !== undefined) {
+      const t = Math.round(Number(patch.pingOfflineThreshold));
+      if (!Number.isFinite(t) || t < 0 || t > 100) {
+        throw new Error('Offline-Schwellwert muss zwischen 0 und 100 Fehlversuchen liegen.');
+      }
+      this.db.settings.pingOfflineThreshold = t;
+    }
+    if (patch.pingOfflineMultiplier !== undefined) {
+      const m = Math.round(Number(patch.pingOfflineMultiplier));
+      if (!Number.isFinite(m) || m < 2 || m > 60) {
+        throw new Error('Offline-Intervall-Faktor muss zwischen 2 und 60 liegen.');
+      }
+      this.db.settings.pingOfflineMultiplier = m;
     }
     this.save();
     return this.db.settings;
@@ -1600,6 +1629,7 @@ class Store {
     privateKeyContent: string;
     publicKeyContent: string;
     certContent?: string;
+    passphrase?: string;
     metadata: ParsedCertMetadata;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
@@ -1610,6 +1640,10 @@ class Store {
     const trimmedCert = (params.certContent ?? '').trim();
     const formattedCertContent = trimmedCert ? trimmedCert + '\n' : '';
     const effectiveCertFileName = trimmedCert ? params.certFileName || 'zertifikat-cert.pub' : '';
+    const nextPassphraseEncrypted =
+      typeof params.passphrase === 'string' && params.passphrase.length > 0
+        ? encryptSecret(params.passphrase)
+        : undefined;
 
     const matchingIndices: number[] = [];
     this.db.certificates.forEach((c, idx) => {
@@ -1642,6 +1676,7 @@ class Store {
         publicKeyFileName: params.publicKeyFileName || 'zertifikat.pub',
         certFileName: effectiveCertFileName,
         privateKeyEncrypted: encryptSecret(params.privateKeyContent),
+        passphraseEncrypted: nextPassphraseEncrypted,
         publicKeyContent: params.publicKeyContent.trim() + '\n',
         certContent: formattedCertContent,
         metadata: params.metadata,
@@ -1671,6 +1706,7 @@ class Store {
       publicKeyFileName: params.publicKeyFileName || 'zertifikat.pub',
       certFileName: effectiveCertFileName,
       privateKeyEncrypted: encryptSecret(params.privateKeyContent),
+      passphraseEncrypted: nextPassphraseEncrypted,
       publicKeyContent: params.publicKeyContent.trim() + '\n',
       certContent: formattedCertContent,
       metadata: params.metadata,
@@ -1705,6 +1741,8 @@ class Store {
       privateKeyContent?: string;
       publicKeyContent?: string;
       certContent?: string;
+      passphrase?: string;
+      clearPassphrase?: boolean;
       metadata: ParsedCertMetadata;
     }
   ): UserCertificateBundle {
@@ -1733,6 +1771,13 @@ class Store {
 
     if (patch.privateKeyContent !== undefined) {
       cert.privateKeyEncrypted = encryptSecret(patch.privateKeyContent);
+    }
+    if (patch.clearPassphrase) {
+      delete cert.passphraseEncrypted;
+    } else if (typeof patch.passphrase === 'string' && patch.passphrase.length > 0) {
+      cert.passphraseEncrypted = encryptSecret(patch.passphrase);
+    } else if (patch.privateKeyContent !== undefined && !patch.metadata.privateKeyEncrypted) {
+      delete cert.passphraseEncrypted;
     }
     if (patch.privateKeyFileName !== undefined) {
       cert.privateKeyFileName = patch.privateKeyFileName || 'zertifikat';

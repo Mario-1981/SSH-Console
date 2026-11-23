@@ -19,6 +19,7 @@ export interface ShellTicketPayload {
   port: number;
   sshUser: string;
   certificateId: string;
+  passphrase?: string;
   ignoreHostKey: boolean;
   cols: number;
   rows: number;
@@ -63,14 +64,16 @@ function consumeShellTicket(token: string): ShellTicketPayload | null {
 }
 
 function wipeAndRemoveDir(dir: string) {
-  try {
-    const keyFile = path.join(dir, 'zertifikat');
-    if (fs.existsSync(keyFile)) {
-      const size = fs.statSync(keyFile).size;
-      fs.writeFileSync(keyFile, Buffer.alloc(size, 0));
+  for (const name of ['zertifikat', 'passphrase', 'askpass.sh']) {
+    try {
+      const target = path.join(dir, name);
+      if (fs.existsSync(target)) {
+        const size = fs.statSync(target).size;
+        fs.writeFileSync(target, Buffer.alloc(size, 0));
+      }
+    } catch {
+      // ignore cleanup error
     }
-  } catch {
-    // ignore cleanup error
   }
   try {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -513,13 +516,35 @@ function startLiveOpenSshShell(
       `${ticket.sshUser}@${ticket.ipAddress}`,
     ];
 
+    const effectivePassphrase =
+      typeof ticket.passphrase === 'string' && ticket.passphrase.length > 0
+        ? ticket.passphrase
+        : certificate.passphraseEncrypted
+          ? decryptSecret(certificate.passphraseEncrypted)
+          : '';
+
     const python3 = findPython3Binary();
-    const spawnEnv = {
+    const spawnEnv: Record<string, string> = {
       PATH: '/usr/bin:/bin',
       HOME: tempDir,
       TERM: 'xterm-256color',
       LANG: 'C.UTF-8',
     };
+
+    if (effectivePassphrase) {
+      const passPath = path.join(tempDir, 'passphrase');
+      const askpassPath = path.join(tempDir, 'askpass.sh');
+      fs.writeFileSync(passPath, `${effectivePassphrase}\n`, { mode: 0o600 });
+      fs.writeFileSync(
+        askpassPath,
+        '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\n  rm -f "$TRIXIESSH_PASS_FILE"\nfi\n',
+        { mode: 0o700 }
+      );
+      spawnEnv.SSH_ASKPASS = askpassPath;
+      spawnEnv.SSH_ASKPASS_REQUIRE = 'force';
+      spawnEnv.DISPLAY = 'none:0';
+      spawnEnv.TRIXIESSH_PASS_FILE = passPath;
+    }
 
     if (python3) {
       child = spawn(

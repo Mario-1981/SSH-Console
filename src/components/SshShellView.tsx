@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Plus,
   X,
+  Lock,
 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
@@ -115,6 +116,7 @@ function SshShellTabPane({
     initialServer?.sshUser || user.defaultSshUser || 'root'
   );
   const [selectedCertId, setSelectedCertId] = useState<string>(certificates[0]?.id ?? '');
+  const [keyPassphrase, setKeyPassphrase] = useState<string>('');
 
   const [connState, setConnState] = useState<ConnectionState>('idle');
   const [activeTargetLabel, setActiveTargetLabel] = useState<string>('');
@@ -152,8 +154,15 @@ function SshShellTabPane({
     }
   }, [certificates, selectedCertId]);
 
+  useEffect(() => {
+    setKeyPassphrase('');
+  }, [selectedCertId]);
+
   const selectedCert = certificates.find((c) => c.id === selectedCertId);
   const selectedServer = servers.find((s) => s.id === selectedServerId);
+  const needsRuntimePassphrase = Boolean(
+    selectedCert?.metadata.privateKeyEncrypted && !selectedCert?.hasStoredPassphrase
+  );
   const isLive = connState === 'connected' || connState === 'connecting';
 
   // Report tab metadata up to tab bar
@@ -391,6 +400,9 @@ function SshShellTabPane({
     const cols = term?.cols || 100;
     const rows = term?.rows || 30;
 
+    const passToUse = needsRuntimePassphrase && keyPassphrase ? keyPassphrase : undefined;
+    setKeyPassphrase('');
+
     try {
       const ticketRes = await api.createShellTicket({
         ...(targetMode === 'saved'
@@ -402,6 +414,7 @@ function SshShellTabPane({
               ignoreHostKey: allowInsecureHostKey ? customIgnoreHostKey : false,
             }),
         certificateId: selectedCertId,
+        ...(passToUse ? { passphrase: passToUse } : {}),
         cols,
         rows,
       });
@@ -766,6 +779,11 @@ function SshShellTabPane({
               ) : (
                 certificates.map((cert) => {
                   const hasCert = cert.metadata.hasCertificate !== false && Boolean(cert.certFileName);
+                  const lockHint = cert.metadata.privateKeyEncrypted
+                    ? cert.hasStoredPassphrase
+                      ? tr(' · Passwort hinterlegt', ' · Passphrase stored')
+                      : tr(' · Passwortgeschützt', ' · Passphrase protected')
+                    : '';
                   return (
                     <option key={cert.id} value={cert.id}>
                       {cert.name} (
@@ -775,6 +793,7 @@ function SshShellTabPane({
                           : tr('CA-Cert', 'CA Cert')
                         : tr('Keypair', 'Keypair')}
                       )
+                      {lockHint}
                     </option>
                   );
                 })
@@ -815,6 +834,37 @@ function SshShellTabPane({
             )}
           </div>
         </div>
+
+        {needsRuntimePassphrase && (
+          <div className="pt-2.5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3">
+            <label
+              htmlFor={`${tabId}-key-passphrase`}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 whitespace-nowrap"
+            >
+              <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+              {tr('Schlüssel-Passwort:', 'Key passphrase:')}
+            </label>
+            <input
+              id={`${tabId}-key-passphrase`}
+              type="password"
+              autoComplete="off"
+              disabled={isLive}
+              value={keyPassphrase}
+              onChange={(e) => setKeyPassphrase(e.target.value)}
+              placeholder={tr(
+                'Zum Entsperren eingeben (oder leer für Terminal-Abfrage)...',
+                'Enter to unlock (or leave blank for terminal prompt)...'
+              )}
+              className="w-full sm:max-w-sm px-3 py-1.5 text-sm bg-white border border-amber-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50"
+            />
+            <span className="text-[11px] text-slate-500">
+              {tr(
+                'Wird nicht gespeichert und beim Verbinden sofort geleert.',
+                'Not stored and cleared immediately upon connecting.'
+              )}
+            </span>
+          </div>
+        )}
 
         <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
           {targetMode === 'custom' ? (

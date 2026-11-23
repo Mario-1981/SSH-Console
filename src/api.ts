@@ -502,6 +502,7 @@ export const api = {
     privateKeyContent: string;
     publicKeyContent: string;
     certContent?: string;
+    passphrase?: string;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
   }) =>
@@ -521,6 +522,8 @@ export const api = {
       publicKeyContent?: string;
       certContent?: string;
       removeCert?: boolean;
+      passphrase?: string;
+      clearPassphrase?: boolean;
     }
   ) =>
     request<{ ok: boolean; certificate: UserCertificate }>(
@@ -561,6 +564,7 @@ export const api = {
       | { serverId: string }
       | { ipAddress: string; port: number; sshUser: string; ignoreHostKey?: boolean }
     >;
+    passphrase?: string;
     dryRun?: boolean;
   }) =>
     request<{ results: ExecutionLog[] }>('/api/execute', {
@@ -571,6 +575,7 @@ export const api = {
   executeBatch: (payload: {
     certificateId: string;
     jobs: Array<{ serverId: string; commandId: string }>;
+    passphrase?: string;
     dryRun?: boolean;
   }) =>
     request<{ results: ExecutionLog[] }>('/api/execute/batch', {
@@ -586,6 +591,7 @@ export const api = {
     sshUser?: string;
     ignoreHostKey?: boolean;
     certificateId: string;
+    passphrase?: string;
     cols: number;
     rows: number;
   }) =>
@@ -617,7 +623,12 @@ export const api = {
       body: JSON.stringify({ pingEnabled }),
     }),
 
-  updateAdminPingSettings: (payload: { pingAllowed?: boolean; pingIntervalSec?: number }) =>
+  updateAdminPingSettings: (payload: {
+    pingAllowed?: boolean;
+    pingIntervalSec?: number;
+    pingOfflineThreshold?: number;
+    pingOfflineMultiplier?: number;
+  }) =>
     request<{ settings: AppSettings; dashboardStatus: DashboardPingResponse }>('/api/admin/ping-settings', {
       method: 'PATCH',
       body: JSON.stringify(payload),

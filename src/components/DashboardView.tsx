@@ -21,6 +21,7 @@ import {
   SlidersHorizontal,
   Tag,
   X,
+  Lock,
 } from 'lucide-react';
 import { api } from '../api';
 import { translateCategory, useI18n } from '../i18n';
@@ -53,6 +54,28 @@ function formatBmcUrl(ipAddress: string): string {
   const clean = ipAddress.trim();
   const host = clean.includes(':') ? `[${clean}]` : clean;
   return `https://${host}`;
+}
+
+function formatPacingInterval(ms: number, locale: string): string {
+  if (ms >= 1000) {
+    const sec = ms / 1000;
+    const formatted = sec.toLocaleString(locale === 'de' ? 'de-DE' : 'en-US', {
+      minimumFractionDigits: sec >= 10 ? 0 : 1,
+      maximumFractionDigits: 1,
+    });
+    return `${formatted} s`;
+  }
+  return `${ms} ms`;
+}
+
+function formatIntervalShort(sec: number): string {
+  if (sec >= 3600 && sec % 3600 === 0) {
+    return `${sec / 3600} h`;
+  }
+  if (sec >= 120 && sec % 60 === 0) {
+    return `${sec / 60} min`;
+  }
+  return `${sec} s`;
 }
 
 const BENIGN_KNOWN_HOSTS_ADDED_RE =
@@ -124,12 +147,19 @@ export function DashboardView({
   const [savingUserPing, setSavingUserPing] = useState(false);
   const [savingAdminPing, setSavingAdminPing] = useState(false);
   const [intervalInput, setIntervalInput] = useState<string>(String(settings.pingIntervalSec || 60));
+  const [offlineThresholdInput, setOfflineThresholdInput] = useState<string>(
+    String(settings.pingOfflineThreshold ?? 5)
+  );
+  const [offlineMultiplierInput, setOfflineMultiplierInput] = useState<string>(
+    String(settings.pingOfflineMultiplier ?? 5)
+  );
   const [intervalSavedNotice, setIntervalSavedNotice] = useState(false);
   const [secondsToNext, setSecondsToNext] = useState<number>(settings.pingIntervalSec || 60);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [quickCommandId, setQuickCommandId] = useState<string>('');
   const [selectedCertId, setSelectedCertId] = useState<string>('');
+  const [keyPassphrase, setKeyPassphrase] = useState<string>('');
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -150,11 +180,22 @@ export function DashboardView({
   const globalPingAllowed = pingData?.globalPingAllowed ?? settings.pingAllowed ?? true;
   const userPingEnabled = pingData?.userPingEnabled ?? currentUser.pingEnabled ?? true;
   const intervalSec = pingData?.intervalSec ?? settings.pingIntervalSec ?? 60;
+  const offlineThreshold = pingData?.offlineThreshold ?? settings.pingOfflineThreshold ?? 5;
+  const offlineMultiplier = pingData?.offlineMultiplier ?? settings.pingOfflineMultiplier ?? 5;
+  const backoffCount = pingData?.backoffCount ?? 0;
   const effectivePingActive = globalPingAllowed && userPingEnabled;
 
   useEffect(() => {
     setIntervalInput(String(intervalSec));
   }, [intervalSec]);
+
+  useEffect(() => {
+    setOfflineThresholdInput(String(offlineThreshold));
+  }, [offlineThreshold]);
+
+  useEffect(() => {
+    setOfflineMultiplierInput(String(offlineMultiplier));
+  }, [offlineMultiplier]);
 
   const fetchPingStatus = useCallback(async () => {
     try {
@@ -206,6 +247,18 @@ export function DashboardView({
       setSelectedCertId(certificates[0].id);
     }
   }, [certificates, selectedCertId]);
+
+  useEffect(() => {
+    setKeyPassphrase('');
+  }, [selectedCertId]);
+
+  const selectedCert = useMemo(
+    () => certificates.find((c) => c.id === selectedCertId) ?? null,
+    [certificates, selectedCertId]
+  );
+  const needsRuntimePassphrase = Boolean(
+    selectedCert?.metadata.privateKeyEncrypted && !selectedCert?.hasStoredPassphrase
+  );
 
   // Clean up deleted server IDs from selection
   useEffect(() => {
@@ -455,9 +508,33 @@ export function DashboardView({
       );
       return;
     }
+    const parsedThreshold = Math.round(Number(offlineThresholdInput));
+    if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0 || parsedThreshold > 100) {
+      setError(
+        tr(
+          'Der Offline-Schwellwert muss zwischen 0 und 100 liegen (0 = aus).',
+          'Offline threshold must be between 0 and 100 (0 = off).'
+        )
+      );
+      return;
+    }
+    const parsedMultiplier = Math.round(Number(offlineMultiplierInput));
+    if (!Number.isFinite(parsedMultiplier) || parsedMultiplier < 2 || parsedMultiplier > 60) {
+      setError(
+        tr(
+          'Der Offline-Faktor muss zwischen 2 und 60 liegen.',
+          'Offline multiplier must be between 2 and 60.'
+        )
+      );
+      return;
+    }
     setSavingAdminPing(true);
     try {
-      const res = await api.updateAdminPingSettings({ pingIntervalSec: parsed });
+      const res = await api.updateAdminPingSettings({
+        pingIntervalSec: parsed,
+        pingOfflineThreshold: parsedThreshold,
+        pingOfflineMultiplier: parsedMultiplier,
+      });
       onUpdateSettings(res.settings);
       setPingData(res.dashboardStatus);
       setIntervalSavedNotice(true);
@@ -466,7 +543,7 @@ export function DashboardView({
       setError(
         err instanceof Error
           ? err.message
-          : tr('Ping-Intervall konnte nicht gespeichert werden.', 'Could not save ping interval.')
+          : tr('Ping-Einstellungen konnten nicht gespeichert werden.', 'Could not save ping settings.')
       );
     } finally {
       setSavingAdminPing(false);
@@ -557,12 +634,23 @@ export function DashboardView({
       );
       return;
     }
+    if (needsRuntimePassphrase && !keyPassphrase) {
+      setError(
+        tr(
+          'Dieses Zertifikat ist passwortgeschützt. Bitte geben Sie das Schlüssel-Passwort zum Entsperren ein oder hinterlegen Sie es unter „Zertifikate“.',
+          'This certificate is passphrase-protected. Please enter the key passphrase to unlock it, or store it under Certificates.'
+        )
+      );
+      return;
+    }
 
+    const passToUse = needsRuntimePassphrase ? keyPassphrase : undefined;
     setRunningBatch(true);
     try {
       const res = await api.executeBatch({
         certificateId: selectedCertId,
         jobs: preparedJobs,
+        ...(passToUse ? { passphrase: passToUse } : {}),
       });
       setBatchResults(res.results);
       await onExecutionComplete();
@@ -573,6 +661,7 @@ export function DashboardView({
           : tr('Sammelausführung fehlgeschlagen.', 'Batch execution failed.')
       );
     } finally {
+      setKeyPassphrase('');
       setRunningBatch(false);
     }
   }
@@ -694,6 +783,26 @@ export function DashboardView({
               <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
                 {tr('Letzter Lauf', 'Last run')}: {formatClockTime(pingData?.lastCycleAt)}
               </p>
+              {pingData?.pacingMs != null && (pingData.activeTargetCount ?? 0) > 1 && (
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+                  {tr(
+                    `Verteilt: ~1 IP alle ${formatPacingInterval(pingData.pacingMs, locale)}`,
+                    `Paced: ~1 IP every ${formatPacingInterval(pingData.pacingMs, locale)}`
+                  )}
+                </p>
+              )}
+              {backoffCount > 0 && offlineThreshold > 0 && (
+                <p className="text-xs text-amber-800 mt-0.5 tabular-nums">
+                  {tr(
+                    `${backoffCount} Offline-IP${backoffCount === 1 ? '' : 's'} im ${formatIntervalShort(
+                      Math.min(86400, intervalSec * offlineMultiplier)
+                    )}-Takt`,
+                    `${backoffCount} offline IP${backoffCount === 1 ? '' : 's'} at ${formatIntervalShort(
+                      Math.min(86400, intervalSec * offlineMultiplier)
+                    )} backoff`
+                  )}
+                </p>
+              )}
             </>
           )}
         </div>
@@ -758,7 +867,7 @@ export function DashboardView({
               )}
             </button>
 
-            <form onSubmit={handleSaveInterval} className="inline-flex items-center gap-2">
+            <form onSubmit={handleSaveInterval} className="flex flex-wrap items-center gap-2">
               <label htmlFor="admin-ping-interval" className="text-xs text-slate-600 whitespace-nowrap">
                 {tr('Intervall (Sek.):', 'Interval (sec):')}
               </label>
@@ -771,7 +880,63 @@ export function DashboardView({
                 value={intervalInput}
                 onChange={(e) => setIntervalInput(e.target.value)}
                 disabled={savingAdminPing}
-                className="w-20 px-2.5 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-16 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <span aria-hidden="true" className="hidden sm:inline text-slate-300">|</span>
+              <label
+                htmlFor="admin-ping-offline-threshold"
+                className="text-xs text-slate-600 whitespace-nowrap"
+                title={tr(
+                  'Nach dieser Anzahl aufeinanderfolgender Offline-Pings wird das Intervall pro IP verlängert (0 = deaktiviert). Bei Online-Antwort sofort wieder Standard.',
+                  'After this many consecutive offline pings, the interval is extended per IP (0 = disabled). Resets immediately when online.'
+                )}
+              >
+                {tr('Ab', 'After')}
+              </label>
+              <input
+                id="admin-ping-offline-threshold"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={offlineThresholdInput}
+                onChange={(e) => setOfflineThresholdInput(e.target.value)}
+                disabled={savingAdminPing}
+                title={tr('0 = Offline-Drosselung deaktiviert', '0 = offline backoff disabled')}
+                className="w-14 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <label
+                htmlFor="admin-ping-offline-multiplier"
+                className="text-xs text-slate-600 whitespace-nowrap"
+              >
+                {tr('× Offline → ×', '× offline → ×')}
+              </label>
+              <input
+                id="admin-ping-offline-multiplier"
+                type="number"
+                min={2}
+                max={60}
+                step={1}
+                value={offlineMultiplierInput}
+                onChange={(e) => setOfflineMultiplierInput(e.target.value)}
+                disabled={savingAdminPing || Number(offlineThresholdInput) === 0}
+                title={tr(
+                  `Verlängertes Intervall: ${formatIntervalShort(
+                    Math.min(
+                      86400,
+                      Math.max(10, Number(intervalInput) || intervalSec) *
+                        Math.max(2, Number(offlineMultiplierInput) || offlineMultiplier)
+                    )
+                  )}`,
+                  `Extended interval: ${formatIntervalShort(
+                    Math.min(
+                      86400,
+                      Math.max(10, Number(intervalInput) || intervalSec) *
+                        Math.max(2, Number(offlineMultiplierInput) || offlineMultiplier)
+                    )
+                  )}`
+                )}
+                className="w-14 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-400"
               />
               <button
                 type="submit"
@@ -864,6 +1029,11 @@ export function DashboardView({
               >
                 {certificates.map((cert) => {
                   const hasCert = cert.metadata.hasCertificate !== false && Boolean(cert.certFileName);
+                  const lockHint = cert.metadata.privateKeyEncrypted
+                    ? cert.hasStoredPassphrase
+                      ? tr(' · Passwort hinterlegt', ' · Passphrase stored')
+                      : tr(' · Passwort erforderlich', ' · Passphrase required')
+                    : '';
                   return (
                     <option key={cert.id} value={cert.id}>
                       {cert.name} (
@@ -872,6 +1042,7 @@ export function DashboardView({
                         : tr('Schlüsselpaar', 'Keypair')}
                       )
                       {cert.userId !== currentUser.id ? tr(' · Geteilt', ' · Shared') : ''}
+                      {lockHint}
                     </option>
                   );
                 })}
@@ -894,6 +1065,39 @@ export function DashboardView({
             </button>
           </div>
         </div>
+
+        {needsRuntimePassphrase && (
+          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3">
+            <label
+              htmlFor="dash-key-passphrase"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 whitespace-nowrap"
+            >
+              <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+              {tr('Schlüssel-Passwort zum Entsperren:', 'Key passphrase to unlock:')}
+            </label>
+            <input
+              id="dash-key-passphrase"
+              type="password"
+              autoComplete="off"
+              value={keyPassphrase}
+              onChange={(e) => setKeyPassphrase(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !runningBatch && preparedJobs.length > 0) {
+                  e.preventDefault();
+                  void handleDispatchBatch();
+                }
+              }}
+              placeholder={tr('Passwort für diesen Lauf eingeben...', 'Enter passphrase for this run...')}
+              className="w-full sm:max-w-xs px-3 py-1.5 text-sm bg-white border border-amber-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+            <span className="text-[11px] text-slate-500">
+              {tr(
+                'Wird nicht gespeichert und nach dem Ausführen sofort geleert.',
+                'Not stored and cleared immediately after execution.'
+              )}
+            </span>
+          </div>
+        )}
       </section>
 
       {/* Batch Execution Output Console */}
@@ -1458,11 +1662,42 @@ export function DashboardView({
                                     </span>
                                   ) : (
                                     <span
-                                      className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700"
+                                      className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 tabular-nums"
                                       title={st.error || tr('Nicht erreichbar', 'Unreachable')}
                                     >
                                       <XCircle className="w-3.5 h-3.5" />
                                       Offline
+                                      {(st.consecutiveFailures ?? 0) > 1 && (
+                                        <span className="text-[11px] font-mono text-red-600/80">
+                                          ({st.consecutiveFailures}×)
+                                        </span>
+                                      )}
+                                    </span>
+                                  )}
+                                  {!st.online && st.backoffActive && !autoPingOffLabel && (
+                                    <span
+                                      title={tr(
+                                        `Nach ${st.consecutiveFailures ?? offlineThreshold} Fehlversuchen auf ${formatIntervalShort(
+                                          st.effectiveIntervalSec || intervalSec * offlineMultiplier
+                                        )} verlängert. Bei Online-Antwort sofort wieder ${formatIntervalShort(
+                                          intervalSec
+                                        )}.`,
+                                        `Extended to ${formatIntervalShort(
+                                          st.effectiveIntervalSec || intervalSec * offlineMultiplier
+                                        )} after ${st.consecutiveFailures ?? offlineThreshold} failed pings. Resets immediately to ${formatIntervalShort(
+                                          intervalSec
+                                        )} once online.`
+                                      )}
+                                      className="px-1.5 py-0.5 text-[10px] font-mono font-medium rounded border border-amber-200 bg-amber-50 text-amber-800 tabular-nums"
+                                    >
+                                      {tr(
+                                        `alle ${formatIntervalShort(
+                                          st.effectiveIntervalSec || intervalSec * offlineMultiplier
+                                        )}`,
+                                        `every ${formatIntervalShort(
+                                          st.effectiveIntervalSec || intervalSec * offlineMultiplier
+                                        )}`
+                                      )}
                                     </span>
                                   )}
                                   {autoPingOffLabel && (

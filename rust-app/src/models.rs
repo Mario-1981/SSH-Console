@@ -260,6 +260,8 @@ pub struct UserCertificatePublic {
     pub public_key_file_name: String,
     pub cert_file_name: String,
     pub metadata: CertInspection,
+    #[serde(default)]
+    pub has_stored_passphrase: bool,
     pub shared_with_all: bool,
     pub shared_with_user_ids: Vec<String>,
     pub uploaded_at: String,
@@ -271,6 +273,9 @@ pub struct UserCertificateSecret {
     pub name: String,
     pub private_key_enc: Vec<u8>,
     pub private_key_nonce: Vec<u8>,
+    pub passphrase_enc: Option<Vec<u8>>,
+    pub passphrase_nonce: Option<Vec<u8>>,
+    pub private_key_encrypted: bool,
     pub public_key: String,
     pub certificate: String,
     pub key_id: String,
@@ -475,6 +480,8 @@ pub struct UploadCertBundleRequest {
     pub public_key_content: String,
     #[serde(default, alias = "cert_content", alias = "cert", alias = "certificate", alias = "cert_pub", alias = "zertifikat_cert")]
     pub cert_content: Option<String>,
+    #[serde(default, alias = "key_passphrase", alias = "keyPassphrase")]
+    pub passphrase: Option<String>,
     #[serde(alias = "shared_with_all")]
     pub shared_with_all: Option<bool>,
     #[serde(alias = "shared_with_user_ids")]
@@ -502,6 +509,10 @@ pub struct UpdateCertBundleRequest {
     pub cert_content: Option<String>,
     #[serde(default, alias = "remove_cert")]
     pub remove_cert: Option<bool>,
+    #[serde(default, alias = "key_passphrase", alias = "keyPassphrase")]
+    pub passphrase: Option<String>,
+    #[serde(default, alias = "clear_passphrase")]
+    pub clear_passphrase: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -513,6 +524,8 @@ pub struct StoredCertificateForEdit {
     pub cert_file_name: String,
     pub private_key_enc: Vec<u8>,
     pub private_key_nonce: Vec<u8>,
+    pub passphrase_enc: Option<Vec<u8>>,
+    pub passphrase_nonce: Option<Vec<u8>>,
     pub public_key: String,
     pub certificate: String,
     pub shared_with_all: bool,
@@ -549,6 +562,8 @@ pub struct ExecuteRequest {
     #[serde(alias = "certificate_id")]
     pub certificate_id: String,
     pub targets: Vec<ExecuteTarget>,
+    #[serde(default, alias = "key_passphrase", alias = "keyPassphrase")]
+    pub passphrase: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -563,6 +578,12 @@ pub struct ServerPingStatus {
     pub checked_at: String,
     #[serde(default)]
     pub last_online_at: Option<String>,
+    #[serde(default)]
+    pub consecutive_failures: u32,
+    #[serde(default)]
+    pub backoff_active: bool,
+    #[serde(default)]
+    pub effective_interval_sec: u64,
     pub error: Option<String>,
 }
 
@@ -587,6 +608,10 @@ pub struct AdminPingSettingsRequest {
     pub ping_allowed: Option<bool>,
     #[serde(alias = "ping_interval_sec")]
     pub ping_interval_sec: Option<i64>,
+    #[serde(alias = "ping_offline_threshold")]
+    pub ping_offline_threshold: Option<i64>,
+    #[serde(alias = "ping_offline_multiplier")]
+    pub ping_offline_multiplier: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -604,6 +629,8 @@ pub struct BatchExecuteRequest {
     #[serde(alias = "certificate_id")]
     pub certificate_id: String,
     pub jobs: Vec<BatchJobItem>,
+    #[serde(default, alias = "key_passphrase", alias = "keyPassphrase")]
+    pub passphrase: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

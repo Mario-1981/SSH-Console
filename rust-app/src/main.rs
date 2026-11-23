@@ -30,12 +30,15 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::Notify;
+use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 const SESSION_COOKIE: &str = "ssh_console_session";
+const MAX_CONCURRENT_AUTO_PINGS: usize = 32;
+const MAX_CONCURRENT_MANUAL_PINGS: usize = 24;
+const MANUAL_PING_STAGGER_MS: u64 = 15;
 
 pub(crate) struct AppState {
     pub(crate) data_dir: PathBuf,
@@ -232,6 +235,8 @@ fn serialize_public_settings(state: &SharedState) -> serde_json::Value {
         "initializedAt": state.db.get_initialized_at(),
         "pingAllowed": state.db.get_ping_allowed(),
         "pingIntervalSec": state.db.get_ping_interval_sec(),
+        "pingOfflineThreshold": state.db.get_ping_offline_threshold(),
+        "pingOfflineMultiplier": state.db.get_ping_offline_multiplier(),
         "ssoEnabled": policy.sso_enabled,
         "ssoProviderName": policy.sso_provider_name,
         "ssoAutoCreateUsers": policy.sso_auto_create_users,
@@ -2307,6 +2312,17 @@ async fn api_upload_cert(
         .encrypt(req.private_key_content.as_bytes())
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
+    let (pass_enc, pass_nonce) = match req.passphrase.as_deref().filter(|p| !p.is_empty()) {
+        Some(pass) => {
+            let (pe, pn) = state
+                .vault
+                .encrypt(pass.as_bytes())
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            (Some(pe), Some(pn))
+        }
+        None => (None, None),
+    };
+
     let is_admin = user.role == "admin";
     let shared_all = is_admin && req.shared_with_all.unwrap_or(false);
     let shared_ids = if is_admin {
@@ -2338,6 +2354,8 @@ async fn api_upload_cert(
             cert_file_name,
             &enc,
             &nonce,
+            pass_enc.as_deref(),
+            pass_nonce.as_deref(),
             &req.public_key_content,
             clean_cert,
             &inspection,
@@ -2422,6 +2440,8 @@ struct ParsedCertPayload {
     cert_content: Option<String>,
     cert_file_name: Option<String>,
     remove_cert: bool,
+    passphrase: Option<String>,
+    clear_passphrase: bool,
 }
 
 async fn parse_cert_payload(
@@ -2473,6 +2493,17 @@ async fn parse_cert_payload(
                     let v = text.trim().to_lowercase();
                     if v == "true" || v == "1" || v == "yes" {
                         out.remove_cert = true;
+                    }
+                }
+                "passphrase" | "key_passphrase" | "keyPassphrase" => {
+                    if !text.is_empty() {
+                        out.passphrase = Some(text);
+                    }
+                }
+                "clear_passphrase" | "clearPassphrase" => {
+                    let v = text.trim().to_lowercase();
+                    if v == "true" || v == "1" || v == "yes" {
+                        out.clear_passphrase = true;
                     }
                 }
                 "private_key" | "privateKey" | "privateKeyContent" | "zertifikat" | "key" => {
@@ -2527,6 +2558,8 @@ async fn parse_cert_payload(
     out.public_key_content = body.public_key_content.filter(|s| !s.trim().is_empty());
     out.cert_content = body.cert_content.filter(|s| !s.trim().is_empty());
     out.remove_cert = body.remove_cert.unwrap_or(false);
+    out.passphrase = body.passphrase.filter(|s| !s.is_empty());
+    out.clear_passphrase = body.clear_passphrase.unwrap_or(false);
     Ok(out)
 }
 
@@ -2547,12 +2580,14 @@ async fn apply_partial_cert_update(
         || payload.private_key_content.is_some()
         || payload.public_key_content.is_some()
         || payload.cert_content.is_some()
-        || payload.remove_cert;
+        || payload.remove_cert
+        || payload.passphrase.is_some()
+        || payload.clear_passphrase;
 
     if !has_any_change {
         return Err(err_resp(
             StatusCode::BAD_REQUEST,
-            "Keine Änderungen übermittelt. Senden Sie mindestens eines der Felder: \"name\", \"cert\", \"private_key\", \"public_key\" oder \"remove_cert\".",
+            "Keine Änderungen übermittelt. Senden Sie mindestens eines der Felder: \"name\", \"cert\", \"private_key\", \"public_key\", \"passphrase\", \"clear_passphrase\" oder \"remove_cert\".",
         ));
     }
 
@@ -2607,6 +2642,23 @@ async fn apply_partial_cert_update(
     .await
     .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
 
+    let (next_pass_enc, next_pass_nonce) = if payload.clear_passphrase {
+        (None, None)
+    } else if let Some(ref new_pass) = payload.passphrase {
+        let (pe, pn) = state
+            .vault
+            .encrypt(new_pass.as_bytes())
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        (Some(pe), Some(pn))
+    } else if payload.private_key_content.is_some() && !inspection.private_key_encrypted {
+        (None, None)
+    } else {
+        (
+            existing.passphrase_enc.clone(),
+            existing.passphrase_nonce.clone(),
+        )
+    };
+
     let next_name = effective_rename.unwrap_or(&existing.name);
     let next_priv_file = payload
         .private_key_file_name
@@ -2638,6 +2690,8 @@ async fn apply_partial_cert_update(
             next_cert_file,
             &next_priv_enc,
             &next_priv_nonce,
+            next_pass_enc.as_deref(),
+            next_pass_nonce.as_deref(),
             &effective_pub,
             &effective_cert,
             &inspection,
@@ -2778,6 +2832,17 @@ async fn api_v1_upload_cert(
         .encrypt(priv_content.as_bytes())
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
+    let (pass_enc, pass_nonce) = match payload.passphrase.as_deref().filter(|p| !p.is_empty()) {
+        Some(pass) => {
+            let (pe, pn) = state
+                .vault
+                .encrypt(pass.as_bytes())
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            (Some(pe), Some(pn))
+        }
+        None => (None, None),
+    };
+
     let effective_name = if let Some(n) = payload.name.filter(|s| !s.is_empty()) {
         n
     } else if !inspection.key_id.is_empty() {
@@ -2806,6 +2871,8 @@ async fn api_v1_upload_cert(
             effective_cert_file,
             &enc,
             &nonce,
+            pass_enc.as_deref(),
+            pass_nonce.as_deref(),
             &pub_content,
             clean_cert,
             &inspection,
@@ -2964,6 +3031,10 @@ async fn api_shell_ticket(
             port: target_port,
             ssh_user: ssh_user.clone(),
             certificate_id: cert.id,
+            passphrase: req
+                .passphrase
+                .filter(|p| !p.is_empty())
+                .map(zeroize::Zeroizing::new),
             ignore_host_key,
             cols: req.cols.unwrap_or(100),
             rows: req.rows.unwrap_or(30),
@@ -2980,6 +3051,28 @@ async fn api_shell_ticket(
         certificate_name: cert.name,
         openssh_available: Path::new("/usr/bin/ssh").exists(),
     }))
+}
+
+fn resolve_cert_passphrase(
+    state: &SharedState,
+    cert: &UserCertificateSecret,
+    provided: Option<&str>,
+) -> Result<Option<zeroize::Zeroizing<String>>, ApiError> {
+    if let Some(pass) = provided.filter(|p| !p.is_empty()) {
+        return Ok(Some(zeroize::Zeroizing::new(pass.to_string())));
+    }
+    if let (Some(enc), Some(nonce)) = (&cert.passphrase_enc, &cert.passphrase_nonce) {
+        let plain_bytes = state
+            .vault
+            .decrypt(enc, nonce)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let plain = std::str::from_utf8(&plain_bytes)
+            .map_err(|_| err_resp(StatusCode::INTERNAL_SERVER_ERROR, "Gespeichertes Schlüssel-Passwort ungültig."))?;
+        if !plain.is_empty() {
+            return Ok(Some(zeroize::Zeroizing::new(plain.to_string())));
+        }
+    }
+    Ok(None)
 }
 
 async fn api_ws_shell(
@@ -3014,8 +3107,14 @@ async fn api_ws_shell(
         .decrypt(&cert.private_key_enc, &cert.private_key_nonce)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
+    let passphrase_plain = resolve_cert_passphrase(
+        &state,
+        &cert,
+        ticket.passphrase.as_deref().map(|s| s.as_str()),
+    )?;
+
     Ok(ws.on_upgrade(move |socket| {
-        shell::handle_ssh_websocket(socket, state, ticket, cert, private_key_plain)
+        shell::handle_ssh_websocket(socket, state, ticket, cert, private_key_plain, passphrase_plain)
     }))
 }
 
@@ -3040,6 +3139,14 @@ async fn api_execute(
 
     if req.targets.is_empty() || req.targets.len() > 20 {
         return Err(err_resp(StatusCode::BAD_REQUEST, "1 bis 20 Ziel-IPs zulässig."));
+    }
+
+    let resolved_passphrase = resolve_cert_passphrase(&state, &cert, req.passphrase.as_deref())?;
+    if cert.private_key_encrypted && resolved_passphrase.is_none() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Der private Schlüssel dieses Zertifikats ist passwortgeschützt. Bitte geben Sie das Schlüssel-Passwort ein oder hinterlegen Sie es beim Zertifikat.",
+        ));
     }
 
     let policy = state.db.get_auth_policy();
@@ -3085,6 +3192,7 @@ async fn api_execute(
             &cmd,
             &cert,
             plain_key,
+            resolved_passphrase.as_deref().map(|s| s.as_str()),
             ignore_host_key,
             &known_hosts_path,
         )
@@ -3154,12 +3262,117 @@ async fn known_last_online_at(state: &SharedState, srv: &UserServer) -> Option<S
         .or_else(|| srv.last_online_at.clone())
 }
 
-async fn record_ping_result(state: &SharedState, srv: &UserServer, status: ServerPingStatus) {
+fn compute_offline_backoff(
+    consecutive_failures: u32,
+    base_interval_sec: u64,
+    threshold: u32,
+    multiplier: u64,
+) -> (bool, u64) {
+    if threshold > 0 && consecutive_failures >= threshold && multiplier > 1 {
+        let extended = base_interval_sec.saturating_mul(multiplier).min(86_400);
+        (true, extended)
+    } else {
+        (false, base_interval_sec)
+    }
+}
+
+fn is_status_due_for_cycle(
+    status: Option<&ServerPingStatus>,
+    cycle_start_epoch_ms: i64,
+    base_interval_sec: u64,
+    threshold: u32,
+    multiplier: u64,
+) -> bool {
+    let Some(st) = status else {
+        return true;
+    };
+    if st.online {
+        return true;
+    }
+    let (backoff_active, effective_interval_sec) =
+        compute_offline_backoff(st.consecutive_failures, base_interval_sec, threshold, multiplier);
+    if !backoff_active {
+        return true;
+    }
+    let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&st.checked_at) else {
+        return true;
+    };
+    let last_checked_ms = parsed.timestamp_millis();
+    let base_interval_ms = (base_interval_sec.saturating_mul(1000)) as i64;
+    let effective_interval_ms = (effective_interval_sec.saturating_mul(1000)) as i64;
+    let guard_margin_ms = (base_interval_ms / 10).min(2000);
+    last_checked_ms.saturating_add(effective_interval_ms)
+        <= cycle_start_epoch_ms
+            .saturating_add(base_interval_ms)
+            .saturating_sub(guard_margin_ms)
+}
+
+async fn record_ping_result(state: &SharedState, srv: &UserServer, mut status: ServerPingStatus) {
     if status.online {
         let _ = state.db.record_server_last_online(&srv.id, &status.checked_at);
     }
+    let base_interval_sec = state.db.get_ping_interval_sec();
+    let threshold = state.db.get_ping_offline_threshold();
+    let multiplier = state.db.get_ping_offline_multiplier();
     let mut guard = state.ping.write().await;
+    let prev_failures = guard
+        .statuses
+        .get(&srv.id)
+        .map(|s| s.consecutive_failures)
+        .unwrap_or(0);
+    if status.online {
+        status.consecutive_failures = 0;
+        status.backoff_active = false;
+        status.effective_interval_sec = base_interval_sec;
+    } else {
+        let failures = prev_failures.saturating_add(1);
+        let (backoff_active, effective_interval_sec) =
+            compute_offline_backoff(failures, base_interval_sec, threshold, multiplier);
+        status.consecutive_failures = failures;
+        status.backoff_active = backoff_active;
+        status.effective_interval_sec = effective_interval_sec;
+    }
     guard.statuses.insert(srv.id.clone(), status);
+}
+
+async fn ping_servers_bounded(
+    state: &SharedState,
+    targets: Vec<UserServer>,
+    max_concurrency: usize,
+    stagger_ms: u64,
+    require_auto_ping: bool,
+) {
+    if targets.is_empty() {
+        return;
+    }
+    let semaphore = Arc::new(Semaphore::new(max_concurrency.max(1)));
+    let mut handles = Vec::with_capacity(targets.len());
+
+    for (idx, srv) in targets.into_iter().enumerate() {
+        if stagger_ms > 0 && idx > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(stagger_ms)).await;
+        }
+        if require_auto_ping && !state.db.get_ping_allowed() {
+            break;
+        }
+        let permit = match Arc::clone(&semaphore).acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => break,
+        };
+        let task_state = Arc::clone(state);
+        handles.push(tokio::spawn(async move {
+            let _permit = permit;
+            let prev_ok = known_last_online_at(&task_state, &srv).await;
+            let status = ping::check_server_reachability(&srv, prev_ok).await;
+            if !require_auto_ping || (task_state.db.get_ping_allowed() && srv.ping_enabled) {
+                record_ping_result(&task_state, &srv, status).await;
+            }
+        }));
+    }
+
+    for handle in handles {
+        let _ = handle.await;
+    }
 }
 
 async fn build_dashboard_status_json(
@@ -3168,6 +3381,8 @@ async fn build_dashboard_status_json(
 ) -> Result<serde_json::Value, ApiError> {
     let global_ping_allowed = state.db.get_ping_allowed();
     let interval_sec = state.db.get_ping_interval_sec();
+    let offline_threshold = state.db.get_ping_offline_threshold();
+    let offline_multiplier = state.db.get_ping_offline_multiplier();
     let user_ping_enabled = user.ping_enabled;
     let effective_auto_ping = global_ping_allowed && user_ping_enabled;
 
@@ -3177,11 +3392,30 @@ async fn build_dashboard_status_json(
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let guard = state.ping.read().await;
     let mut user_statuses = serde_json::Map::new();
+    let mut backoff_count: usize = 0;
+
     for srv in servers {
         if let Some(st) = guard.statuses.get(&srv.id) {
             let mut merged = st.clone();
             if merged.last_online_at.is_none() {
                 merged.last_online_at = srv.last_online_at.clone();
+            }
+            if merged.online {
+                merged.consecutive_failures = 0;
+                merged.backoff_active = false;
+                merged.effective_interval_sec = interval_sec;
+            } else {
+                let (backoff_active, effective_interval_sec) = compute_offline_backoff(
+                    merged.consecutive_failures,
+                    interval_sec,
+                    offline_threshold,
+                    offline_multiplier,
+                );
+                merged.backoff_active = backoff_active;
+                merged.effective_interval_sec = effective_interval_sec;
+                if effective_auto_ping && srv.ping_enabled && backoff_active {
+                    backoff_count += 1;
+                }
             }
             user_statuses.insert(
                 srv.id,
@@ -3197,8 +3431,13 @@ async fn build_dashboard_status_json(
     Ok(json!({
         "statuses": user_statuses,
         "intervalSec": interval_sec,
+        "offlineThreshold": offline_threshold,
+        "offlineMultiplier": offline_multiplier,
+        "backoffCount": backoff_count,
         "lastCycleAt": if effective_auto_ping { guard.last_cycle_at.clone() } else { None },
         "nextCycleAt": if effective_auto_ping { guard.next_cycle_at.clone() } else { None },
+        "pacingMs": if effective_auto_ping { guard.pacing_ms } else { None },
+        "activeTargetCount": if effective_auto_ping { guard.active_target_count } else { 0 },
         "pingMode": ping_mode,
         "globalPingAllowed": global_ping_allowed,
         "userPingEnabled": user_ping_enabled
@@ -3236,11 +3475,12 @@ async fn api_dashboard_ping(
         None => servers,
     };
 
-    for srv in targets {
-        let prev_ok = known_last_online_at(&state, &srv).await;
-        let status = ping::check_server_reachability(&srv, prev_ok).await;
-        record_ping_result(&state, &srv, status).await;
-    }
+    let stagger_ms = if targets.len() > 20 {
+        MANUAL_PING_STAGGER_MS
+    } else {
+        0
+    };
+    ping_servers_bounded(&state, targets, MAX_CONCURRENT_MANUAL_PINGS, stagger_ms, false).await;
 
     Ok(Json(build_dashboard_status_json(&state, &user).await?))
 }
@@ -3262,13 +3502,21 @@ async fn api_user_ping_settings(
         let uid = updated_user.id.clone();
         tokio::spawn(async move {
             if let Ok(servers) = bg_state.db.list_accessible_servers(&uid) {
-                for srv in servers.into_iter().filter(|s| s.ping_enabled) {
-                    let prev_ok = known_last_online_at(&bg_state, &srv).await;
-                    let st = ping::check_server_reachability(&srv, prev_ok).await;
-                    if bg_state.db.get_ping_allowed() {
-                        record_ping_result(&bg_state, &srv, st).await;
-                    }
-                }
+                let targets: Vec<UserServer> =
+                    servers.into_iter().filter(|s| s.ping_enabled).collect();
+                let stagger_ms = if targets.len() > 20 {
+                    MANUAL_PING_STAGGER_MS
+                } else {
+                    0
+                };
+                ping_servers_bounded(
+                    &bg_state,
+                    targets,
+                    MAX_CONCURRENT_MANUAL_PINGS,
+                    stagger_ms,
+                    true,
+                )
+                .await;
             }
         });
     }
@@ -3288,13 +3536,20 @@ async fn api_admin_ping_settings(
     let admin = require_admin(&state, &jar, &headers)?;
     let (ping_allowed, ping_interval_sec) = state
         .db
-        .set_global_ping_settings(req.ping_allowed, req.ping_interval_sec)
+        .set_global_ping_settings(
+            req.ping_allowed,
+            req.ping_interval_sec,
+            req.ping_offline_threshold,
+            req.ping_offline_multiplier,
+        )
         .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
 
     {
         let mut guard = state.ping.write().await;
         if !ping_allowed {
             guard.next_cycle_at = None;
+            guard.pacing_ms = None;
+            guard.active_target_count = 0;
         } else {
             guard.next_cycle_at =
                 Some((Utc::now() + chrono::Duration::seconds(ping_interval_sec as i64)).to_rfc3339());
@@ -3326,6 +3581,14 @@ async fn api_execute_batch(
         return Err(err_resp(StatusCode::BAD_REQUEST, "1 bis 50 Aufträge zulässig."));
     }
 
+    let resolved_passphrase = resolve_cert_passphrase(&state, &cert, req.passphrase.as_deref())?;
+    if cert.private_key_encrypted && resolved_passphrase.is_none() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Der private Schlüssel dieses Zertifikats ist passwortgeschützt. Bitte geben Sie das Schlüssel-Passwort ein oder hinterlegen Sie es beim Zertifikat.",
+        ));
+    }
+
     let policy = state.db.get_auth_policy();
     let known_hosts_path = ssh::user_known_hosts_path(&state.data_dir, &user.id)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -3355,6 +3618,7 @@ async fn api_execute_batch(
             &cmd,
             &cert,
             plain_key,
+            resolved_passphrase.as_deref().map(|s| s.as_str()),
             ignore_host_key,
             &known_hosts_path,
         )
@@ -3571,6 +3835,8 @@ async fn main() {
         } else {
             None
         },
+        pacing_ms: None,
+        active_target_count: 0,
     }));
     let ping_notify = Arc::new(Notify::new());
     let state = Arc::new(AppState {
@@ -3583,54 +3849,159 @@ async fn main() {
         auth_challenges: auth_extra::AuthChallengeStore::default(),
     });
 
-    // Hintergrund-Task: Dynamisches Ping-Intervall mit Admin-Sperre & Pro-IP-Steuerung
+    // Hintergrund-Task: Gleichmäßig über pingIntervalSec verteilter Auto-Ping
+    // (pro IP exakt im eingestellten Intervall, aber ohne Netzwerk-Spitzen bei vielen IPs)
     let bg_state = Arc::clone(&state);
     tokio::spawn(async move {
+        let auto_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_AUTO_PINGS));
+        let in_flight_ids = Arc::new(AsyncMutex::new(HashSet::<String>::new()));
+
         loop {
             let allowed = bg_state.db.get_ping_allowed();
-            let interval_sec = bg_state.db.get_ping_interval_sec();
+            let interval_sec = bg_state.db.get_ping_interval_sec().clamp(10, 3600);
+            let offline_threshold = bg_state.db.get_ping_offline_threshold();
+            let offline_multiplier = bg_state.db.get_ping_offline_multiplier();
 
             if !allowed {
                 {
                     let mut guard = bg_state.ping.write().await;
                     guard.next_cycle_at = None;
+                    guard.pacing_ms = None;
+                    guard.active_target_count = 0;
                 }
                 bg_state.ping_notify.notified().await;
                 continue;
             }
 
+            let interval_ms: u64 = interval_sec.saturating_mul(1000);
+            let cycle_start = tokio::time::Instant::now();
+            let cycle_end = cycle_start + std::time::Duration::from_millis(interval_ms);
+            let mut interrupted = false;
+
             if let Ok(servers) = bg_state.db.list_all_servers() {
                 let now = Utc::now();
+                let now_epoch_ms = now.timestamp_millis();
                 let next = now + chrono::Duration::seconds(interval_sec as i64);
                 let existing_ids: HashSet<String> = servers.iter().map(|s| s.id.clone()).collect();
-                let active_ids: HashSet<String> = servers
-                    .iter()
-                    .filter(|s| bg_state.db.should_ping_server(s))
-                    .map(|s| s.id.clone())
-                    .collect();
-                {
+                let mut targets: Vec<UserServer> = {
                     let mut guard = bg_state.ping.write().await;
-                    guard.last_cycle_at = Some(now.to_rfc3339());
-                    guard.next_cycle_at = Some(next.to_rfc3339());
                     // Nur gelöschte Server entfernen; manuelle Ping-Ergebnisse bleiben erhalten
                     guard.statuses.retain(|k, _| existing_ids.contains(k));
-                }
-                for srv in servers.into_iter().filter(|s| active_ids.contains(&s.id)) {
+                    let due: Vec<UserServer> = servers
+                        .into_iter()
+                        .filter(|s| {
+                            bg_state.db.should_ping_server(s)
+                                && is_status_due_for_cycle(
+                                    guard.statuses.get(&s.id),
+                                    now_epoch_ms,
+                                    interval_sec,
+                                    offline_threshold,
+                                    offline_multiplier,
+                                )
+                        })
+                        .collect();
+                    let total_due = due.len();
+                    let pacing_ms = if total_due > 0 {
+                        Some(((interval_ms as f64) / (total_due as f64)).round().max(1.0) as u64)
+                    } else {
+                        None
+                    };
+                    guard.last_cycle_at = Some(now.to_rfc3339());
+                    guard.next_cycle_at = Some(next.to_rfc3339());
+                    guard.pacing_ms = pacing_ms;
+                    guard.active_target_count = total_due;
+                    due
+                };
+                targets.sort_by(|a, b| a.id.cmp(&b.id));
+
+                let total = targets.len();
+
+                for (idx, srv) in targets.into_iter().enumerate() {
                     if !bg_state.db.get_ping_allowed() {
+                        interrupted = true;
                         break;
                     }
-                    let prev_ok = known_last_online_at(&bg_state, &srv).await;
-                    let st = ping::check_server_reachability(&srv, prev_ok).await;
-                    if bg_state.db.get_ping_allowed() && bg_state.db.should_ping_server(&srv) {
-                        record_ping_result(&bg_state, &srv, st).await;
+
+                    let offset_ms = ((idx as u128 * interval_ms as u128) / (total as u128)) as u64;
+                    let target_instant = cycle_start + std::time::Duration::from_millis(offset_ms);
+                    if target_instant > tokio::time::Instant::now() {
+                        tokio::select! {
+                            _ = tokio::time::sleep_until(target_instant) => {}
+                            _ = bg_state.ping_notify.notified() => {
+                                interrupted = true;
+                                break;
+                            }
+                        }
                     }
+
+                    if !bg_state.db.get_ping_allowed() {
+                        interrupted = true;
+                        break;
+                    }
+                    if !bg_state.db.should_ping_server(&srv) {
+                        continue;
+                    }
+                    {
+                        let guard = in_flight_ids.lock().await;
+                        if guard.contains(&srv.id) {
+                            continue;
+                        }
+                    }
+
+                    let permit = tokio::select! {
+                        res = Arc::clone(&auto_semaphore).acquire_owned() => match res {
+                            Ok(p) => p,
+                            Err(_) => {
+                                interrupted = true;
+                                break;
+                            }
+                        },
+                        _ = bg_state.ping_notify.notified() => {
+                            interrupted = true;
+                            break;
+                        }
+                    };
+
+                    if !bg_state.db.get_ping_allowed() || !bg_state.db.should_ping_server(&srv) {
+                        drop(permit);
+                        continue;
+                    }
+                    {
+                        let mut guard = in_flight_ids.lock().await;
+                        if !guard.insert(srv.id.clone()) {
+                            drop(permit);
+                            continue;
+                        }
+                    }
+
+                    let task_state = Arc::clone(&bg_state);
+                    let task_in_flight = Arc::clone(&in_flight_ids);
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        let prev_ok = known_last_online_at(&task_state, &srv).await;
+                        let st = ping::check_server_reachability(&srv, prev_ok).await;
+                        if task_state.db.get_ping_allowed() && task_state.db.should_ping_server(&srv)
+                        {
+                            record_ping_result(&task_state, &srv, st).await;
+                        }
+                        let mut guard = task_in_flight.lock().await;
+                        guard.remove(&srv.id);
+                    });
                 }
             }
 
-            let sleep_sec = bg_state.db.get_ping_interval_sec();
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(sleep_sec)) => {}
-                _ = bg_state.ping_notify.notified() => {}
+            if !interrupted {
+                if cycle_end > tokio::time::Instant::now() {
+                    tokio::select! {
+                        _ = tokio::time::sleep_until(cycle_end) => {}
+                        _ = bg_state.ping_notify.notified() => {}
+                    }
+                } else {
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {}
+                        _ = bg_state.ping_notify.notified() => {}
+                    }
+                }
             }
         }
     });

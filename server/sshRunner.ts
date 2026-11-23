@@ -67,14 +67,16 @@ function probeTcpPort(ip: string, port: number, timeoutMs = 2000): Promise<{ rea
 }
 
 function wipeAndRemoveDir(dir: string) {
-  try {
-    const keyFile = path.join(dir, 'zertifikat');
-    if (fs.existsSync(keyFile)) {
-      const size = fs.statSync(keyFile).size;
-      fs.writeFileSync(keyFile, Buffer.alloc(size, 0));
+  for (const name of ['zertifikat', 'passphrase', 'askpass.sh']) {
+    try {
+      const target = path.join(dir, name);
+      if (fs.existsSync(target)) {
+        const size = fs.statSync(target).size;
+        fs.writeFileSync(target, Buffer.alloc(size, 0));
+      }
+    } catch {
+      // ignore cleanup error
     }
-  } catch {
-    // ignore cleanup error
   }
   try {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -111,6 +113,7 @@ export async function executeSshCommand(params: {
   sshUser: string;
   command: SshCommand;
   certificate: UserCertificateBundle;
+  passphrase?: string;
   ignoreHostKey?: boolean;
   forceDryRun?: boolean;
 }): Promise<SshExecutionResult> {
@@ -162,6 +165,34 @@ export async function executeSshCommand(params: {
         fs.writeFileSync(certPath, params.certificate.certContent, { mode: 0o644 });
       }
 
+      const effectivePassphrase =
+        typeof params.passphrase === 'string' && params.passphrase.length > 0
+          ? params.passphrase
+          : params.certificate.passphraseEncrypted
+            ? decryptSecret(params.certificate.passphraseEncrypted)
+            : '';
+
+      const useAskPass = Boolean(effectivePassphrase);
+      const childEnv: Record<string, string> = {
+        PATH: '/usr/bin:/bin',
+        HOME: tempDir,
+      };
+
+      if (useAskPass) {
+        const passPath = path.join(tempDir, 'passphrase');
+        const askpassPath = path.join(tempDir, 'askpass.sh');
+        fs.writeFileSync(passPath, `${effectivePassphrase}\n`, { mode: 0o600 });
+        fs.writeFileSync(
+          askpassPath,
+          '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\n  rm -f "$TRIXIESSH_PASS_FILE"\nfi\n',
+          { mode: 0o700 }
+        );
+        childEnv.SSH_ASKPASS = askpassPath;
+        childEnv.SSH_ASKPASS_REQUIRE = 'force';
+        childEnv.DISPLAY = 'none:0';
+        childEnv.TRIXIESSH_PASS_FILE = passPath;
+      }
+
       const liveHostKeyArgs = params.ignoreHostKey
         ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
         : [
@@ -179,8 +210,8 @@ export async function executeSshCommand(params: {
         ...(hasCert ? ['-o', `CertificateFile=${certPath}`] : []),
         '-o',
         'IdentitiesOnly=yes',
-        '-o',
-        'BatchMode=yes',
+        // BatchMode=yes disables SSH_ASKPASS in OpenSSH; omit it only when unlocking via SSH_ASKPASS_REQUIRE=force
+        ...(useAskPass ? ['-o', 'NumberOfPasswordPrompts=0'] : ['-o', 'BatchMode=yes']),
         '-o',
         'PasswordAuthentication=no',
         '-o',
@@ -202,10 +233,7 @@ export async function executeSshCommand(params: {
           {
             timeout: params.command.timeoutSec * 1000,
             maxBuffer: 4 * 1024 * 1024,
-            env: {
-              PATH: '/usr/bin:/bin',
-              HOME: tempDir,
-            },
+            env: childEnv,
           },
           (error, stdout, stderr) => {
             const cleanedStderr = filterBenignSshStderr(stderr.toString());
@@ -242,11 +270,22 @@ export async function executeSshCommand(params: {
     !hasCert || meta.principals.length === 0 || meta.principals.includes(params.sshUser);
   const probe = await probeTcpPort(params.ipAddress, params.port, 1800);
 
+  const hasEffectivePassphrase = Boolean(
+    (typeof params.passphrase === 'string' && params.passphrase.length > 0) ||
+      params.certificate.passphraseEncrypted
+  );
+
   const checks: string[] = [
     hasCert
       ? `[Prüfung] OpenSSH-Zertifikatspaket (3 Dateien): ${params.certificate.name}`
       : `[Prüfung] OpenSSH-Schlüsselpaar (2 Dateien, ohne CA-Zertifikat): ${params.certificate.name}`,
-    `  · Privatschlüssel (0600): ${params.certificate.privateKeyFileName} (${meta.privateKeyFormat})`,
+    `  · Privatschlüssel (0600): ${params.certificate.privateKeyFileName} (${meta.privateKeyFormat}${
+      meta.privateKeyEncrypted
+        ? hasEffectivePassphrase
+          ? ' · passwortgeschützt, Entsperrung per SSH_ASKPASS bereit'
+          : ' · passwortgeschützt, KEIN Passwort übergeben'
+        : ''
+    })`,
     `  · Öffentlicher Schlüssel (0644): ${params.certificate.publicKeyFileName} (${meta.pubKeyFingerprint})`,
     ...(hasCert
       ? [

@@ -115,6 +115,8 @@ impl Database {
                 cert_file TEXT NOT NULL,
                 private_key_enc BLOB NOT NULL,
                 private_key_nonce BLOB NOT NULL,
+                passphrase_enc BLOB,
+                passphrase_nonce BLOB,
                 public_key TEXT NOT NULL,
                 certificate TEXT NOT NULL,
                 inspection_json TEXT NOT NULL,
@@ -231,6 +233,14 @@ impl Database {
         );
         let _ = conn.execute(
             "ALTER TABLE execution_logs ADD COLUMN ssh_invocation TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE user_certificates ADD COLUMN passphrase_enc BLOB",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE user_certificates ADD COLUMN passphrase_nonce BLOB",
             [],
         );
 
@@ -460,10 +470,40 @@ impl Database {
         raw.parse::<u64>().unwrap_or(60).clamp(10, 3600)
     }
 
+    pub fn get_ping_offline_threshold(&self) -> u32 {
+        let Ok(conn) = self.conn.lock() else {
+            return 5;
+        };
+        let raw: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'ping_offline_threshold'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "5".into());
+        raw.parse::<u32>().unwrap_or(5).clamp(0, 100)
+    }
+
+    pub fn get_ping_offline_multiplier(&self) -> u64 {
+        let Ok(conn) = self.conn.lock() else {
+            return 5;
+        };
+        let raw: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'ping_offline_multiplier'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "5".into());
+        raw.parse::<u64>().unwrap_or(5).clamp(2, 60)
+    }
+
     pub fn set_global_ping_settings(
         &self,
         ping_allowed: Option<bool>,
         ping_interval_sec: Option<i64>,
+        ping_offline_threshold: Option<i64>,
+        ping_offline_multiplier: Option<i64>,
     ) -> Result<(bool, u64), String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         if let Some(allowed) = ping_allowed {
@@ -480,6 +520,28 @@ impl Database {
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES ('ping_interval_sec', ?1)",
                 params![sec.to_string()],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        if let Some(threshold) = ping_offline_threshold {
+            if !(0..=100).contains(&threshold) {
+                return Err(
+                    "Offline-Schwellwert muss zwischen 0 und 100 Fehlversuchen liegen.".into(),
+                );
+            }
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('ping_offline_threshold', ?1)",
+                params![threshold.to_string()],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        if let Some(multiplier) = ping_offline_multiplier {
+            if !(2..=60).contains(&multiplier) {
+                return Err("Offline-Intervall-Faktor muss zwischen 2 und 60 liegen.".into());
+            }
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('ping_offline_multiplier', ?1)",
+                params![multiplier.to_string()],
             )
             .map_err(|e| e.to_string())?;
         }
@@ -1630,6 +1692,8 @@ impl Database {
         cert_file: &str,
         priv_enc: &[u8],
         priv_nonce: &[u8],
+        passphrase_enc: Option<&[u8]>,
+        passphrase_nonce: Option<&[u8]>,
         pub_key: &str,
         cert: &str,
         inspection: &CertInspection,
@@ -1645,6 +1709,7 @@ impl Database {
         };
         let now = Utc::now().to_rfc3339();
         let inspection_json = serde_json::to_string(inspection).map_err(|e| e.to_string())?;
+        let has_stored_passphrase = passphrase_enc.is_some() && passphrase_nonce.is_some();
         let explicit_shared_ids: Vec<String> = if shared_with_all {
             vec![]
         } else {
@@ -1694,9 +1759,10 @@ impl Database {
             conn.execute(
                 "UPDATE user_certificates
                  SET owner_username = ?1, name = ?2, private_key_file = ?3, public_key_file = ?4, cert_file = ?5,
-                     private_key_enc = ?6, private_key_nonce = ?7, public_key = ?8, certificate = ?9,
-                     inspection_json = ?10, shared_with_all = ?11, shared_with_user_ids = ?12, uploaded_at = ?13
-                 WHERE id = ?14 AND user_id = ?15",
+                     private_key_enc = ?6, private_key_nonce = ?7, passphrase_enc = ?8, passphrase_nonce = ?9,
+                     public_key = ?10, certificate = ?11,
+                     inspection_json = ?12, shared_with_all = ?13, shared_with_user_ids = ?14, uploaded_at = ?15
+                 WHERE id = ?16 AND user_id = ?17",
                 params![
                     owner_username,
                     effective_name,
@@ -1705,6 +1771,8 @@ impl Database {
                     cert_file,
                     priv_enc,
                     priv_nonce,
+                    passphrase_enc,
+                    passphrase_nonce,
                     pub_key,
                     cert,
                     inspection_json,
@@ -1733,6 +1801,7 @@ impl Database {
                     public_key_file_name: pub_file.to_string(),
                     cert_file_name: cert_file.to_string(),
                     metadata: inspection.clone(),
+                    has_stored_passphrase,
                     shared_with_all: next_all,
                     shared_with_user_ids: next_ids,
                     uploaded_at: now,
@@ -1745,8 +1814,8 @@ impl Database {
         let shared_json = serde_json::to_string(&explicit_shared_ids).map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO user_certificates
-             (id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, private_key_enc, private_key_nonce, public_key, certificate, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             (id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, private_key_enc, private_key_nonce, passphrase_enc, passphrase_nonce, public_key, certificate, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 id,
                 user_id,
@@ -1757,6 +1826,8 @@ impl Database {
                 cert_file,
                 priv_enc,
                 priv_nonce,
+                passphrase_enc,
+                passphrase_nonce,
                 pub_key,
                 cert,
                 inspection_json,
@@ -1776,6 +1847,7 @@ impl Database {
                 public_key_file_name: pub_file.to_string(),
                 cert_file_name: cert_file.to_string(),
                 metadata: inspection.clone(),
+                has_stored_passphrase,
                 shared_with_all,
                 shared_with_user_ids: explicit_shared_ids,
                 uploaded_at: now,
@@ -1788,7 +1860,8 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at
+                "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at,
+                        CASE WHEN passphrase_enc IS NOT NULL AND passphrase_nonce IS NOT NULL THEN 1 ELSE 0 END
                  FROM user_certificates ORDER BY uploaded_at DESC",
             )
             .map_err(|e| e.to_string())?;
@@ -1808,6 +1881,7 @@ impl Database {
                     public_key_file_name: r.get(5)?,
                     cert_file_name: r.get(6)?,
                     metadata,
+                    has_stored_passphrase: r.get::<_, i64>(11)? == 1,
                     shared_with_all: r.get::<_, i64>(8)? == 1,
                     shared_with_user_ids,
                     uploaded_at: r.get(10)?,
@@ -1871,17 +1945,15 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let found = conn
             .query_row(
-                "SELECT id, user_id, name, private_key_enc, private_key_nonce, public_key, certificate, inspection_json, shared_with_all, shared_with_user_ids
+                "SELECT id, user_id, name, private_key_enc, private_key_nonce, passphrase_enc, passphrase_nonce, public_key, certificate, inspection_json, shared_with_all, shared_with_user_ids
                  FROM user_certificates WHERE id = ?1",
                 params![id],
                 |r| {
                     let owner_id: String = r.get(1)?;
-                    let json: String = r.get(7)?;
-                    let key_id = serde_json::from_str::<CertInspection>(&json)
-                        .map(|i| i.key_id)
-                        .unwrap_or_default();
-                    let shared_all = r.get::<_, i64>(8)? == 1;
-                    let shared_json: String = r.get(9)?;
+                    let json: String = r.get(9)?;
+                    let parsed_meta = serde_json::from_str::<CertInspection>(&json).unwrap_or_default();
+                    let shared_all = r.get::<_, i64>(10)? == 1;
+                    let shared_json: String = r.get(11)?;
                     let shared_ids: Vec<String> =
                         serde_json::from_str(&shared_json).unwrap_or_default();
                     let secret = UserCertificateSecret {
@@ -1889,9 +1961,12 @@ impl Database {
                         name: r.get(2)?,
                         private_key_enc: r.get(3)?,
                         private_key_nonce: r.get(4)?,
-                        public_key: r.get(5)?,
-                        certificate: r.get(6)?,
-                        key_id,
+                        passphrase_enc: r.get(5)?,
+                        passphrase_nonce: r.get(6)?,
+                        private_key_encrypted: parsed_meta.private_key_encrypted,
+                        public_key: r.get(7)?,
+                        certificate: r.get(8)?,
+                        key_id: parsed_meta.key_id,
                     };
                     Ok((owner_id, shared_all, shared_ids, secret))
                 },
@@ -1930,7 +2005,7 @@ impl Database {
         }
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<StoredCertificateForEdit> {
-            let shared_json: String = r.get(10)?;
+            let shared_json: String = r.get(12)?;
             let shared_ids: Vec<String> = serde_json::from_str(&shared_json).unwrap_or_default();
             Ok(StoredCertificateForEdit {
                 id: r.get(0)?,
@@ -1940,9 +2015,11 @@ impl Database {
                 cert_file_name: r.get(4)?,
                 private_key_enc: r.get(5)?,
                 private_key_nonce: r.get(6)?,
-                public_key: r.get(7)?,
-                certificate: r.get(8)?,
-                shared_with_all: r.get::<_, i64>(9)? == 1,
+                passphrase_enc: r.get(7)?,
+                passphrase_nonce: r.get(8)?,
+                public_key: r.get(9)?,
+                certificate: r.get(10)?,
+                shared_with_all: r.get::<_, i64>(11)? == 1,
                 shared_with_user_ids: shared_ids,
             })
         };
@@ -1950,7 +2027,7 @@ impl Database {
         if let Some(found) = conn
             .query_row(
                 "SELECT id, name, private_key_file, public_key_file, cert_file,
-                        private_key_enc, private_key_nonce, public_key, certificate, shared_with_all, shared_with_user_ids
+                        private_key_enc, private_key_nonce, passphrase_enc, passphrase_nonce, public_key, certificate, shared_with_all, shared_with_user_ids
                  FROM user_certificates
                  WHERE user_id = ?1 AND id = ?2
                  LIMIT 1",
@@ -1965,7 +2042,7 @@ impl Database {
 
         conn.query_row(
             "SELECT id, name, private_key_file, public_key_file, cert_file,
-                    private_key_enc, private_key_nonce, public_key, certificate, shared_with_all, shared_with_user_ids
+                    private_key_enc, private_key_nonce, passphrase_enc, passphrase_nonce, public_key, certificate, shared_with_all, shared_with_user_ids
              FROM user_certificates
              WHERE user_id = ?1 AND LOWER(TRIM(name)) = LOWER(TRIM(?2))
              ORDER BY uploaded_at DESC
@@ -1989,6 +2066,8 @@ impl Database {
         cert_file: &str,
         priv_enc: &[u8],
         priv_nonce: &[u8],
+        passphrase_enc: Option<&[u8]>,
+        passphrase_nonce: Option<&[u8]>,
         pub_key: &str,
         cert: &str,
         inspection: &CertInspection,
@@ -2018,13 +2097,15 @@ impl Database {
 
         let now = Utc::now().to_rfc3339();
         let inspection_json = serde_json::to_string(inspection).map_err(|e| e.to_string())?;
+        let has_stored_passphrase = passphrase_enc.is_some() && passphrase_nonce.is_some();
         let changed = conn
             .execute(
                 "UPDATE user_certificates
                  SET owner_username = ?1, name = ?2, private_key_file = ?3, public_key_file = ?4, cert_file = ?5,
-                     private_key_enc = ?6, private_key_nonce = ?7, public_key = ?8, certificate = ?9,
-                     inspection_json = ?10, uploaded_at = ?11
-                 WHERE id = ?12 AND user_id = ?13",
+                     private_key_enc = ?6, private_key_nonce = ?7, passphrase_enc = ?8, passphrase_nonce = ?9,
+                     public_key = ?10, certificate = ?11,
+                     inspection_json = ?12, uploaded_at = ?13
+                 WHERE id = ?14 AND user_id = ?15",
                 params![
                     owner_username,
                     clean_name,
@@ -2033,6 +2114,8 @@ impl Database {
                     cert_file,
                     priv_enc,
                     priv_nonce,
+                    passphrase_enc,
+                    passphrase_nonce,
                     pub_key,
                     cert,
                     inspection_json,
@@ -2055,6 +2138,7 @@ impl Database {
             public_key_file_name: pub_file.to_string(),
             cert_file_name: cert_file.to_string(),
             metadata: inspection.clone(),
+            has_stored_passphrase,
             shared_with_all,
             shared_with_user_ids: shared_with_user_ids.to_vec(),
             uploaded_at: now,

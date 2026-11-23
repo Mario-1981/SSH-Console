@@ -1,4 +1,6 @@
 use crate::models::{CertInspection, CommandStep, SshCommand, UserCertificateSecret};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use std::fs;
 use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt;
@@ -316,6 +318,61 @@ fn detect_private_key_format(private_key: &str) -> String {
     }
 }
 
+fn read_ssh_wire_str<'a>(buf: &'a [u8], offset: &mut usize) -> Option<&'a str> {
+    if *offset + 4 > buf.len() {
+        return None;
+    }
+    let len = u32::from_be_bytes([
+        buf[*offset],
+        buf[*offset + 1],
+        buf[*offset + 2],
+        buf[*offset + 3],
+    ]) as usize;
+    *offset += 4;
+    if *offset + len > buf.len() {
+        return None;
+    }
+    let s = std::str::from_utf8(&buf[*offset..*offset + len]).ok()?;
+    *offset += len;
+    Some(s)
+}
+
+fn detect_private_key_encrypted(private_key: &str) -> bool {
+    if private_key.contains("ENCRYPTED") || private_key.contains("Proc-Type: 4,ENCRYPTED") {
+        return true;
+    }
+    if private_key.contains("BEGIN OPENSSH PRIVATE KEY") {
+        let mut inside = false;
+        let mut b64 = String::new();
+        for line in private_key.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----") {
+                inside = true;
+                continue;
+            }
+            if trimmed.starts_with("-----END OPENSSH PRIVATE KEY-----") {
+                break;
+            }
+            if inside && !trimmed.is_empty() {
+                b64.push_str(trimmed);
+            }
+        }
+        if let Ok(raw) = STANDARD.decode(&b64) {
+            const MAGIC: &[u8] = b"openssh-key-v1\0";
+            if raw.starts_with(MAGIC) {
+                let mut offset = MAGIC.len();
+                if let (Some(cipher), Some(kdf)) = (
+                    read_ssh_wire_str(&raw, &mut offset),
+                    read_ssh_wire_str(&raw, &mut offset),
+                ) {
+                    return cipher != "none" || kdf != "none";
+                }
+            }
+        }
+    }
+    false
+}
+
 fn first_non_empty_line(text: &str) -> &str {
     text.lines()
         .map(str::trim)
@@ -381,13 +438,12 @@ pub async fn inspect_certificate_bundle(
     };
 
     let private_key_format = detect_private_key_format(private_key);
-    let private_key_encrypted =
-        private_key.contains("ENCRYPTED") || private_key.contains("Proc-Type: 4,ENCRYPTED");
+    let private_key_encrypted = detect_private_key_encrypted(private_key);
 
     let mut warnings = Vec::new();
     if private_key_encrypted {
         warnings.push(
-            "Der private Schlüssel scheint passwortgeschützt zu sein. Für automatisierte BatchMode-SSH-Ausführungen wird ein entschlüsselter Schlüssel benötigt."
+            "Der private Schlüssel ist passwortgeschützt. Sie können das Passwort optional verschlüsselt beim Zertifikat hinterlegen oder bei jeder Nutzung eingeben."
                 .into(),
         );
     }
@@ -674,9 +730,11 @@ fn filter_benign_ssh_stderr(stderr: &str) -> String {
     }
 }
 
-/// Führt den freigegebenen SSH-Befehl passwortlos über OpenSSH aus.
+/// Führt den freigegebenen SSH-Befehl über OpenSSH aus.
 /// Legt `zertifikat` (0600), `zertifikat.pub` (0644) und optional `zertifikat-cert.pub` (0644)
-/// in einem isolierten 0700-Temp-Verzeichnis an und löscht diese nach Ausführung sofort.
+/// sowie bei Bedarf ein einmaliges `SSH_ASKPASS`-Skript in einem isolierten 0700-Temp-Verzeichnis an
+/// und überschreibt/löscht sensible Dateien sofort nach Ausführung.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_ssh_command(
     ip: &str,
     port: u16,
@@ -684,6 +742,7 @@ pub async fn run_ssh_command(
     command: &SshCommand,
     cert: &UserCertificateSecret,
     private_key_plain: Zeroizing<Vec<u8>>,
+    passphrase: Option<&str>,
     ignore_host_key: bool,
     known_hosts_path: &Path,
 ) -> Result<SshRunOutput, String> {
@@ -695,7 +754,10 @@ pub async fn run_ssh_command(
     let key_path = tmp_dir.path().join("zertifikat");
     let pub_path = tmp_dir.path().join("zertifikat.pub");
     let cert_path = tmp_dir.path().join("zertifikat-cert.pub");
+    let pass_path = tmp_dir.path().join("passphrase");
+    let askpass_path = tmp_dir.path().join("askpass.sh");
     let has_cert = !cert.certificate.trim().is_empty();
+    let effective_pass = passphrase.filter(|p| !p.is_empty());
 
     fs::write(&key_path, private_key_plain.as_slice())
         .map_err(|e| format!("Schreiben von zertifikat fehlgeschlagen: {e}"))?;
@@ -708,20 +770,37 @@ pub async fn run_ssh_command(
             .map_err(|e| format!("Schreiben von zertifikat-cert.pub fehlgeschlagen: {e}"))?;
     }
 
+    if let Some(pass) = effective_pass {
+        fs::write(&pass_path, pass.as_bytes())
+            .map_err(|e| format!("Schreiben der Passwortdatei fehlgeschlagen: {e}"))?;
+        fs::set_permissions(&pass_path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("chmod 0600 für Passwortdatei fehlgeschlagen: {e}"))?;
+        let askpass_script = "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\nrm -f \"$TRIXIESSH_PASS_FILE\" 2>/dev/null || true\n";
+        fs::write(&askpass_path, askpass_script.as_bytes())
+            .map_err(|e| format!("Schreiben von askpass.sh fehlgeschlagen: {e}"))?;
+        fs::set_permissions(&askpass_path, fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("chmod 0700 für askpass.sh fehlgeschlagen: {e}"))?;
+    }
+
     let host_key_display = if ignore_host_key {
         "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     } else {
         "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=<known_hosts>"
     };
+    let mode_display = if effective_pass.is_some() {
+        "-o NumberOfPasswordPrompts=0"
+    } else {
+        "-o BatchMode=yes"
+    };
 
     let ssh_invocation = if has_cert {
         format!(
-            "ssh -i zertifikat -o CertificateFile=zertifikat-cert.pub -o IdentitiesOnly=yes -o BatchMode=yes {host_key_display} -p {port} {ssh_user}@{ip} -- {}",
+            "ssh -i zertifikat -o CertificateFile=zertifikat-cert.pub -o IdentitiesOnly=yes {mode_display} {host_key_display} -p {port} {ssh_user}@{ip} -- {}",
             command.command
         )
     } else {
         format!(
-            "ssh -i zertifikat -o IdentitiesOnly=yes -o BatchMode=yes {host_key_display} -p {port} {ssh_user}@{ip} -- {}",
+            "ssh -i zertifikat -o IdentitiesOnly=yes {mode_display} {host_key_display} -p {port} {ssh_user}@{ip} -- {}",
             command.command
         )
     };
@@ -729,20 +808,32 @@ pub async fn run_ssh_command(
     let mut cmd = Command::new("/usr/bin/ssh");
     cmd.env_clear()
         .env("PATH", "/usr/bin:/bin")
-        .env("HOME", tmp_dir.path())
-        .arg("-i")
-        .arg(&key_path);
+        .env("HOME", tmp_dir.path());
+
+    if effective_pass.is_some() {
+        cmd.env("SSH_ASKPASS", &askpass_path)
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env("DISPLAY", "none:0")
+            .env("TRIXIESSH_PASS_FILE", &pass_path);
+    }
+
+    cmd.arg("-i").arg(&key_path);
 
     if has_cert {
         cmd.arg("-o")
             .arg(format!("CertificateFile={}", cert_path.display()));
     }
 
+    cmd.arg("-o").arg("IdentitiesOnly=yes");
+
+    if effective_pass.is_some() {
+        // BatchMode=yes würde SSH_ASKPASS in OpenSSH deaktivieren
+        cmd.arg("-o").arg("NumberOfPasswordPrompts=0");
+    } else {
+        cmd.arg("-o").arg("BatchMode=yes");
+    }
+
     cmd.arg("-o")
-        .arg("IdentitiesOnly=yes")
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
         .arg("PasswordAuthentication=no")
         .arg("-o")
         .arg("KbdInteractiveAuthentication=no");
@@ -772,8 +863,15 @@ pub async fn run_ssh_command(
     let max_duration = Duration::from_secs(command.timeout_sec.clamp(5, 3600));
     let output_res = timeout(max_duration, cmd.output()).await;
 
-    // Privatschlüssel vor dem Entfernen des TempDir überschreiben
+    // Privatschlüssel und ggf. Passwortdatei vor dem Entfernen des TempDir mit Nullen überschreiben
     let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+    if let Some(pass) = effective_pass {
+        if pass_path.exists() {
+            let _ = fs::write(&pass_path, vec![0u8; pass.len().max(16)]);
+            let _ = fs::remove_file(&pass_path);
+        }
+        let _ = fs::remove_file(&askpass_path);
+    }
 
     match output_res {
         Ok(Ok(out)) => Ok(SshRunOutput {

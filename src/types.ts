@@ -51,6 +51,8 @@ export interface AppSettings {
   initializedAt: string | null;
   pingAllowed: boolean;
   pingIntervalSec: number;
+  pingOfflineThreshold?: number;
+  pingOfflineMultiplier?: number;
   ssoEnabled: boolean;
   ssoProviderName: string;
   ssoAutoCreateUsers: boolean;
@@ -212,6 +214,7 @@ export interface UserCertificate {
   publicKeyFileName: string;
   certFileName: string;
   metadata: ParsedCertMetadata;
+  hasStoredPassphrase?: boolean;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   uploadedAt: string;
@@ -254,14 +257,22 @@ export interface ServerPingStatus {
   method: 'icmp-ping' | 'tcp-ping';
   checkedAt: string;
   lastOnlineAt?: string | null;
+  consecutiveFailures?: number;
+  backoffActive?: boolean;
+  effectiveIntervalSec?: number;
   error?: string;
 }
 
 export interface DashboardPingResponse {
   statuses: Record<string, ServerPingStatus>;
   intervalSec: number;
+  offlineThreshold?: number;
+  offlineMultiplier?: number;
+  backoffCount?: number;
   lastCycleAt: string | null;
   nextCycleAt: string | null;
+  pacingMs?: number | null;
+  activeTargetCount?: number;
   pingMode: 'icmp-ping' | 'tcp-ping';
   globalPingAllowed: boolean;
   userPingEnabled: boolean;

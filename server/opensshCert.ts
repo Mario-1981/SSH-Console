@@ -205,7 +205,7 @@ export function validateAndParseCertificateBundle(
   const privInfo = inspectPrivateKey(privateKeyContent);
   if (privInfo.encrypted) {
     warnings.push(
-      'Der private Schlüssel ist passwortgeschützt (verschlüsselt). Für vollautomatische passwortlose SSH-Ausführung im BatchMode wird ein unverschlüsselter Schlüssel empfohlen.'
+      'Der private Schlüssel ist passwortgeschützt (verschlüsselt). Sie können das Schlüssel-Passwort optional verschlüsselt beim Zertifikat hinterlegen oder bei jeder Nutzung manuell eingeben.'
     );
   }
 

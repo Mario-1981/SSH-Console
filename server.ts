@@ -172,6 +172,8 @@ function serializePublicSettings() {
     initializedAt: s.initializedAt,
     pingAllowed: s.pingAllowed,
     pingIntervalSec: s.pingIntervalSec,
+    pingOfflineThreshold: s.pingOfflineThreshold ?? 5,
+    pingOfflineMultiplier: s.pingOfflineMultiplier ?? 5,
     ssoEnabled: s.ssoEnabled,
     ssoProviderName: s.ssoProviderName || 'SSO',
     ssoAutoCreateUsers: s.ssoAutoCreateUsers,
@@ -1761,6 +1763,7 @@ async function startServer() {
       privateKeyFileName: c.privateKeyFileName,
       publicKeyFileName: c.publicKeyFileName,
       certFileName: c.certFileName,
+      hasStoredPassphrase: Boolean(c.passphraseEncrypted),
       metadata: c.metadata,
       sharedWithAll: c.sharedWithAll,
       sharedWithUserIds: c.sharedWithUserIds,
@@ -1782,6 +1785,7 @@ async function startServer() {
       privateKeyContent,
       publicKeyContent,
       certContent,
+      passphrase,
       sharedWithAll,
       sharedWithUserIds,
     } = req.body ?? {};
@@ -1800,6 +1804,7 @@ async function startServer() {
     }
 
     const cleanCertContent = typeof certContent === 'string' ? certContent : '';
+    const cleanPassphrase = typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
     const isAdmin = req.user!.role === 'admin';
     try {
       const metadata = validateAndParseCertificateBundle(
@@ -1817,6 +1822,7 @@ async function startServer() {
         privateKeyContent,
         publicKeyContent,
         certContent: cleanCertContent,
+        passphrase: cleanPassphrase,
         metadata,
         sharedWithAll: isAdmin ? Boolean(sharedWithAll) : false,
         sharedWithUserIds: isAdmin && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
@@ -1842,12 +1848,14 @@ async function startServer() {
     publicKeyFileName?: string;
     certContent?: string;
     certFileName?: string;
+    passphrase?: string;
+    clearPassphrase: boolean;
     removeCert: boolean;
   }
 
   async function parseIncomingCertificatePayload(req: Request): Promise<ParsedCertUpdatePayload> {
     const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
-    const result: ParsedCertUpdatePayload = { removeCert: false };
+    const result: ParsedCertUpdatePayload = { removeCert: false, clearPassphrase: false };
 
     if (contentType.includes('multipart/form-data')) {
       const parsed = await parseMultipartFormData(req);
@@ -1874,6 +1882,15 @@ async function startServer() {
       const removeFlag = (parsed.fields.remove_cert ?? parsed.fields.removeCert ?? '').trim().toLowerCase();
       if (removeFlag === 'true' || removeFlag === '1' || removeFlag === 'yes') {
         result.removeCert = true;
+      }
+
+      const passField = parsed.fields.passphrase ?? parsed.fields.key_passphrase;
+      if (typeof passField === 'string' && passField.length > 0) {
+        result.passphrase = passField;
+      }
+      const clearPassFlag = (parsed.fields.clear_passphrase ?? parsed.fields.clearPassphrase ?? '').trim().toLowerCase();
+      if (clearPassFlag === 'true' || clearPassFlag === '1' || clearPassFlag === 'yes') {
+        result.clearPassphrase = true;
       }
 
       const priv = pickPart(['private_key', 'privateKey', 'privateKeyContent', 'zertifikat', 'key']);
@@ -1916,6 +1933,15 @@ async function startServer() {
       result.removeCert = true;
     }
 
+    const clearPassRaw = body.clearPassphrase ?? body.clear_passphrase;
+    if (clearPassRaw === true || clearPassRaw === 'true' || clearPassRaw === '1' || clearPassRaw === 1) {
+      result.clearPassphrase = true;
+    }
+    const rawPass = body.passphrase ?? body.key_passphrase;
+    if (typeof rawPass === 'string' && rawPass.length > 0) {
+      result.passphrase = rawPass;
+    }
+
     result.privateKeyContent = readStr('private_key', 'privateKey', 'privateKeyContent', 'zertifikat', 'key');
     result.publicKeyContent = readStr('public_key', 'publicKey', 'publicKeyContent', 'zertifikat_pub', 'pub');
     result.certContent = readStr('cert', 'certificate', 'certContent', 'cert_pub', 'zertifikat_cert');
@@ -1939,11 +1965,13 @@ async function startServer() {
       payload.privateKeyContent !== undefined ||
       payload.publicKeyContent !== undefined ||
       payload.certContent !== undefined ||
+      payload.passphrase !== undefined ||
+      payload.clearPassphrase ||
       payload.removeCert;
 
     if (!hasAnyChange) {
       throw new Error(
-        'Keine Änderungen übermittelt. Senden Sie mindestens eines der Felder: "name", "cert", "private_key", "public_key" oder "remove_cert".'
+        'Keine Änderungen übermittelt. Senden Sie mindestens eines der Felder: "name", "cert", "private_key", "public_key", "passphrase", "clearPassphrase" oder "remove_cert".'
       );
     }
 
@@ -1977,6 +2005,8 @@ async function startServer() {
         : payload.certContent !== undefined
           ? payload.certFileName || existing.certFileName || 'zertifikat-cert.pub'
           : undefined,
+      passphrase: payload.passphrase,
+      clearPassphrase: payload.clearPassphrase,
       metadata,
     });
   }
@@ -2158,6 +2188,7 @@ async function startServer() {
         privateKeyContent,
         publicKeyContent,
         certContent: cleanCertContent,
+        passphrase: payload.passphrase,
         metadata,
       });
 
@@ -2222,7 +2253,7 @@ async function startServer() {
 
   // Execute SSH Command on One or Multiple Target IPs (own or admin-shared)
   app.post('/api/execute', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
-    const { commandId, certificateId, targets, dryRun } = req.body ?? {};
+    const { commandId, certificateId, targets, dryRun, passphrase } = req.body ?? {};
 
     const command = store.getAccessibleCommand(String(commandId ?? ''), req.user!.id);
     if (!command) {
@@ -2233,6 +2264,15 @@ async function startServer() {
     const certificate = store.getAccessibleCertificate(String(certificateId ?? ''), req.user!.id);
     if (!certificate) {
       res.status(404).json({ error: 'Bitte wählen Sie ein gültiges SSH-Zertifikatspaket aus.' });
+      return;
+    }
+
+    const suppliedPassphrase = typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
+    if (certificate.metadata.privateKeyEncrypted && !certificate.passphraseEncrypted && !suppliedPassphrase) {
+      res.status(400).json({
+        error:
+          'Dieser private Schlüssel ist passwortgeschützt. Bitte geben Sie das Schlüssel-Passwort ein oder hinterlegen Sie es beim Zertifikat.',
+      });
       return;
     }
 
@@ -2294,6 +2334,7 @@ async function startServer() {
           sshUser: target.sshUser,
           command,
           certificate,
+          passphrase: suppliedPassphrase,
           ignoreHostKey: target.ignoreHostKey,
           forceDryRun: Boolean(dryRun),
         });
@@ -2358,12 +2399,17 @@ async function startServer() {
   });
 
   app.patch('/api/admin/ping-settings', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
-    const { pingAllowed, pingIntervalSec } = req.body ?? {};
+    const { pingAllowed, pingIntervalSec, pingOfflineThreshold, pingOfflineMultiplier } =
+      req.body ?? {};
     const prevAllowed = store.getSettings().pingAllowed;
     try {
       const settings = store.updateGlobalPingSettings({
         pingAllowed: typeof pingAllowed === 'boolean' ? pingAllowed : undefined,
         pingIntervalSec: pingIntervalSec !== undefined ? Number(pingIntervalSec) : undefined,
+        pingOfflineThreshold:
+          pingOfflineThreshold !== undefined ? Number(pingOfflineThreshold) : undefined,
+        pingOfflineMultiplier:
+          pingOfflineMultiplier !== undefined ? Number(pingOfflineMultiplier) : undefined,
       });
       const becameEnabled = !prevAllowed && settings.pingAllowed;
       pingMonitor.reschedule(becameEnabled);
@@ -2380,11 +2426,20 @@ async function startServer() {
 
   // Dashboard Batch Execution: Execute assigned commands across multiple IPs in one go
   app.post('/api/execute/batch', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
-    const { certificateId, jobs, dryRun } = req.body ?? {};
+    const { certificateId, jobs, dryRun, passphrase } = req.body ?? {};
 
     const certificate = store.getAccessibleCertificate(String(certificateId ?? ''), req.user!.id);
     if (!certificate) {
       res.status(404).json({ error: 'Bitte wählen Sie zuerst ein gültiges 3-Dateien-SSH-Zertifikat aus.' });
+      return;
+    }
+
+    const suppliedPassphrase = typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
+    if (certificate.metadata.privateKeyEncrypted && !certificate.passphraseEncrypted && !suppliedPassphrase) {
+      res.status(400).json({
+        error:
+          'Dieser private Schlüssel ist passwortgeschützt. Bitte geben Sie das Schlüssel-Passwort ein oder hinterlegen Sie es beim Zertifikat.',
+      });
       return;
     }
 
@@ -2433,6 +2488,7 @@ async function startServer() {
           sshUser: server.sshUser,
           command,
           certificate,
+          passphrase: suppliedPassphrase,
           ignoreHostKey: server.ignoreHostKey,
           forceDryRun: Boolean(dryRun),
         });
@@ -2464,7 +2520,7 @@ async function startServer() {
 
   // Interactive SSH Shell: issue short-lived one-time WebSocket ticket
   app.post('/api/shell/ticket', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
-    const { serverId, ipAddress, port, sshUser, certificateId, ignoreHostKey, cols, rows } =
+    const { serverId, ipAddress, port, sshUser, certificateId, passphrase, ignoreHostKey, cols, rows } =
       req.body ?? {};
     if (typeof certificateId !== 'string' || !certificateId.trim()) {
       res.status(400).json({ error: 'Bitte ein SSH-Zertifikatspaket auswählen.' });
@@ -2475,6 +2531,7 @@ async function startServer() {
       res.status(400).json({ error: 'Zertifikatspaket nicht gefunden oder keine Berechtigung.' });
       return;
     }
+    const suppliedPassphrase = typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
 
     const allowInsecureHostKey = store.getSettings().allowInsecureHostKey;
     let targetIp = '';
@@ -2541,6 +2598,7 @@ async function startServer() {
       port: targetPort,
       sshUser: targetSshUser,
       certificateId: certificate.id,
+      passphrase: suppliedPassphrase,
       ignoreHostKey: targetIgnoreHostKey,
       cols: Number(cols) || 100,
       rows: Number(rows) || 30,

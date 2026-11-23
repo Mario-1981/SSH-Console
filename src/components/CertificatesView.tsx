@@ -12,6 +12,7 @@ import {
   Terminal,
   Pencil,
   X,
+  Lock,
 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
@@ -58,6 +59,7 @@ export function CertificatesView({
   const [privContent, setPrivContent] = useState('');
   const [pubContent, setPubContent] = useState('');
   const [certContent, setCertContent] = useState('');
+  const [keyPassphrase, setKeyPassphrase] = useState('');
   const [shareOnCreate, setShareOnCreate] = useState(false);
   const [sharingCert, setSharingCert] = useState<UserCertificate | null>(null);
   const [lastGeneratedBundle, setLastGeneratedBundle] = useState<{
@@ -86,6 +88,8 @@ export function CertificatesView({
   const [editCertFile, setEditCertFile] = useState('');
   const [editCertContent, setEditCertContent] = useState('');
   const [editRemoveCert, setEditRemoveCert] = useState(false);
+  const [editPassphrase, setEditPassphrase] = useState('');
+  const [editClearPassphrase, setEditClearPassphrase] = useState(false);
   const [editShowText, setEditShowText] = useState(false);
   const [editDragging, setEditDragging] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -236,6 +240,7 @@ export function CertificatesView({
         privateKeyContent: privContent,
         publicKeyContent: pubContent,
         certContent: hasCertFile ? certContent : '',
+        ...(keyPassphrase ? { passphrase: keyPassphrase } : {}),
         ...(isAdmin && shareOnCreate ? { sharedWithAll: true, sharedWithUserIds: [] } : {}),
       });
       await onRefresh();
@@ -243,6 +248,7 @@ export function CertificatesView({
       setPrivContent('');
       setPubContent('');
       setCertContent('');
+      setKeyPassphrase('');
       setShareOnCreate(false);
       setLastGeneratedBundle(null);
       const kindLabelDe = hasCertFile ? 'Zertifikatspaket (3 Dateien)' : 'SSH-Schlüsselpaar (2 Dateien)';
@@ -301,6 +307,8 @@ export function CertificatesView({
     setEditCertFile('');
     setEditCertContent('');
     setEditRemoveCert(false);
+    setEditPassphrase('');
+    setEditClearPassphrase(false);
     setEditShowText(false);
     setEditDragging(false);
   }
@@ -315,6 +323,8 @@ export function CertificatesView({
     setEditCertFile('');
     setEditCertContent('');
     setEditRemoveCert(false);
+    setEditPassphrase('');
+    setEditClearPassphrase(false);
     setEditShowText(false);
     setEditDragging(false);
   }
@@ -392,6 +402,8 @@ export function CertificatesView({
       publicKeyContent?: string;
       certContent?: string;
       removeCert?: boolean;
+      passphrase?: string;
+      clearPassphrase?: boolean;
     } = {};
 
     const trimmedName = editName.trim();
@@ -416,12 +428,17 @@ export function CertificatesView({
       payload.certContent = editCertContent;
       payload.certFileName = editCertFile || cert.certFileName || 'zertifikat-cert.pub';
     }
+    if (editClearPassphrase) {
+      payload.clearPassphrase = true;
+    } else if (editPassphrase) {
+      payload.passphrase = editPassphrase;
+    }
 
     if (Object.keys(payload).length === 0) {
       setError(
         tr(
-          'Es wurden keine Änderungen vorgenommen. Ändern Sie den Namen oder wählen Sie mindestens eine auszutauschende Datei.',
-          'No changes were made. Update the label or choose at least one file to replace.'
+          'Es wurden keine Änderungen vorgenommen. Ändern Sie den Namen, das Schlüssel-Passwort oder wählen Sie mindestens eine auszutauschende Datei.',
+          'No changes were made. Update the label, key passphrase, or choose at least one file to replace.'
         )
       );
       return;
@@ -454,6 +471,14 @@ export function CertificatesView({
       if (payload.removeCert) {
         updatedPartsDe.push('CA-Zertifikat entfernt');
         updatedPartsEn.push('CA certificate removed');
+      }
+      if (payload.passphrase) {
+        updatedPartsDe.push('Schlüssel-Passwort hinterlegt');
+        updatedPartsEn.push('key passphrase stored');
+      }
+      if (payload.clearPassphrase) {
+        updatedPartsDe.push('Schlüssel-Passwort entfernt');
+        updatedPartsEn.push('key passphrase removed');
       }
 
       setSuccess(
@@ -887,8 +912,8 @@ export function CertificatesView({
         )}
 
         <div className="space-y-4 pt-2 border-t border-slate-200">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-            <div className="flex-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
               <label htmlFor="cert-bundle-name" className="block text-xs font-medium text-slate-700 mb-1.5">
                 {tr('Bezeichnung für dieses Schlüssel-/Zertifikatspaket', 'Label for this key / certificate bundle')}
               </label>
@@ -901,10 +926,54 @@ export function CertificatesView({
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
+            <div>
+              <label htmlFor="cert-key-passphrase" className="block text-xs font-medium text-slate-700 mb-1.5">
+                {tr('Schlüssel-Passwort (optional)', 'Key Passphrase (optional)')}
+              </label>
+              <input
+                id="cert-key-passphrase"
+                type="password"
+                autoComplete="new-password"
+                value={keyPassphrase}
+                onChange={(e) => setKeyPassphrase(e.target.value)}
+                placeholder={tr(
+                  'Leer lassen für Eingabe bei jeder Nutzung',
+                  'Leave empty to enter on each use'
+                )}
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                {tr(
+                  'Nur nötig, falls der private Schlüssel passwortgeschützt ist. Wird optional AES-256-GCM-verschlüsselt gespeichert oder leer gelassen und jeweils manuell eingegeben.',
+                  'Only needed if the private key is passphrase-protected. Optionally stored AES-256-GCM encrypted, or leave blank to prompt on each use.'
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              {isAdmin && (
+                <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shareOnCreate}
+                    onChange={(e) => setShareOnCreate(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                  />
+                  <span>
+                    {tr(
+                      'Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)',
+                      'Share immediately with all users (otherwise visible only to me)'
+                    )}
+                  </span>
+                </label>
+              )}
+            </div>
             <button
               type="submit"
               disabled={saving || !requiredFilesReady}
-              className="px-5 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              className="px-5 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 self-start sm:self-auto"
             >
               {saving
                 ? tr('Wird verifiziert...', 'Verifying...')
@@ -923,23 +992,6 @@ export function CertificatesView({
                 `Note: You already have a bundle named "${matchingExistingOwnCert.name}". Saving will overwrite it.`
               )}
             </p>
-          )}
-
-          {isAdmin && (
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={shareOnCreate}
-                onChange={(e) => setShareOnCreate(e.target.checked)}
-                className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-              />
-              <span>
-                {tr(
-                  'Direkt mit allen Benutzern teilen (ansonsten nur für mich sichtbar)',
-                  'Share immediately with all users (otherwise visible only to me)'
-                )}
-              </span>
-            </label>
           )}
         </div>
       </form>
@@ -1027,6 +1079,21 @@ export function CertificatesView({
                         >
                           {shareLabel}
                         </span>
+                        {m.privateKeyEncrypted && (
+                          <>
+                            <span aria-hidden="true" className="text-slate-300">·</span>
+                            <span
+                              className={`inline-flex items-center gap-1 text-xs font-medium ${
+                                cert.hasStoredPassphrase ? 'text-emerald-700' : 'text-amber-800'
+                              }`}
+                            >
+                              <Lock className="w-3 h-3" />
+                              {cert.hasStoredPassphrase
+                                ? tr('Passwort hinterlegt', 'Passphrase stored')
+                                : tr('Passwort bei Nutzung eingeben', 'Enter passphrase on use')}
+                            </span>
+                          </>
+                        )}
                       </div>
                       <p className="text-xs text-slate-500 mt-1 font-mono">
                         {cert.privateKeyFileName} · {cert.publicKeyFileName}
@@ -1119,20 +1186,70 @@ export function CertificatesView({
                         </button>
                       </div>
 
-                      <div>
-                        <label
-                          htmlFor={`edit-cert-name-${cert.id}`}
-                          className="block text-xs font-medium text-slate-700 mb-1"
-                        >
-                          {tr('Bezeichnung', 'Bundle Label')}
-                        </label>
-                        <input
-                          id={`edit-cert-name-${cert.id}`}
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          className="w-full sm:max-w-md px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label
+                            htmlFor={`edit-cert-name-${cert.id}`}
+                            className="block text-xs font-medium text-slate-700 mb-1"
+                          >
+                            {tr('Bezeichnung', 'Bundle Label')}
+                          </label>
+                          <input
+                            id={`edit-cert-name-${cert.id}`}
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label
+                            htmlFor={`edit-cert-pass-${cert.id}`}
+                            className="block text-xs font-medium text-slate-700"
+                          >
+                            {tr('Schlüssel-Passwort (optional)', 'Key Passphrase (optional)')}
+                          </label>
+                          <input
+                            id={`edit-cert-pass-${cert.id}`}
+                            type="password"
+                            autoComplete="new-password"
+                            disabled={editClearPassphrase}
+                            value={editPassphrase}
+                            onChange={(e) => setEditPassphrase(e.target.value)}
+                            placeholder={
+                              cert.hasStoredPassphrase
+                                ? tr(
+                                    'Neues Passwort (leer = aktuelles behalten)',
+                                    'New passphrase (blank = keep stored)'
+                                  )
+                                : tr(
+                                    'Optional hinterlegen (leer = bei Nutzung eingeben)',
+                                    'Store optionally (blank = enter on use)'
+                                  )
+                            }
+                            className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-400"
+                          />
+                          {cert.hasStoredPassphrase && (
+                            <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={editClearPassphrase}
+                                onChange={(e) => {
+                                  setEditClearPassphrase(e.target.checked);
+                                  if (e.target.checked) setEditPassphrase('');
+                                }}
+                                className="rounded border-slate-300 text-red-600 focus:ring-red-600"
+                              />
+                              <span>
+                                {tr(
+                                  'Hinterlegtes Passwort entfernen (künftig bei jeder Nutzung eingeben)',
+                                  'Remove stored passphrase (prompt on each use instead)'
+                                )}
+                              </span>
+                            </label>
+                          )}
+                        </div>
                       </div>
 
                       <div

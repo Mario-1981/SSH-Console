@@ -34,6 +34,8 @@ export default function App() {
     initializedAt: null,
     pingAllowed: true,
     pingIntervalSec: 60,
+    pingOfflineThreshold: 5,
+    pingOfflineMultiplier: 5,
     ssoEnabled: false,
     ssoProviderName: 'SSO',
     ssoAutoCreateUsers: true,

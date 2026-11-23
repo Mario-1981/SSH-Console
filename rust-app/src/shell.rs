@@ -18,7 +18,7 @@ use tempfile::TempDir;
 use tokio::sync::{mpsc, RwLock};
 use zeroize::Zeroizing;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ShellTicket {
     pub user_id: String,
     pub username: String,
@@ -27,6 +27,7 @@ pub struct ShellTicket {
     pub port: u16,
     pub ssh_user: String,
     pub certificate_id: String,
+    pub passphrase: Option<Zeroizing<String>>,
     pub ignore_host_key: bool,
     pub cols: u16,
     pub rows: u16,
@@ -76,6 +77,8 @@ pub struct ShellTicketRequest {
     #[serde(alias = "ignore_host_key")]
     pub ignore_host_key: Option<bool>,
     pub certificate_id: String,
+    #[serde(default, alias = "key_passphrase", alias = "keyPassphrase")]
+    pub passphrase: Option<String>,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
 }
@@ -155,6 +158,7 @@ pub async fn handle_ssh_websocket(
     ticket: ShellTicket,
     cert: UserCertificateSecret,
     private_key_plain: Zeroizing<Vec<u8>>,
+    passphrase_plain: Option<Zeroizing<String>>,
 ) {
     let started = Instant::now();
     let (mut ws_tx, mut ws_rx) = socket.split();
@@ -185,7 +189,20 @@ pub async fn handle_ssh_websocket(
     let key_path = tmp_dir.path().join("zertifikat");
     let pub_path = tmp_dir.path().join("zertifikat.pub");
     let cert_path = tmp_dir.path().join("zertifikat-cert.pub");
+    let pass_path = tmp_dir.path().join("passphrase");
+    let askpass_path = tmp_dir.path().join("askpass.sh");
     let has_cert = !cert.certificate.trim().is_empty();
+    let effective_pass = passphrase_plain.as_deref().filter(|p| !p.is_empty());
+
+    let wipe_secrets = || {
+        let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+        if pass_path.exists() {
+            let len = effective_pass.map(|p| p.len()).unwrap_or(16).max(16);
+            let _ = fs::write(&pass_path, vec![0u8; len]);
+            let _ = fs::remove_file(&pass_path);
+        }
+        let _ = fs::remove_file(&askpass_path);
+    };
 
     if let Err(e) = fs::write(&key_path, private_key_plain.as_slice())
         .and_then(|_| fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)))
@@ -197,8 +214,18 @@ pub async fn handle_ssh_websocket(
                 Ok(())
             }
         })
+        .and_then(|_| {
+            if let Some(pass) = effective_pass {
+                fs::write(&pass_path, pass.as_bytes())?;
+                fs::set_permissions(&pass_path, fs::Permissions::from_mode(0o600))?;
+                let script = "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\nrm -f \"$TRIXIESSH_PASS_FILE\" 2>/dev/null || true\n";
+                fs::write(&askpass_path, script.as_bytes())?;
+                fs::set_permissions(&askpass_path, fs::Permissions::from_mode(0o700))?;
+            }
+            Ok(())
+        })
     {
-        let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+        wipe_secrets();
         let _ = ws_tx
             .send(Message::Text(
                 json!({ "type": "error", "message": format!("Schlüsseldateien konnten nicht vorbereitet werden: {e}") })
@@ -211,7 +238,7 @@ pub async fn handle_ssh_websocket(
     let (master_fd, slave_path) = match open_posix_pty(ticket.cols, ticket.rows) {
         Ok(pair) => pair,
         Err(e) => {
-            let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+            wipe_secrets();
             let _ = ws_tx
                 .send(Message::Text(
                     json!({ "type": "error", "message": format!("PTY konnte nicht geöffnet werden: {e}") })
@@ -225,7 +252,7 @@ pub async fn handle_ssh_websocket(
     let slave_file = match fs::OpenOptions::new().read(true).write(true).open(&slave_path) {
         Ok(f) => f,
         Err(e) => {
-            let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+            wipe_secrets();
             let _ = ws_tx
                 .send(Message::Text(
                     json!({ "type": "error", "message": format!("PTY-Slave konnte nicht geöffnet werden: {e}") })
@@ -239,7 +266,7 @@ pub async fn handle_ssh_websocket(
     let stdin_fd = match slave_file.try_clone() {
         Ok(f) => f,
         Err(e) => {
-            let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+            wipe_secrets();
             let _ = ws_tx
                 .send(Message::Text(
                     json!({ "type": "error", "message": format!("PTY clone fehlgeschlagen: {e}") })
@@ -252,7 +279,7 @@ pub async fn handle_ssh_websocket(
     let stdout_fd = match slave_file.try_clone() {
         Ok(f) => f,
         Err(e) => {
-            let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+            wipe_secrets();
             let _ = ws_tx
                 .send(Message::Text(
                     json!({ "type": "error", "message": format!("PTY clone fehlgeschlagen: {e}") })
@@ -269,7 +296,7 @@ pub async fn handle_ssh_websocket(
         match crate::ssh::user_known_hosts_path(&state.data_dir, &ticket.user_id) {
             Ok(p) => Some(p),
             Err(e) => {
-                let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+                wipe_secrets();
                 let _ = ws_tx
                     .send(Message::Text(
                         json!({ "type": "error", "message": format!("known_hosts konnte nicht vorbereitet werden: {e}") })
@@ -304,8 +331,16 @@ pub async fn handle_ssh_websocket(
         .env("PATH", "/usr/bin:/bin")
         .env("HOME", tmp_dir.path())
         .env("TERM", "xterm-256color")
-        .env("LANG", "C.UTF-8")
-        .arg("-tt")
+        .env("LANG", "C.UTF-8");
+
+    if effective_pass.is_some() {
+        cmd.env("SSH_ASKPASS", &askpass_path)
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env("DISPLAY", "none:0")
+            .env("TRIXIESSH_PASS_FILE", &pass_path);
+    }
+
+    cmd.arg("-tt")
         .arg("-i")
         .arg(&key_path);
 
@@ -361,7 +396,7 @@ pub async fn handle_ssh_websocket(
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+            wipe_secrets();
             let _ = ws_tx
                 .send(Message::Text(
                     json!({ "type": "error", "message": format!("OpenSSH konnte nicht gestartet werden: {e}") })
@@ -379,7 +414,7 @@ pub async fn handle_ssh_websocket(
     if master_writer_fd < 0 {
         let _ = child.kill();
         let _ = child.wait();
-        let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+        wipe_secrets();
         return;
     }
 
@@ -526,8 +561,8 @@ pub async fn handle_ssh_websocket(
     let _ = reader_task.await;
     let _ = writer_task.await;
 
-    // Privatschlüssel vor dem Entfernen des TempDir mit Nullen überschreiben
-    let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
+    // Privatschlüssel und ggf. Passwortdatei vor dem Entfernen des TempDir mit Nullen überschreiben
+    wipe_secrets();
 
     let log = ExecutionLog {
         id: uuid::Uuid::new_v4().to_string(),

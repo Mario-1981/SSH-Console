@@ -14,6 +14,8 @@ pub struct PingState {
     pub statuses: HashMap<String, ServerPingStatus>,
     pub last_cycle_at: Option<String>,
     pub next_cycle_at: Option<String>,
+    pub pacing_ms: Option<u64>,
+    pub active_target_count: usize,
 }
 
 pub type SharedPingState = Arc<RwLock<PingState>>;
@@ -66,6 +68,9 @@ pub async fn check_server_reachability(
                         method: "icmp-ping".into(),
                         last_online_at: Some(checked_at.clone()),
                         checked_at,
+                        consecutive_failures: 0,
+                        backoff_active: false,
+                        effective_interval_sec: 0,
                         error: None,
                     };
                 }
@@ -78,6 +83,9 @@ pub async fn check_server_reachability(
                     method: "icmp-ping".into(),
                     last_online_at: previous_last_online_at,
                     checked_at,
+                    consecutive_failures: 0,
+                    backoff_active: false,
+                    effective_interval_sec: 0,
                     error: Some("Keine ICMP-Antwort".into()),
                 };
             }
@@ -101,6 +109,9 @@ pub async fn check_server_reachability(
             method: "tcp-ping".into(),
             last_online_at: Some(checked_at.clone()),
             checked_at,
+            consecutive_failures: 0,
+            backoff_active: false,
+            effective_interval_sec: 0,
             error: None,
         },
         Ok(Err(e)) => ServerPingStatus {
@@ -112,6 +123,9 @@ pub async fn check_server_reachability(
             method: "tcp-ping".into(),
             last_online_at: previous_last_online_at,
             checked_at,
+            consecutive_failures: 0,
+            backoff_active: false,
+            effective_interval_sec: 0,
             error: Some(e.to_string()),
         },
         Err(_) => ServerPingStatus {
@@ -123,6 +137,9 @@ pub async fn check_server_reachability(
             method: "tcp-ping".into(),
             last_online_at: previous_last_online_at,
             checked_at,
+            consecutive_failures: 0,
+            backoff_active: false,
+            effective_interval_sec: 0,
             error: Some("Zeitüberschreitung".into()),
         },
     }
