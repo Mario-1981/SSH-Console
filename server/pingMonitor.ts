@@ -11,6 +11,7 @@ export interface ServerPingStatus {
   latencyMs: number | null;
   method: 'icmp-ping' | 'tcp-ping';
   checkedAt: string;
+  lastOnlineAt: string | null;
   error?: string;
 }
 
@@ -88,7 +89,10 @@ function icmpPing(
   });
 }
 
-async function checkServer(server: UserServer): Promise<ServerPingStatus> {
+async function checkServer(
+  server: UserServer,
+  previousLastOnlineAt: string | null
+): Promise<ServerPingStatus> {
   const checkedAt = new Date().toISOString();
   const pingBin = findPingBinary();
 
@@ -103,6 +107,7 @@ async function checkServer(server: UserServer): Promise<ServerPingStatus> {
         latencyMs: icmp.latencyMs,
         method: 'icmp-ping',
         checkedAt,
+        lastOnlineAt: icmp.online ? checkedAt : previousLastOnlineAt,
         error: icmp.error,
       };
     }
@@ -117,6 +122,7 @@ async function checkServer(server: UserServer): Promise<ServerPingStatus> {
     latencyMs: tcp.latencyMs,
     method: 'tcp-ping',
     checkedAt,
+    lastOnlineAt: tcp.online ? checkedAt : previousLastOnlineAt,
     error: tcp.error,
   };
 }
@@ -143,6 +149,17 @@ class PingMonitor {
     this.statuses.delete(serverId);
   }
 
+  private recordResult(server: UserServer, res: ServerPingStatus) {
+    this.statuses.set(server.id, res);
+    if (res.online) {
+      store.recordServerLastOnline(server.id, res.checkedAt);
+    }
+  }
+
+  private getKnownLastOnlineAt(server: UserServer): string | null {
+    return this.statuses.get(server.id)?.lastOnlineAt ?? server.lastOnlineAt ?? null;
+  }
+
   reschedule(runImmediately = false) {
     if (this.timer) {
       clearTimeout(this.timer);
@@ -151,7 +168,7 @@ class PingMonitor {
 
     const settings = store.getSettings();
     if (!settings.pingAllowed) {
-      this.statuses.clear();
+      // Only stop automatic periodic pinging; keep existing/manual statuses intact
       this.nextCycleAt = null;
       return;
     }
@@ -188,7 +205,6 @@ class PingMonitor {
   async pingAllRegisteredServers(): Promise<void> {
     const settings = store.getSettings();
     if (!settings.pingAllowed) {
-      this.statuses.clear();
       this.nextCycleAt = null;
       return;
     }
@@ -196,52 +212,60 @@ class PingMonitor {
     const allServers = store.listAllServers();
     this.lastCycleAt = new Date().toISOString();
 
-    // Clean up deleted or ping-disabled server IDs
-    const activePingIds = new Set(
-      allServers.filter((s) => store.shouldPingServer(s)).map((s) => s.id)
-    );
+    // Only clean up deleted server IDs (preserve manual ping results for auto-ping-disabled servers)
+    const existingIds = new Set(allServers.map((s) => s.id));
     for (const key of this.statuses.keys()) {
-      if (!activePingIds.has(key)) this.statuses.delete(key);
+      if (!existingIds.has(key)) this.statuses.delete(key);
     }
 
-    const targets = allServers.filter((srv) => activePingIds.has(srv.id));
+    const targets = allServers.filter((srv) => store.shouldPingServer(srv));
     await Promise.all(
       targets.map(async (srv) => {
-        const res = await checkServer(srv);
-        // Re-check in case admin disabled global ping while in flight
+        const res = await checkServer(srv, this.getKnownLastOnlineAt(srv));
+        // Re-check in case admin disabled global auto-ping while in flight
         if (store.getSettings().pingAllowed && store.shouldPingServer(srv)) {
-          this.statuses.set(srv.id, res);
+          this.recordResult(srv, res);
         }
       })
     );
   }
 
-  async pingUserServers(userId: string, singleServerId?: string): Promise<ServerPingStatus[]> {
-    const settings = store.getSettings();
-    if (!settings.pingAllowed) {
-      return [];
-    }
-    const user = store.findUserById(userId);
-    if (!user || user.pingEnabled === false) {
-      return [];
+  /**
+   * Executes a ping for accessible servers of a user.
+   * When `manual` is true, always pings regardless of global/user/per-IP auto-ping switches.
+   */
+  async pingUserServers(
+    userId: string,
+    singleServerId?: string,
+    options?: { manual?: boolean }
+  ): Promise<ServerPingStatus[]> {
+    const manual = options?.manual === true;
+    if (!manual) {
+      const settings = store.getSettings();
+      if (!settings.pingAllowed) {
+        return [];
+      }
+      const user = store.findUserById(userId);
+      if (!user || user.pingEnabled === false) {
+        return [];
+      }
     }
 
     const servers = store.listAccessibleServers(userId);
-    const targets = (singleServerId ? servers.filter((s) => s.id === singleServerId) : servers).filter(
-      (s) => s.pingEnabled !== false
-    );
+    const baseTargets = singleServerId ? servers.filter((s) => s.id === singleServerId) : servers;
+    const targets = manual ? baseTargets : baseTargets.filter((s) => s.pingEnabled !== false);
 
     const results = await Promise.all(
       targets.map(async (srv) => {
-        const res = await checkServer(srv);
-        if (store.getSettings().pingAllowed && srv.pingEnabled !== false) {
-          this.statuses.set(srv.id, res);
+        const res = await checkServer(srv, this.getKnownLastOnlineAt(srv));
+        if (manual || (store.getSettings().pingAllowed && srv.pingEnabled !== false)) {
+          this.recordResult(srv, res);
         }
         return res;
       })
     );
 
-    if (!singleServerId && targets.length > 0) {
+    if (!singleServerId && targets.length > 0 && !manual) {
       this.lastCycleAt = new Date().toISOString();
     }
     return results;
@@ -260,25 +284,25 @@ class PingMonitor {
     const user = store.findUserById(userId);
     const globalPingAllowed = settings.pingAllowed !== false;
     const userPingEnabled = user ? user.pingEnabled !== false : true;
-    const effectiveActive = globalPingAllowed && userPingEnabled;
+    const effectiveAutoPing = globalPingAllowed && userPingEnabled;
 
     const servers = store.listAccessibleServers(userId);
     const statuses: Record<string, ServerPingStatus> = {};
-    if (effectiveActive) {
-      for (const srv of servers) {
-        if (srv.pingEnabled === false) continue;
-        const st = this.statuses.get(srv.id);
-        if (st) {
-          statuses[srv.id] = st;
-        }
+    for (const srv of servers) {
+      const st = this.statuses.get(srv.id);
+      if (st) {
+        statuses[srv.id] = {
+          ...st,
+          lastOnlineAt: st.lastOnlineAt ?? srv.lastOnlineAt ?? null,
+        };
       }
     }
 
     return {
       statuses,
       intervalSec: settings.pingIntervalSec || 60,
-      lastCycleAt: effectiveActive ? this.lastCycleAt : null,
-      nextCycleAt: effectiveActive ? this.nextCycleAt : null,
+      lastCycleAt: effectiveAutoPing ? this.lastCycleAt : null,
+      nextCycleAt: effectiveAutoPing ? this.nextCycleAt : null,
       pingMode: findPingBinary() ? 'icmp-ping' : 'tcp-ping',
       globalPingAllowed,
       userPingEnabled,

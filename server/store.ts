@@ -130,6 +130,7 @@ export interface UserServer {
   categories: string[];
   pingEnabled: boolean;
   ignoreHostKey: boolean;
+  lastOnlineAt?: string | null;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   createdAt: string;
@@ -391,6 +392,7 @@ class Store {
         categories: normalizeServerCategories((s as Partial<UserServer>).categories),
         pingEnabled: typeof s.pingEnabled === 'boolean' ? s.pingEnabled : true,
         ignoreHostKey: Boolean(s.ignoreHostKey),
+        lastOnlineAt: typeof s.lastOnlineAt === 'string' ? s.lastOnlineAt : null,
         sharedWithAll: Boolean(s.sharedWithAll),
         sharedWithUserIds: Array.isArray(s.sharedWithUserIds) ? s.sharedWithUserIds : [],
       }));
@@ -1482,6 +1484,7 @@ class Store {
       categories,
       pingEnabled: params.pingEnabled !== undefined ? Boolean(params.pingEnabled) : true,
       ignoreHostKey: Boolean(params.ignoreHostKey),
+      lastOnlineAt: null,
       sharedWithAll,
       sharedWithUserIds,
       createdAt: new Date().toISOString(),
@@ -1512,7 +1515,13 @@ class Store {
     if (srv.userId !== ownerUserId) {
       throw new Error('Sie können nur selbst angelegte Server (IPs) bearbeiten.');
     }
-    if (patch.ipAddress !== undefined) srv.ipAddress = patch.ipAddress.trim();
+    if (patch.ipAddress !== undefined) {
+      const nextIp = patch.ipAddress.trim();
+      if (nextIp !== srv.ipAddress) {
+        srv.lastOnlineAt = null;
+      }
+      srv.ipAddress = nextIp;
+    }
     if (patch.label !== undefined) srv.label = patch.label.trim() || srv.ipAddress;
     if (patch.bmcIpAddress !== undefined) srv.bmcIpAddress = patch.bmcIpAddress.trim();
     if (patch.bmcIpAddress2 !== undefined) srv.bmcIpAddress2 = patch.bmcIpAddress2.trim();
@@ -1529,6 +1538,13 @@ class Store {
     if (patch.ignoreHostKey !== undefined) srv.ignoreHostKey = Boolean(patch.ignoreHostKey);
     this.save();
     return srv;
+  }
+
+  recordServerLastOnline(serverId: string, isoTimestamp: string): void {
+    const srv = this.db.servers.find((s) => s.id === serverId);
+    if (!srv) return;
+    srv.lastOnlineAt = isoTimestamp;
+    this.save();
   }
 
   updateServerSharing(

@@ -1602,9 +1602,7 @@ async function startServer() {
         pingEnabled: typeof pingEnabled === 'boolean' ? pingEnabled : undefined,
         ignoreHostKey: typeof ignoreHostKey === 'boolean' ? ignoreHostKey : undefined,
       });
-      if (!updated.pingEnabled) {
-        pingMonitor.clearServerStatus(updated.id);
-      } else if (store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
+      if (updated.pingEnabled && store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
         void pingMonitor.pingUserServers(req.user!.id, updated.id);
       }
       res.json({ server: updated });
@@ -2331,24 +2329,15 @@ async function startServer() {
   });
 
   app.post('/api/dashboard/ping', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
-    const settings = store.getSettings();
-    if (!settings.pingAllowed) {
-      res.status(403).json({ error: 'Anpingen wurde vom Administrator global verboten.' });
-      return;
-    }
-    if (req.user!.pingEnabled === false) {
-      res.status(400).json({ error: 'Anpingen ist für Ihr Konto deaktiviert.' });
-      return;
-    }
     const serverId = typeof req.body?.serverId === 'string' ? req.body.serverId : undefined;
     if (serverId) {
       const srv = store.getAccessibleServer(serverId, req.user!.id);
-      if (srv && srv.pingEnabled === false) {
-        res.status(400).json({ error: 'Anpingen ist für diese IP deaktiviert.' });
+      if (!srv) {
+        res.status(404).json({ error: 'Server nicht gefunden.' });
         return;
       }
     }
-    await pingMonitor.pingUserServers(req.user!.id, serverId);
+    await pingMonitor.pingUserServers(req.user!.id, serverId, { manual: true });
     res.json(pingMonitor.getUserStatuses(req.user!.id));
   });
 

@@ -2082,10 +2082,10 @@ async fn api_create_server(
         let bg_state = Arc::clone(&state);
         let bg_srv = server.clone();
         tokio::spawn(async move {
-            let st = ping::check_server_reachability(&bg_srv).await;
+            let prev_ok = known_last_online_at(&bg_state, &bg_srv).await;
+            let st = ping::check_server_reachability(&bg_srv, prev_ok).await;
             if bg_state.db.get_ping_allowed() && bg_srv.ping_enabled {
-                let mut guard = bg_state.ping.write().await;
-                guard.statuses.insert(bg_srv.id, st);
+                record_ping_result(&bg_state, &bg_srv, st).await;
             }
         });
     }
@@ -2182,17 +2182,14 @@ async fn api_update_server(
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
         .ok_or_else(|| err_resp(StatusCode::FORBIDDEN, "Server konnte nicht aktualisiert werden."))?;
 
-    if !updated.ping_enabled {
-        let mut guard = state.ping.write().await;
-        guard.statuses.remove(&updated.id);
-    } else if state.db.get_ping_allowed() && user.ping_enabled {
+    if updated.ping_enabled && state.db.get_ping_allowed() && user.ping_enabled {
         let bg_state = Arc::clone(&state);
         let bg_srv = updated.clone();
         tokio::spawn(async move {
-            let st = ping::check_server_reachability(&bg_srv).await;
+            let prev_ok = known_last_online_at(&bg_state, &bg_srv).await;
+            let st = ping::check_server_reachability(&bg_srv, prev_ok).await;
             if bg_state.db.get_ping_allowed() && bg_srv.ping_enabled {
-                let mut guard = bg_state.ping.write().await;
-                guard.statuses.insert(bg_srv.id, st);
+                record_ping_result(&bg_state, &bg_srv, st).await;
             }
         });
     }
@@ -3148,6 +3145,23 @@ async fn api_list_logs(
     Ok(Json(json!({ "logs": logs })))
 }
 
+async fn known_last_online_at(state: &SharedState, srv: &UserServer) -> Option<String> {
+    let guard = state.ping.read().await;
+    guard
+        .statuses
+        .get(&srv.id)
+        .and_then(|s| s.last_online_at.clone())
+        .or_else(|| srv.last_online_at.clone())
+}
+
+async fn record_ping_result(state: &SharedState, srv: &UserServer, status: ServerPingStatus) {
+    if status.online {
+        let _ = state.db.record_server_last_online(&srv.id, &status.checked_at);
+    }
+    let mut guard = state.ping.write().await;
+    guard.statuses.insert(srv.id.clone(), status);
+}
+
 async fn build_dashboard_status_json(
     state: &SharedState,
     user: &UserPublic,
@@ -3155,7 +3169,7 @@ async fn build_dashboard_status_json(
     let global_ping_allowed = state.db.get_ping_allowed();
     let interval_sec = state.db.get_ping_interval_sec();
     let user_ping_enabled = user.ping_enabled;
-    let effective_active = global_ping_allowed && user_ping_enabled;
+    let effective_auto_ping = global_ping_allowed && user_ping_enabled;
 
     let servers = state
         .db
@@ -3163,17 +3177,16 @@ async fn build_dashboard_status_json(
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let guard = state.ping.read().await;
     let mut user_statuses = serde_json::Map::new();
-    if effective_active {
-        for srv in servers {
-            if !srv.ping_enabled {
-                continue;
+    for srv in servers {
+        if let Some(st) = guard.statuses.get(&srv.id) {
+            let mut merged = st.clone();
+            if merged.last_online_at.is_none() {
+                merged.last_online_at = srv.last_online_at.clone();
             }
-            if let Some(st) = guard.statuses.get(&srv.id) {
-                user_statuses.insert(
-                    srv.id,
-                    serde_json::to_value(st).unwrap_or(serde_json::Value::Null),
-                );
-            }
+            user_statuses.insert(
+                srv.id,
+                serde_json::to_value(merged).unwrap_or(serde_json::Value::Null),
+            );
         }
     }
     let ping_mode = if Path::new("/bin/ping").exists() || Path::new("/usr/bin/ping").exists() {
@@ -3184,8 +3197,8 @@ async fn build_dashboard_status_json(
     Ok(json!({
         "statuses": user_statuses,
         "intervalSec": interval_sec,
-        "lastCycleAt": if effective_active { guard.last_cycle_at.clone() } else { None },
-        "nextCycleAt": if effective_active { guard.next_cycle_at.clone() } else { None },
+        "lastCycleAt": if effective_auto_ping { guard.last_cycle_at.clone() } else { None },
+        "nextCycleAt": if effective_auto_ping { guard.next_cycle_at.clone() } else { None },
         "pingMode": ping_mode,
         "globalPingAllowed": global_ping_allowed,
         "userPingEnabled": user_ping_enabled
@@ -3208,46 +3221,25 @@ async fn api_dashboard_ping(
     Json(req): Json<ManualPingRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
-    if !state.db.get_ping_allowed() {
-        return Err(err_resp(
-            StatusCode::FORBIDDEN,
-            "Anpingen wurde vom Administrator global verboten.",
-        ));
-    }
-    if !user.ping_enabled {
-        return Err(err_resp(
-            StatusCode::BAD_REQUEST,
-            "Anpingen ist für Ihr Konto deaktiviert.",
-        ));
-    }
     let servers = state
         .db
         .list_accessible_servers(&user.id)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if let Some(ref id) = req.server_id {
-        if let Some(srv) = servers.iter().find(|s| s.id == *id) {
-            if !srv.ping_enabled {
-                return Err(err_resp(
-                    StatusCode::BAD_REQUEST,
-                    "Anpingen ist für diese IP deaktiviert.",
-                ));
-            }
+        if !servers.iter().any(|s| s.id == *id) {
+            return Err(err_resp(StatusCode::NOT_FOUND, "Server nicht gefunden."));
         }
     }
+    // Manuelles Prüfen funktioniert immer, auch wenn regelmäßiger Auto-Ping deaktiviert ist
     let targets: Vec<UserServer> = match req.server_id {
-        Some(ref id) => servers
-            .into_iter()
-            .filter(|s| s.id == *id && s.ping_enabled)
-            .collect(),
-        None => servers.into_iter().filter(|s| s.ping_enabled).collect(),
+        Some(ref id) => servers.into_iter().filter(|s| s.id == *id).collect(),
+        None => servers,
     };
 
     for srv in targets {
-        let status = ping::check_server_reachability(&srv).await;
-        if state.db.get_ping_allowed() && srv.ping_enabled {
-            let mut guard = state.ping.write().await;
-            guard.statuses.insert(srv.id.clone(), status);
-        }
+        let prev_ok = known_last_online_at(&state, &srv).await;
+        let status = ping::check_server_reachability(&srv, prev_ok).await;
+        record_ping_result(&state, &srv, status).await;
     }
 
     Ok(Json(build_dashboard_status_json(&state, &user).await?))
@@ -3271,10 +3263,10 @@ async fn api_user_ping_settings(
         tokio::spawn(async move {
             if let Ok(servers) = bg_state.db.list_accessible_servers(&uid) {
                 for srv in servers.into_iter().filter(|s| s.ping_enabled) {
-                    let st = ping::check_server_reachability(&srv).await;
+                    let prev_ok = known_last_online_at(&bg_state, &srv).await;
+                    let st = ping::check_server_reachability(&srv, prev_ok).await;
                     if bg_state.db.get_ping_allowed() {
-                        let mut guard = bg_state.ping.write().await;
-                        guard.statuses.insert(srv.id, st);
+                        record_ping_result(&bg_state, &srv, st).await;
                     }
                 }
             }
@@ -3302,7 +3294,6 @@ async fn api_admin_ping_settings(
     {
         let mut guard = state.ping.write().await;
         if !ping_allowed {
-            guard.statuses.clear();
             guard.next_cycle_at = None;
         } else {
             guard.next_cycle_at =
@@ -3602,7 +3593,6 @@ async fn main() {
             if !allowed {
                 {
                     let mut guard = bg_state.ping.write().await;
-                    guard.statuses.clear();
                     guard.next_cycle_at = None;
                 }
                 bg_state.ping_notify.notified().await;
@@ -3612,6 +3602,7 @@ async fn main() {
             if let Ok(servers) = bg_state.db.list_all_servers() {
                 let now = Utc::now();
                 let next = now + chrono::Duration::seconds(interval_sec as i64);
+                let existing_ids: HashSet<String> = servers.iter().map(|s| s.id.clone()).collect();
                 let active_ids: HashSet<String> = servers
                     .iter()
                     .filter(|s| bg_state.db.should_ping_server(s))
@@ -3621,16 +3612,17 @@ async fn main() {
                     let mut guard = bg_state.ping.write().await;
                     guard.last_cycle_at = Some(now.to_rfc3339());
                     guard.next_cycle_at = Some(next.to_rfc3339());
-                    guard.statuses.retain(|k, _| active_ids.contains(k));
+                    // Nur gelöschte Server entfernen; manuelle Ping-Ergebnisse bleiben erhalten
+                    guard.statuses.retain(|k, _| existing_ids.contains(k));
                 }
                 for srv in servers.into_iter().filter(|s| active_ids.contains(&s.id)) {
                     if !bg_state.db.get_ping_allowed() {
                         break;
                     }
-                    let st = ping::check_server_reachability(&srv).await;
+                    let prev_ok = known_last_online_at(&bg_state, &srv).await;
+                    let st = ping::check_server_reachability(&srv, prev_ok).await;
                     if bg_state.db.get_ping_allowed() && bg_state.db.should_ping_server(&srv) {
-                        let mut guard = bg_state.ping.write().await;
-                        guard.statuses.insert(srv.id, st);
+                        record_ping_result(&bg_state, &srv, st).await;
                     }
                 }
             }

@@ -158,6 +158,7 @@ export interface UserServer {
   categories?: string[];
   pingEnabled: boolean;
   ignoreHostKey?: boolean;
+  lastOnlineAt?: string | null;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   createdAt: string;
@@ -252,6 +253,7 @@ export interface ServerPingStatus {
   latencyMs: number | null;
   method: 'icmp-ping' | 'tcp-ping';
   checkedAt: string;
+  lastOnlineAt?: string | null;
   error?: string;
 }
 

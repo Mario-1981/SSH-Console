@@ -92,6 +92,7 @@ impl Database {
                 ping_enabled INTEGER NOT NULL DEFAULT 1,
                 ignore_host_key INTEGER NOT NULL DEFAULT 0,
                 categories_json TEXT NOT NULL DEFAULT '[]',
+                last_online_at TEXT,
                 shared_with_all INTEGER NOT NULL DEFAULT 0,
                 shared_with_user_ids TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL
@@ -179,6 +180,10 @@ impl Database {
         );
         let _ = conn.execute(
             "ALTER TABLE user_servers ADD COLUMN categories_json TEXT NOT NULL DEFAULT '[]'",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE user_servers ADD COLUMN last_online_at TEXT",
             [],
         );
         let _ = conn.execute(
@@ -1375,7 +1380,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, ignore_host_key, categories_json, shared_with_all, shared_with_user_ids, created_at
+                "SELECT id, user_id, owner_username, label, ip_address, bmc_ip_address, bmc_ip_address2, port, ssh_user, notes, ping_enabled, ignore_host_key, categories_json, shared_with_all, shared_with_user_ids, created_at, last_online_at
                  FROM user_servers ORDER BY label ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -1402,6 +1407,7 @@ impl Database {
                     ping_enabled: r.get::<_, i64>(10)? == 1,
                     ignore_host_key: r.get::<_, i64>(11)? == 1,
                     categories,
+                    last_online_at: r.get(16)?,
                     shared_with_all: r.get::<_, i64>(13)? == 1,
                     shared_with_user_ids,
                     created_at: r.get(15)?,
@@ -1495,6 +1501,7 @@ impl Database {
             ping_enabled,
             ignore_host_key,
             categories: clean_categories,
+            last_online_at: None,
             shared_with_all,
             shared_with_user_ids: clean_shared,
             created_at: now,
@@ -1524,7 +1531,8 @@ impl Database {
             let changed = conn
                 .execute(
                     "UPDATE user_servers
-                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, bmc_ip_address2 = ?4, port = ?5, ssh_user = ?6, notes = ?7, ping_enabled = ?8, ignore_host_key = ?9, categories_json = ?10
+                     SET label = ?1, ip_address = ?2, bmc_ip_address = ?3, bmc_ip_address2 = ?4, port = ?5, ssh_user = ?6, notes = ?7, ping_enabled = ?8, ignore_host_key = ?9, categories_json = ?10,
+                         last_online_at = CASE WHEN ip_address != ?2 THEN NULL ELSE last_online_at END
                      WHERE id = ?11 AND user_id = ?12",
                     params![
                         label,
@@ -1548,6 +1556,20 @@ impl Database {
             Self::ensure_user_categories_locked(&conn, owner_user_id, &clean_categories)?;
         }
         self.get_accessible_server(id, owner_user_id)
+    }
+
+    pub fn record_server_last_online(
+        &self,
+        server_id: &str,
+        iso_timestamp: &str,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.execute(
+            "UPDATE user_servers SET last_online_at = ?1 WHERE id = ?2",
+            params![iso_timestamp, server_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn update_server_sharing(

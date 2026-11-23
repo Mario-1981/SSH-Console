@@ -148,6 +148,8 @@ pub struct UserServer {
     pub ignore_host_key: bool,
     #[serde(default)]
     pub categories: Vec<String>,
+    #[serde(default)]
+    pub last_online_at: Option<String>,
     pub shared_with_all: bool,
     pub shared_with_user_ids: Vec<String>,
     pub created_at: String,
@@ -559,6 +561,8 @@ pub struct ServerPingStatus {
     pub latency_ms: Option<u64>,
     pub method: String,
     pub checked_at: String,
+    #[serde(default)]
+    pub last_online_at: Option<String>,
     pub error: Option<String>,
 }
 

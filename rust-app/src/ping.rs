@@ -20,7 +20,10 @@ pub type SharedPingState = Arc<RwLock<PingState>>;
 
 /// Prüft eine Ziel-IP per `/bin/ping -c 1 -W 2` (iputils-ping unter Debian Trixie)
 /// mit automatischem Fallback auf einen TCP-Connect zum SSH-Port.
-pub async fn check_server_reachability(server: &UserServer) -> ServerPingStatus {
+pub async fn check_server_reachability(
+    server: &UserServer,
+    previous_last_online_at: Option<String>,
+) -> ServerPingStatus {
     let checked_at = Utc::now().to_rfc3339();
     let is_ipv6 = server
         .ip_address
@@ -61,6 +64,7 @@ pub async fn check_server_reachability(server: &UserServer) -> ServerPingStatus 
                         online: true,
                         latency_ms: Some(ms),
                         method: "icmp-ping".into(),
+                        last_online_at: Some(checked_at.clone()),
                         checked_at,
                         error: None,
                     };
@@ -72,6 +76,7 @@ pub async fn check_server_reachability(server: &UserServer) -> ServerPingStatus 
                     online: false,
                     latency_ms: None,
                     method: "icmp-ping".into(),
+                    last_online_at: previous_last_online_at,
                     checked_at,
                     error: Some("Keine ICMP-Antwort".into()),
                 };
@@ -94,6 +99,7 @@ pub async fn check_server_reachability(server: &UserServer) -> ServerPingStatus 
             online: true,
             latency_ms: Some(started.elapsed().as_millis().max(1) as u64),
             method: "tcp-ping".into(),
+            last_online_at: Some(checked_at.clone()),
             checked_at,
             error: None,
         },
@@ -104,6 +110,7 @@ pub async fn check_server_reachability(server: &UserServer) -> ServerPingStatus 
             online: false,
             latency_ms: None,
             method: "tcp-ping".into(),
+            last_online_at: previous_last_online_at,
             checked_at,
             error: Some(e.to_string()),
         },
@@ -114,6 +121,7 @@ pub async fn check_server_reachability(server: &UserServer) -> ServerPingStatus 
             online: false,
             latency_ms: None,
             method: "tcp-ping".into(),
+            last_online_at: previous_last_online_at,
             checked_at,
             error: Some("Zeitüberschreitung".into()),
         },
