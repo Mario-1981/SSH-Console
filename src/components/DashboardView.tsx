@@ -55,6 +55,18 @@ function formatBmcUrl(ipAddress: string): string {
   return `https://${host}`;
 }
 
+const BENIGN_KNOWN_HOSTS_ADDED_RE =
+  /^Warning:\s+Permanently added\s+'[^']+'(?:\s+\([^)]+\))?\s+to the list of known hosts\.$/i;
+
+function filterBenignSshStderr(stderr: string): string {
+  if (!stderr) return '';
+  const kept = stderr
+    .split(/\r?\n/)
+    .filter((line) => !BENIGN_KNOWN_HOSTS_ADDED_RE.test(line.trim()));
+  const joined = kept.join('\n');
+  return joined.trim() ? joined.trimEnd() : '';
+}
+
 type PageSizeOption = 10 | 20 | 50 | 'all';
 const PAGE_SIZE_OPTIONS: PageSizeOption[] = [10, 20, 50, 'all'];
 const PAGE_SIZE_STORAGE_KEY = 'ssh_console_dashboard_page_size';
@@ -985,11 +997,14 @@ export function DashboardView({
                         </pre>
                       )}
 
-                      {res.stderr && (
-                        <pre className="text-amber-300 whitespace-pre-wrap break-words border-t border-slate-800 pt-2.5">
-                          {res.stderr}
-                        </pre>
-                      )}
+                      {(() => {
+                        const visibleStderr = filterBenignSshStderr(res.stderr);
+                        return visibleStderr ? (
+                          <pre className="text-amber-300 whitespace-pre-wrap break-words border-t border-slate-800 pt-2.5">
+                            {visibleStderr}
+                          </pre>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
                 );

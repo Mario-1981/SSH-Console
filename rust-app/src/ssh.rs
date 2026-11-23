@@ -655,6 +655,25 @@ pub struct SshRunOutput {
     pub ssh_invocation: String,
 }
 
+fn is_benign_known_hosts_added_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("Warning: Permanently added '")
+        && trimmed.ends_with(" to the list of known hosts.")
+}
+
+fn filter_benign_ssh_stderr(stderr: &str) -> String {
+    let kept: Vec<&str> = stderr
+        .lines()
+        .filter(|line| !is_benign_known_hosts_added_line(line))
+        .collect();
+    let joined = kept.join("\n");
+    if joined.trim().is_empty() {
+        String::new()
+    } else {
+        joined.trim_end().to_string()
+    }
+}
+
 /// Führt den freigegebenen SSH-Befehl passwortlos über OpenSSH aus.
 /// Legt `zertifikat` (0600), `zertifikat.pub` (0644) und optional `zertifikat-cert.pub` (0644)
 /// in einem isolierten 0700-Temp-Verzeichnis an und löscht diese nach Ausführung sofort.
@@ -760,7 +779,7 @@ pub async fn run_ssh_command(
         Ok(Ok(out)) => Ok(SshRunOutput {
             exit_code: out.status.code().unwrap_or(255),
             stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+            stderr: filter_benign_ssh_stderr(&String::from_utf8_lossy(&out.stderr)),
             duration_ms: started.elapsed().as_millis() as u64,
             ssh_invocation,
         }),

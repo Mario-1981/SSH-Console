@@ -83,6 +83,18 @@ function wipeAndRemoveDir(dir: string) {
   }
 }
 
+const BENIGN_KNOWN_HOSTS_ADDED_RE =
+  /^Warning:\s+Permanently added\s+'[^']+'(?:\s+\([^)]+\))?\s+to the list of known hosts\.$/i;
+
+function filterBenignSshStderr(stderr: string): string {
+  if (!stderr) return '';
+  const kept = stderr
+    .split(/\r?\n/)
+    .filter((line) => !BENIGN_KNOWN_HOSTS_ADDED_RE.test(line.trim()));
+  const joined = kept.join('\n');
+  return joined.trim() ? joined.trimEnd() : '';
+}
+
 export interface SshExecutionResult {
   mode: 'openssh-live' | 'sandbox-dry-run';
   sshInvocation: string;
@@ -196,14 +208,15 @@ export async function executeSshCommand(params: {
             },
           },
           (error, stdout, stderr) => {
+            const cleanedStderr = filterBenignSshStderr(stderr.toString());
             if (!error) {
-              resolve({ exitCode: 0, stdout: stdout.toString(), stderr: stderr.toString() });
+              resolve({ exitCode: 0, stdout: stdout.toString(), stderr: cleanedStderr });
             } else {
               const code = typeof error.code === 'number' ? error.code : 255;
               resolve({
                 exitCode: code,
                 stdout: stdout.toString(),
-                stderr: stderr.toString() || error.message,
+                stderr: cleanedStderr || error.message,
               });
             }
           }

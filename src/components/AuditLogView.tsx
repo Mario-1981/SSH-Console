@@ -10,6 +10,18 @@ interface AuditLogViewProps {
   onRefresh: () => Promise<void>;
 }
 
+const BENIGN_KNOWN_HOSTS_ADDED_RE =
+  /^Warning:\s+Permanently added\s+'[^']+'(?:\s+\([^)]+\))?\s+to the list of known hosts\.$/i;
+
+function filterBenignSshStderr(stderr: string): string {
+  if (!stderr) return '';
+  const kept = stderr
+    .split(/\r?\n/)
+    .filter((line) => !BENIGN_KNOWN_HOSTS_ADDED_RE.test(line.trim()));
+  const joined = kept.join('\n');
+  return joined.trim() ? joined.trimEnd() : '';
+}
+
 export function AuditLogView({ currentUser, users, logs, onRefresh }: AuditLogViewProps) {
   const { tr, formatDateTime } = useI18n();
   const isAdmin = currentUser.role === 'admin';
@@ -297,11 +309,14 @@ export function AuditLogView({ currentUser, users, logs, onRefresh }: AuditLogVi
                                   {log.stdout}
                                 </pre>
                               )}
-                              {log.stderr && (
-                                <pre className="text-amber-300 whitespace-pre-wrap break-words border-t border-slate-800 pt-2">
-                                  {log.stderr}
-                                </pre>
-                              )}
+                              {(() => {
+                                const visibleStderr = filterBenignSshStderr(log.stderr);
+                                return visibleStderr ? (
+                                  <pre className="text-amber-300 whitespace-pre-wrap break-words border-t border-slate-800 pt-2">
+                                    {visibleStderr}
+                                  </pre>
+                                ) : null;
+                              })()}
                             </div>
                           </td>
                         </tr>
