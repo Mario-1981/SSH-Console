@@ -1,0 +1,78 @@
+{
+  "stopOnError": false,
+  "steps": [
+    {
+      "type": "run",
+      "id": "host",
+      "command": "hostname -f",
+      "filter": {
+        "trim": true
+      }
+    },
+    {
+      "type": "run",
+      "id": "kernel",
+      "command": "uname -r",
+      "filter": {
+        "trim": true
+      }
+    },
+    {
+      "type": "run",
+      "id": "load",
+      "command": "uptime",
+      "filter": {
+        "regex": "load average:\\s*(.+)$",
+        "regexGroup": 1,
+        "trim": true
+      }
+    },
+    {
+      "type": "run",
+      "id": "failed",
+      "command": "systemctl --failed --no-legend --plain",
+      "continueOnError": true,
+      "filter": {
+        "dropEmpty": true,
+        "columns": [
+          1
+        ]
+      }
+    },
+    {
+      "type": "if",
+      "when": {
+        "from": "failed",
+        "field": "linesCount",
+        "op": "equals",
+        "value": 0
+      },
+      "then": [
+        {
+          "type": "set",
+          "name": "healthy",
+          "value": "true"
+        }
+      ],
+      "else": [
+        {
+          "type": "set",
+          "name": "healthy",
+          "value": "false"
+        }
+      ]
+    }
+  ],
+  "output": {
+    "format": "json",
+    "fields": {
+      "server": "{{target.label}}",
+      "ip": "{{target.ip}}",
+      "hostname": "{{host.stdout}}",
+      "kernel": "{{kernel.stdout}}",
+      "loadAverage": "{{load.stdout}}",
+      "failedUnitsCount": "{{failed.linesCount}}",
+      "healthy": "{{vars.healthy}}"
+    }
+  }
+}

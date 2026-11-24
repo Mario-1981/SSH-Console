@@ -56,7 +56,7 @@ For branching automations with **if/then/else conditions**, **polling loops**, *
   - `table`: Aligned ASCII table built from `rows`, `fields`, or `source` + `columns`.
   - `json`: Structured JSON output (`fields` + `autoType`).
   - `lines`: Filtered line list.
-- **Placeholders & Editor Tooling**: Reference step outputs, runtime variables, and target metadata via {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}`, and `{{target.label}}`{% endraw %}. The UI includes **starter templates** (including Dell iDRAC Reset with `loop` + `inputs`), **live JSON validation**, **auto-formatting**, and a **structural execution preview**.
+- **Placeholders & Editor Tooling**: Reference step outputs, runtime variables, and target metadata via {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}`, and `{{target.label}}`{% endraw %}. The UI includes **live JSON validation**, **auto-formatting**, a **syntax reference**, and a **structural execution preview**. Ready-to-use example workflows live exclusively in the `workflows/` folder of the GitHub repository.
 
 {% raw %}
 ```json
@@ -102,7 +102,7 @@ For branching automations with **if/then/else conditions**, **polling loops**, *
 {% endraw %}
 
 ### Presets & Admin Sharing
-- Load ready-made Linux diagnostics presets (including a JSON workflow) with one click.
+- Load common single-command Debian diagnostics presets with one click; example JSON workflows are provided in the repository's `workflows/` directory.
 - Commands are private to their creator; administrators can share commands with all users or selected accounts.
 
 ---

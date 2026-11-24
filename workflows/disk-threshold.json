@@ -1,0 +1,61 @@
+{
+  "stopOnError": true,
+  "inputs": [
+    {
+      "name": "threshold",
+      "label": "Warn-Schwellenwert (%)",
+      "type": "number",
+      "default": 80,
+      "required": true
+    }
+  ],
+  "steps": [
+    {
+      "type": "run",
+      "id": "root_pct",
+      "command": "df -P / | tail -n 1",
+      "silent": true,
+      "filter": {
+        "regex": "(\\d+)%",
+        "regexGroup": 1,
+        "trim": true
+      }
+    },
+    {
+      "type": "run",
+      "id": "disks",
+      "command": "df -hP -x tmpfs -x devtmpfs",
+      "filter": {
+        "exclude": "^Filesystem",
+        "dropEmpty": true
+      }
+    },
+    {
+      "type": "if",
+      "when": {
+        "from": "root_pct",
+        "field": "stdout",
+        "op": "gte",
+        "value": "{{vars.threshold}}"
+      },
+      "then": [
+        {
+          "type": "set",
+          "name": "status",
+          "value": "WARNUNG: Root-Partition bei {{root_pct.stdout}}% (Schwellenwert: {{vars.threshold}}%)"
+        }
+      ],
+      "else": [
+        {
+          "type": "set",
+          "name": "status",
+          "value": "OK (Root-Partition: {{root_pct.stdout}}% < {{vars.threshold}}%)"
+        }
+      ]
+    }
+  ],
+  "output": {
+    "format": "template",
+    "template": "Host: {{target.label}} ({{target.ip}})\nBewertung: {{vars.status}}\n\nLaufwerke:\n{{disks.stdout}}"
+  }
+}

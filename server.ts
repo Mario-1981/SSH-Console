@@ -10,7 +10,6 @@ import {
   parseAndValidateWorkflow,
   resolveWorkflowRuntimeVars,
   sanitizeRuntimeVarsInput,
-  WORKFLOW_TEMPLATES,
 } from './src/workflowEngine.ts';
 import {
   clearGlobalHostKeys,
@@ -389,45 +388,6 @@ const DEBIAN_PRESET_COMMANDS = [
     stopOnError: true,
     description: 'Zeigt alle aktiven TCP- und UDP-Listener-Sockets samt Prozesszuordnung an.',
     timeoutSec: 15,
-  },
-  {
-    name: 'Nginx prüfen, neu laden & verifizieren',
-    category: 'Dienste',
-    kind: 'chain' as const,
-    command: '',
-    steps: [
-      { command: 'nginx -t', sleepAfterSec: 2 },
-      { command: 'systemctl reload nginx', sleepAfterSec: 3 },
-      { command: 'systemctl is-active nginx', sleepAfterSec: 0 },
-    ],
-    stopOnError: true,
-    description: 'Befehlskette: Prüft die Nginx-Konfiguration, wartet 2 s, lädt neu, wartet 3 s und verifiziert den Dienststatus.',
-    timeoutSec: 30,
-  },
-  {
-    name: 'APT-Paketlisten aktualisieren & Updates prüfen',
-    category: 'Wartung',
-    kind: 'chain' as const,
-    command: '',
-    steps: [
-      { command: 'apt-get update -qq', sleepAfterSec: 2 },
-      { command: 'apt list --upgradable 2>/dev/null', sleepAfterSec: 0 },
-    ],
-    stopOnError: true,
-    description: 'Befehlskette: Aktualisiert den APT-Index, pausiert 2 s und listet verfügbare Debian-Updates auf.',
-    timeoutSec: 60,
-  },
-  {
-    name: 'Dienst prüfen & bei Bedarf neu starten (JSON-Workflow)',
-    category: 'Dienste',
-    kind: 'workflow' as const,
-    command: '',
-    steps: [],
-    workflowJson: WORKFLOW_TEMPLATES[0].json,
-    stopOnError: true,
-    description:
-      'Komplexe JSON-Befehlskette mit Wenn/Dann-Bedingung, Sleep, Ausgabe-Filterung und Tabellenformatierung.',
-    timeoutSec: 30,
   },
 ];
 

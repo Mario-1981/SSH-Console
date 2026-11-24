@@ -56,7 +56,7 @@ Für verzweigte Abläufe mit **Wenn-Dann-Sonst-Logik**, **Polling-Schleifen**, *
   - `table`: Sauber ausgerichtete ASCII-Tabelle aus `rows`, `fields` oder `source` + `columns`.
   - `json`: Strukturierte JSON-Ausgabe (`fields` + `autoType`).
   - `lines`: Gefilterte Zeilenliste.
-- **Platzhalter & Vorlagen**: Über {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}` und `{{target.label}}`{% endraw %} stehen Ergebnisse aller Schritte und Laufzeit-Variablen bereit. Im Editor sind direkte **Starter-Vorlagen** (inkl. Dell iDRAC Reset mit `loop` + `inputs`), **Live-Validierung**, **JSON-Formatierung** und eine **Ablaufvorschau** integriert.
+- **Platzhalter & Editor-Hilfen**: Über {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}` und `{{target.label}}`{% endraw %} stehen Ergebnisse aller Schritte und Laufzeit-Variablen bereit. Im Editor sind **Live-Validierung**, **JSON-Formatierung**, **Syntax-Hilfe** und eine **Ablaufvorschau** integriert. Praxisbeispiele (z. B. Dell iDRAC Reset, Systemd-Dienstprüfung, Festplatten-Schwellenwert) liegen gesammelt im Ordner `workflows/` im GitHub-Repository.
 
 {% raw %}
 ```json
@@ -101,8 +101,8 @@ Für verzweigte Abläufe mit **Wenn-Dann-Sonst-Logik**, **Polling-Schleifen**, *
 ```
 {% endraw %}
 
-### Vorlagen & Admin-Freigaben
-- Mit einem Klick lassen sich praxisnahe Linux-Diagnose-Vorlagen (inkl. JSON-Workflow) laden.
+### Standardbefehle & Admin-Freigaben
+- Mit einem Klick lassen sich gängige Debian-Diagnose-Einzelbefehle laden; fertige JSON-Workflow-Beispiele finden sich im Repository unter `workflows/`.
 - Befehle sind privat für ihren Ersteller; Administratoren können eigene Befehle für alle oder ausgewählte Benutzer freigeben.
 
 ---
