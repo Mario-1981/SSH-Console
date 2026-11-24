@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 const MAX_DEPTH: usize = 10;
 const MAX_DEFINED_STEPS: usize = 100;
-const MAX_EXECUTED_STEPS: usize = 50;
+const MAX_EXECUTED_STEPS: usize = 300;
 
 #[derive(Debug, Clone)]
 pub struct WorkflowSummary {
@@ -361,9 +361,54 @@ fn validate_steps(
                 }
             }
             "log" | "stop" | "fail" => {}
+            "loop" => {
+                let id_raw = obj.get("id").and_then(Value::as_str).unwrap_or("").trim();
+                if !id_raw.is_empty() && !is_valid_ident(id_raw) {
+                    return Err(format!(
+                        "{p}.id: Ungültige Schritt-ID \"{id_raw}\" (erlaubt: Buchstaben, Ziffern, _, -)."
+                    ));
+                }
+                let max_iter = obj
+                    .get("maxIterations")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(10);
+                if !(1..=120).contains(&max_iter) {
+                    return Err(format!(
+                        "{p}.maxIterations: Muss eine Zahl zwischen 1 und 120 sein."
+                    ));
+                }
+                if let Some(iv) = obj.get("intervalSec") {
+                    let Some(secs) = iv.as_u64() else {
+                        return Err(format!("{p}.intervalSec: Muss eine Zahl zwischen 0 und 600 sein."));
+                    };
+                    if secs > 600 {
+                        return Err(format!("{p}.intervalSec: Muss eine Zahl zwischen 0 und 600 sein."));
+                    }
+                }
+                let Some(body_v) = obj.get("steps") else {
+                    return Err(format!(
+                        "{p}.steps: Ein \"loop\"-Schritt benötigt mindestens einen Schritt in \"steps\"."
+                    ));
+                };
+                if body_v.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+                    return Err(format!(
+                        "{p}.steps: Ein \"loop\"-Schritt benötigt mindestens einen Schritt in \"steps\"."
+                    ));
+                }
+                validate_steps(body_v, &format!("{p}.steps"), depth + 1, counters)?;
+                if let Some(until_v) = obj.get("until").filter(|v| !v.is_null()) {
+                    validate_condition(until_v, &format!("{p}.until"), depth + 1)?;
+                    counters.condition_count += 1;
+                }
+                if let Some(ot) = obj.get("onTimeout").and_then(Value::as_str) {
+                    if ot != "fail" && ot != "continue" {
+                        return Err(format!("{p}.onTimeout: Erlaubt sind \"fail\" oder \"continue\"."));
+                    }
+                }
+            }
             other => {
                 return Err(format!(
-                    "{p}.type: Unbekannter Schritt-Typ \"{other}\". Erlaubt: run, sleep, if, set, log, stop, fail."
+                    "{p}.type: Unbekannter Schritt-Typ \"{other}\". Erlaubt: run, sleep, if, loop, set, log, stop, fail."
                 ));
             }
         }
@@ -1155,8 +1200,13 @@ fn run_block<'a>(
             match step_type {
                 "run" => {
                     let raw_cmd = obj.get("command").and_then(Value::as_str).unwrap_or("");
+                    let is_silent = obj.get("silent").and_then(Value::as_bool).unwrap_or(false);
                     let rendered_cmd = interpolate_template(raw_cmd, ctx);
-                    ctx.commands_run.push(rendered_cmd.clone());
+                    ctx.commands_run.push(if is_silent {
+                        raw_cmd.to_string()
+                    } else {
+                        rendered_cmd.clone()
+                    });
 
                     let res = runner(rendered_cmd.clone(), rem).await?;
                     let raw_stdout = res.stdout.replace("\r\n", "\n");
@@ -1260,6 +1310,90 @@ fn run_block<'a>(
                             runner,
                         )
                         .await?;
+                    }
+                }
+                "loop" => {
+                    let max_iter = obj
+                        .get("maxIterations")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(10)
+                        .clamp(1, 120);
+                    let interval_sec = obj
+                        .get("intervalSec")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0)
+                        .min(600);
+                    let loop_id = obj
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty());
+                    let body_steps = obj.get("steps").and_then(Value::as_array);
+                    let until_cond = obj.get("until").filter(|v| !v.is_null());
+                    let mut satisfied = false;
+
+                    if let Some(inner) = body_steps {
+                        for iter in 1..=max_iter {
+                            if ctx.stopped {
+                                break;
+                            }
+                            ctx.vars.insert("loopIteration".into(), iter.to_string());
+                            if let Some(lid) = loop_id {
+                                ctx.vars.insert(format!("{lid}_attempts"), iter.to_string());
+                            }
+                            run_block(
+                                inner,
+                                default_stop_on_error,
+                                started,
+                                total_budget,
+                                timeout_sec,
+                                ctx,
+                                runner,
+                            )
+                            .await?;
+                            if ctx.stopped {
+                                break;
+                            }
+                            if let Some(u) = until_cond {
+                                if evaluate_condition(u, ctx) {
+                                    satisfied = true;
+                                    break;
+                                }
+                            }
+                            if iter < max_iter && interval_sec > 0 {
+                                let rem_now = total_budget.saturating_sub(started.elapsed());
+                                if rem_now <= Duration::from_millis(250) {
+                                    ctx.stderr_parts.push(format!(
+                                        "Workflow nach {timeout_sec} Sekunden abgebrochen (Timeout)."
+                                    ));
+                                    ctx.final_exit_code = 124;
+                                    ctx.stopped = true;
+                                    break;
+                                }
+                                let wait = Duration::from_secs(interval_sec).min(rem_now);
+                                if !wait.is_zero() {
+                                    tokio::time::sleep(wait).await;
+                                }
+                            }
+                        }
+                    }
+
+                    if !ctx.stopped
+                        && until_cond.is_some()
+                        && !satisfied
+                        && obj.get("onTimeout").and_then(Value::as_str) == Some("fail")
+                    {
+                        let msg = obj
+                            .get("timeoutMessage")
+                            .and_then(Value::as_str)
+                            .map(|m| interpolate_template(m, ctx))
+                            .unwrap_or_else(|| {
+                                format!("Schleifen-Bedingung nach {max_iter} Versuchen nicht erfüllt.")
+                            });
+                        ctx.stderr_parts.push(msg);
+                        ctx.final_exit_code = 124;
+                        ctx.stopped = true;
+                        return Ok(());
                     }
                 }
                 "set" => {

@@ -132,6 +132,12 @@ function summarizeWorkflowSteps(steps: WorkflowStep[], indent = '  '): string[] 
         lines.push(`${indent}   ELSE:`);
         lines.push(...summarizeWorkflowSteps(s.else, `${indent}     `));
       }
+    } else if (s.type === 'loop') {
+      const iv = s.intervalSec ? `, alle ${s.intervalSec}s` : '';
+      lines.push(
+        `${num} LOOP (max ${s.maxIterations}x${iv}${s.until ? `, bis ${JSON.stringify(s.until)}` : ''})`
+      );
+      lines.push(...summarizeWorkflowSteps(s.steps, `${indent}   `));
     } else if (s.type === 'set') {
       lines.push(`${num} SET ${s.name} = ${s.value}${s.filter ? ' (+filter)' : ''}`);
     } else if (s.type === 'log') {

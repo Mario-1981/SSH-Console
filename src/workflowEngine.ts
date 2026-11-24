@@ -105,10 +105,22 @@ export interface WorkflowStopStep {
   message?: string;
 }
 
+export interface WorkflowLoopStep {
+  type: 'loop';
+  id?: string;
+  maxIterations: number;
+  intervalSec?: number;
+  steps: WorkflowStep[];
+  until?: WorkflowCondition;
+  onTimeout?: 'fail' | 'continue';
+  timeoutMessage?: string;
+}
+
 export type WorkflowStep =
   | WorkflowRunStep
   | WorkflowSleepStep
   | WorkflowIfStep
+  | WorkflowLoopStep
   | WorkflowSetStep
   | WorkflowLogStep
   | WorkflowStopStep;
@@ -228,7 +240,7 @@ const VALID_FIELDS = new Set<string>(['stdout', 'rawStdout', 'stderr', 'exitCode
 const VALID_FORMATS = new Set<string>(['text', 'template', 'table', 'json', 'lines']);
 const MAX_DEPTH = 10;
 const MAX_DEFINED_STEPS = 100;
-const MAX_EXECUTED_STEPS = 50;
+const MAX_EXECUTED_STEPS = 300;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -541,9 +553,56 @@ function validateSteps(
         exitCode,
         ...(message !== undefined ? { message } : {}),
       });
+    } else if (stepType === 'loop') {
+      const idRaw = typeof item.id === 'string' ? item.id.trim() : '';
+      if (idRaw && !/^[a-zA-Z_][a-zA-Z0-9_-]{0,47}$/.test(idRaw)) {
+        return {
+          error: `${p}.id: Ungültige Schritt-ID "${idRaw}" (erlaubt: Buchstaben, Ziffern, _, -).`,
+        };
+      }
+      const maxIter =
+        item.maxIterations !== undefined ? Math.floor(Number(item.maxIterations)) : 10;
+      if (!Number.isFinite(maxIter) || maxIter < 1 || maxIter > 120) {
+        return { error: `${p}.maxIterations: Muss eine Zahl zwischen 1 und 120 sein.` };
+      }
+      const intervalSec =
+        item.intervalSec !== undefined ? Math.floor(Number(item.intervalSec)) : 0;
+      if (!Number.isFinite(intervalSec) || intervalSec < 0 || intervalSec > 600) {
+        return { error: `${p}.intervalSec: Muss eine Zahl zwischen 0 und 600 sein.` };
+      }
+      if (!Array.isArray(item.steps) || item.steps.length === 0) {
+        return { error: `${p}.steps: Ein "loop"-Schritt benötigt mindestens einen Schritt in "steps".` };
+      }
+      const bodyRes = validateSteps(item.steps, `${p}.steps`, depth + 1, counters);
+      if (bodyRes.error) return { error: bodyRes.error };
+
+      let untilCond: WorkflowCondition | undefined;
+      if (item.until !== undefined && item.until !== null) {
+        const untilRes = validateCondition(item.until, `${p}.until`, depth + 1);
+        if (untilRes.error) return { error: untilRes.error };
+        untilCond = untilRes.condition;
+        counters.conditionCount++;
+      }
+
+      const onTimeout = item.onTimeout === 'fail' ? 'fail' : item.onTimeout === 'continue' ? 'continue' : undefined;
+      if (item.onTimeout !== undefined && item.onTimeout !== 'fail' && item.onTimeout !== 'continue') {
+        return { error: `${p}.onTimeout: Erlaubt sind "fail" oder "continue".` };
+      }
+      const timeoutMessage = typeof item.timeoutMessage === 'string' ? item.timeoutMessage : undefined;
+
+      result.push({
+        type: 'loop',
+        ...(idRaw ? { id: idRaw } : {}),
+        maxIterations: maxIter,
+        ...(intervalSec > 0 ? { intervalSec } : {}),
+        steps: bodyRes.steps!,
+        ...(untilCond ? { until: untilCond } : {}),
+        ...(onTimeout ? { onTimeout } : {}),
+        ...(timeoutMessage !== undefined ? { timeoutMessage } : {}),
+      });
     } else {
       return {
-        error: `${p}.type: Unbekannter Schritt-Typ "${stepType}". Erlaubt: run, sleep, if, set, log, stop, fail.`,
+        error: `${p}.type: Unbekannter Schritt-Typ "${stepType}". Erlaubt: run, sleep, if, loop, set, log, stop, fail.`,
       };
     }
   }
@@ -1166,7 +1225,7 @@ export async function executeWorkflowEngine(params: {
 
       if (step.type === 'run') {
         const renderedCmd = interpolateTemplate(step.command, ctx);
-        commandsRun.push(renderedCmd);
+        commandsRun.push(step.silent ? step.command : renderedCmd);
         const res = await params.runRemoteCommand(renderedCmd, rem);
         const rawStdout = res.stdout.replace(/\r\n/g, '\n');
         const filteredStdout = applyOutputFilter(rawStdout, step.filter);
@@ -1217,6 +1276,41 @@ export async function executeWorkflowEngine(params: {
           await runBlock(step.then);
         } else if (step.else && step.else.length > 0) {
           await runBlock(step.else);
+        }
+      } else if (step.type === 'loop') {
+        let satisfied = false;
+        const maxIter = Math.min(120, Math.max(1, step.maxIterations || 1));
+        for (let iter = 1; iter <= maxIter; iter++) {
+          if (ctx.stopped) break;
+          ctx.vars.loopIteration = String(iter);
+          if (step.id) {
+            ctx.vars[`${step.id}_attempts`] = String(iter);
+          }
+          await runBlock(step.steps);
+          if (ctx.stopped) break;
+          if (step.until && evaluateCondition(step.until, ctx)) {
+            satisfied = true;
+            break;
+          }
+          if (iter < maxIter && step.intervalSec && step.intervalSec > 0) {
+            const waitMs = Math.min(step.intervalSec * 1000, Math.max(0, remainingMs()));
+            if (waitMs <= 0) {
+              ctx.stderrParts.push(`Workflow nach ${params.timeoutSec} Sekunden abgebrochen (Timeout).`);
+              ctx.finalExitCode = 124;
+              ctx.stopped = true;
+              break;
+            }
+            await sleep(waitMs);
+          }
+        }
+        if (!ctx.stopped && step.until && !satisfied && step.onTimeout === 'fail') {
+          const msg = step.timeoutMessage
+            ? interpolateTemplate(step.timeoutMessage, ctx)
+            : `Schleifen-Bedingung nach ${maxIter} Versuchen nicht erfüllt.`;
+          ctx.stderrParts.push(msg);
+          ctx.finalExitCode = 124;
+          ctx.stopped = true;
+          return;
         }
       } else if (step.type === 'set') {
         const rawVal = interpolateTemplate(step.value, ctx);

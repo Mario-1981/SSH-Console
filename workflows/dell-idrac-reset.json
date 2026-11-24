@@ -1,0 +1,138 @@
+{
+  "stopOnError": true,
+  "vars": {
+    "nicSelection": "LOM1",
+    "idracPassword": "CHANGE_ME_IDRAC_PASSWORD"
+  },
+  "steps": [
+    {
+      "type": "if",
+      "when": {
+        "any": [
+          {
+            "from": "vars.idracPassword",
+            "op": "isEmpty"
+          },
+          {
+            "from": "vars.idracPassword",
+            "op": "equals",
+            "value": "CHANGE_ME_IDRAC_PASSWORD"
+          }
+        ]
+      },
+      "then": [
+        {
+          "type": "fail",
+          "exitCode": 2,
+          "message": "Bitte vor dem Ausführen unter vars.idracPassword das gewünschte iDRAC-Passwort eintragen (und vars.nicSelection auf LOM1, LOM3 oder dedicated setzen)."
+        }
+      ]
+    },
+    {
+      "type": "run",
+      "id": "reset_all",
+      "command": "racadm racresetcfg -all",
+      "sleepAfterSec": 20,
+      "filter": {
+        "trim": true
+      }
+    },
+    {
+      "type": "loop",
+      "id": "wait_reset",
+      "maxIterations": 30,
+      "intervalSec": 10,
+      "steps": [
+        {
+          "type": "run",
+          "id": "poll_nic",
+          "command": "racadm get idrac.nic.selection",
+          "continueOnError": true,
+          "silent": true,
+          "filter": {
+            "trim": true
+          }
+        }
+      ],
+      "until": {
+        "from": "poll_nic",
+        "field": "stdout",
+        "op": "contains",
+        "value": "dedicated",
+        "caseInsensitive": true
+      },
+      "onTimeout": "fail",
+      "timeoutMessage": "Timeout: iDRAC auf {{target.ip}} hat nach 30 Versuchen (~5 Minuten) nicht 'dedicated' zurückgemeldet."
+    },
+    {
+      "type": "sleep",
+      "seconds": 60
+    },
+    {
+      "type": "run",
+      "id": "set_nic",
+      "command": "racadm set idrac.nic.selection \"{{vars.nicSelection}}\"",
+      "sleepAfterSec": 5,
+      "filter": {
+        "trim": true
+      }
+    },
+    {
+      "type": "run",
+      "id": "set_niccfg",
+      "command": "racadm setniccfg -d",
+      "sleepAfterSec": 5,
+      "filter": {
+        "trim": true
+      }
+    },
+    {
+      "type": "run",
+      "id": "set_password",
+      "command": "racadm set idrac.users.2.password \"{{vars.idracPassword}}\"",
+      "sleepAfterSec": 5,
+      "silent": true,
+      "filter": {
+        "trim": true
+      }
+    },
+    {
+      "type": "set",
+      "name": "passwordResult",
+      "value": "Gesetzt (Exit {{set_password.exitCode}})"
+    }
+  ],
+  "output": {
+    "format": "table",
+    "headers": [
+      "Schritt / Eigenschaft",
+      "Ergebnis"
+    ],
+    "rows": [
+      {
+        "label": "Ziel-iDRAC",
+        "value": "{{target.label}} ({{target.ip}})"
+      },
+      {
+        "label": "1. Werksreset (racresetcfg -all)",
+        "value": "Exit {{reset_all.exitCode}} · {{reset_all.stdout}}"
+      },
+      {
+        "label": "2. Reset-Polling (dedicated)",
+        "value": "Erfolgreich nach {{vars.wait_reset_attempts}} Versuch(en)"
+      },
+      {
+        "label": "3. NIC-Option ({{vars.nicSelection}})",
+        "value": "Exit {{set_nic.exitCode}} · {{set_nic.stdout}}"
+      },
+      {
+        "label": "4. Netzwerkkonfiguration (DHCP)",
+        "value": "Exit {{set_niccfg.exitCode}} · {{set_niccfg.stdout}}"
+      },
+      {
+        "label": "5. Benutzerpasswort (User 2)",
+        "value": "{{vars.passwordResult}}"
+      }
+    ]
+  }
+}

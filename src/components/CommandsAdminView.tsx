@@ -90,6 +90,11 @@ function renderWorkflowOutline(steps: WorkflowStep[], depth = 0): string[] {
         lines.push(`${indent}   ELSE:`);
         lines.push(...renderWorkflowOutline(step.else, depth + 2));
       }
+    } else if (step.type === 'loop') {
+      const iv = step.intervalSec ? `, alle ${step.intervalSec}s` : '';
+      const untilTag = step.until ? `, until ${JSON.stringify(step.until)}` : '';
+      lines.push(`${prefix} LOOP (max ${step.maxIterations}x${iv}${untilTag})`);
+      lines.push(...renderWorkflowOutline(step.steps, depth + 2));
     } else if (step.type === 'set') {
       lines.push(`${prefix} SET ${step.name} = ${step.value}${step.filter ? ' (+filter)' : ''}`);
     } else if (step.type === 'log') {
@@ -868,6 +873,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                       </li>
                       <li>
                         <span className="text-blue-800 font-semibold">if</span>: {'{ "type": "if", "when": {...}, "then": [...], "else": [...] }'}
+                      </li>
+                      <li>
+                        <span className="text-blue-800 font-semibold">loop</span>: {'{ "type": "loop", "maxIterations": 30, "intervalSec": 10, "steps": [...], "until": {...}, "onTimeout": "fail" }'}
                       </li>
                       <li>
                         <span className="text-blue-800 font-semibold">set</span>: {'{ "type": "set", "name": "var", "value": "{{s1.stdout}}", "filter": {...} }'}
