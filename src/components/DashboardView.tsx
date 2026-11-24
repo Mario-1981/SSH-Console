@@ -27,6 +27,8 @@ import {
   EyeOff,
   Plus,
   Trash2,
+  Loader2,
+  Bell,
 } from 'lucide-react';
 import { api } from '../api';
 import { translateCategory, useI18n } from '../i18n';
@@ -38,9 +40,9 @@ import {
 import type {
   ActiveTab,
   AppSettings,
+  BackgroundJob,
   BmcCheckResult,
   DashboardPingResponse,
-  ExecutionLog,
   SshCommand,
   User,
   UserCertificate,
@@ -57,7 +59,11 @@ interface DashboardViewProps {
   onRefreshServers: () => Promise<void>;
   onUpdateUser: (user: User) => void;
   onUpdateSettings: (settings: AppSettings) => void;
-  onExecutionComplete: () => Promise<void>;
+  bgJobs: BackgroundJob[];
+  bgActiveCount: number;
+  bgMaxJobs: number;
+  onBackgroundJobStarted: (job: BackgroundJob, activeCount: number, maxBackgroundJobs: number) => void;
+  onOpenBackgroundJob: (job: BackgroundJob) => void;
 }
 
 function formatBmcUrl(ipAddress: string): string {
@@ -86,18 +92,6 @@ function formatIntervalShort(sec: number): string {
     return `${sec / 60} min`;
   }
   return `${sec} s`;
-}
-
-const BENIGN_KNOWN_HOSTS_ADDED_RE =
-  /^Warning:\s+Permanently added\s+'[^']+'(?:\s+\([^)]+\))?\s+to the list of known hosts\.$/i;
-
-function filterBenignSshStderr(stderr: string): string {
-  if (!stderr) return '';
-  const kept = stderr
-    .split(/\r?\n/)
-    .filter((line) => !BENIGN_KNOWN_HOSTS_ADDED_RE.test(line.trim()));
-  const joined = kept.join('\n');
-  return joined.trim() ? joined.trimEnd() : '';
 }
 
 type PageSizeOption = 10 | 20 | 50 | 'all';
@@ -144,7 +138,11 @@ export function DashboardView({
   onRefreshServers,
   onUpdateUser,
   onUpdateSettings,
-  onExecutionComplete,
+  bgJobs,
+  bgActiveCount,
+  bgMaxJobs,
+  onBackgroundJobStarted,
+  onOpenBackgroundJob,
 }: DashboardViewProps) {
   const { locale, tr, formatClockTime, formatDateTime } = useI18n();
   const isAdmin = currentUser.role === 'admin';
@@ -182,9 +180,12 @@ export function DashboardView({
   const [pageSize, setPageSize] = useState<PageSizeOption>(loadSavedPageSize);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
-  const [runningBatch, setRunningBatch] = useState(false);
-  const [batchResults, setBatchResults] = useState<ExecutionLog[]>([]);
-  const [expandedInvocations, setExpandedInvocations] = useState<Record<string, boolean>>({});
+  const [submittingBatch, setSubmittingBatch] = useState(false);
+  const [recentDispatchedNotice, setRecentDispatchedNotice] = useState<{
+    jobId: string;
+    title: string;
+    count: number;
+  } | null>(null);
   const [selectedBmcSlots, setSelectedBmcSlots] = useState<Record<string, 1 | 2>>({});
   const [checkingBmcKey, setCheckingBmcKey] = useState<string | null>(null);
   const [bmcResults, setBmcResults] = useState<Record<string, BmcCheckResult>>({});
@@ -765,21 +766,25 @@ export function DashboardView({
     }
 
     const passToUse = needsRuntimePassphrase ? keyPassphrase : undefined;
-    setRunningBatch(true);
+    setSubmittingBatch(true);
     try {
-      const res = await api.executeBatch({
+      const res = await api.executeBatchAsync({
         certificateId: selectedCertId,
         jobs: preparedJobs,
         ...(passToUse ? { passphrase: passToUse } : {}),
         ...(workflowVarsToSend ? { workflowVars: workflowVarsToSend } : {}),
       });
-      setBatchResults(res.results);
-      await onExecutionComplete();
+      onBackgroundJobStarted(res.job, res.activeCount, res.maxBackgroundJobs);
+      setRecentDispatchedNotice({
+        jobId: res.job.id,
+        title: res.job.title,
+        count: res.job.totalTargets,
+      });
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : tr('Sammelausführung fehlgeschlagen.', 'Batch execution failed.')
+          : tr('Hintergrundauftrag konnte nicht gestartet werden.', 'Failed to start background job.')
       );
     } finally {
       setKeyPassphrase('');
@@ -795,7 +800,7 @@ export function DashboardView({
         });
         setRevealedSecrets({});
       }
-      setRunningBatch(false);
+      setSubmittingBatch(false);
     }
   }
 
@@ -1097,17 +1102,34 @@ export function DashboardView({
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               {tr(
-                'Wählen Sie den gewünschten SSH-Befehl und das Zertifikat aus, markieren Sie die Ziel-IPs in der Tabelle und senden Sie den Auftrag gesammelt ab.',
-                'Choose the SSH command and certificate, check the target IPs in the table, and dispatch them in one batch.'
+                'Aufträge laufen direkt im Hintergrund weiter – Sie können sofort weitere Befehle absenden oder z. B. in die SSH-Shell wechseln. Ergebnisse erscheinen oben rechts an der Glocke.',
+                'Jobs run asynchronously in the background—you can queue more commands right away or switch to the SSH Shell. Results appear in the top-right bell.'
               )}
             </p>
           </div>
-          <span className="text-xs font-mono text-slate-600 tabular-nums whitespace-nowrap shrink-0">
-            {tr(
-              `${preparedJobs.length} Auftrag${preparedJobs.length === 1 ? '' : 'e'} bereit`,
-              `${preparedJobs.length} job${preparedJobs.length === 1 ? '' : 's'} ready`
-            )}
-          </span>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span
+              className={`px-2 py-0.5 text-xs font-mono tabular-nums rounded border whitespace-nowrap ${
+                bgActiveCount >= bgMaxJobs
+                  ? 'bg-amber-50 text-amber-800 border-amber-200 font-semibold'
+                  : bgActiveCount > 0
+                  ? 'bg-blue-50 text-blue-800 border-blue-200'
+                  : 'bg-slate-50 text-slate-600 border-slate-200'
+              }`}
+              title={tr(
+                'Ihre aktiven Hintergrundprozesse im Vergleich zum Admin-Limit pro Benutzer',
+                'Your active background jobs versus the admin per-user concurrency limit'
+              )}
+            >
+              {tr('Hintergrund', 'Background')}: {bgActiveCount}/{bgMaxJobs}
+            </span>
+            <span className="text-xs font-mono text-slate-600 tabular-nums whitespace-nowrap">
+              {tr(
+                `${preparedJobs.length} Auftrag${preparedJobs.length === 1 ? '' : 'e'} bereit`,
+                `${preparedJobs.length} job${preparedJobs.length === 1 ? '' : 's'} ready`
+              )}
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
@@ -1190,13 +1212,32 @@ export function DashboardView({
             <button
               type="button"
               onClick={handleDispatchBatch}
-              disabled={runningBatch || preparedJobs.length === 0 || !selectedCertId}
+              disabled={
+                submittingBatch ||
+                preparedJobs.length === 0 ||
+                !selectedCertId ||
+                bgActiveCount >= bgMaxJobs
+              }
+              title={
+                bgActiveCount >= bgMaxJobs
+                  ? tr(
+                      `Ihr Benutzer-Limit ist erreicht (${bgActiveCount}/${bgMaxJobs} aktive Hintergrundprozesse)`,
+                      `Your per-user limit is reached (${bgActiveCount}/${bgMaxJobs} active background jobs)`
+                    )
+                  : undefined
+              }
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Play className="w-4 h-4" />
-              {runningBatch
-                ? tr('Wird ausgeführt...', 'Running...')
-                : tr(`Gesamtpaket senden (${preparedJobs.length})`, `Dispatch Batch (${preparedJobs.length})`)}
+              {submittingBatch ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4" />
+              )}
+              {submittingBatch
+                ? tr('Wird gestartet...', 'Starting...')
+                : bgActiveCount >= bgMaxJobs
+                ? tr(`Limit erreicht (${bgActiveCount}/${bgMaxJobs})`, `Limit reached (${bgActiveCount}/${bgMaxJobs})`)
+                : tr(`Im Hintergrund starten (${preparedJobs.length})`, `Run in Background (${preparedJobs.length})`)}
             </button>
           </div>
         </div>
@@ -1424,7 +1465,7 @@ export function DashboardView({
               value={keyPassphrase}
               onChange={(e) => setKeyPassphrase(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !runningBatch && preparedJobs.length > 0) {
+                if (e.key === 'Enter' && !submittingBatch && preparedJobs.length > 0 && bgActiveCount < bgMaxJobs) {
                   e.preventDefault();
                   void handleDispatchBatch();
                 }
@@ -1442,123 +1483,92 @@ export function DashboardView({
         )}
       </section>
 
-      {/* Batch Execution Output Console */}
-      {(runningBatch || batchResults.length > 0) && (
-        <section className="bg-[#0B1120] text-slate-100 rounded-lg border border-slate-800 overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/60">
-            <div className="flex items-center gap-2">
-              <Terminal className="w-4 h-4 text-slate-400" />
-              <span className="text-xs font-medium text-slate-200">
-                {tr('Ergebnisse der Sammelausführung', 'Batch Execution Results')}
-              </span>
-            </div>
-            {!runningBatch && (
-              <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
-                <span className="text-emerald-400">
-                  {batchResults.filter((r) => r.exitCode === 0).length} OK
+      {/* Non-blocking Live Background Jobs Activity Strip */}
+      {(() => {
+        const runningUserJobs = bgJobs.filter((j) => j.status === 'running');
+        const noticeJob = recentDispatchedNotice
+          ? bgJobs.find((j) => j.id === recentDispatchedNotice.jobId) ?? null
+          : null;
+        if (runningUserJobs.length === 0 && !noticeJob) return null;
+
+        return (
+          <section className="bg-white border border-blue-200 rounded-lg px-5 py-3.5 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-900">
+                {runningUserJobs.length > 0 ? (
+                  <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+                ) : (
+                  <Bell className="w-4 h-4 text-blue-600 shrink-0" />
+                )}
+                <span>
+                  {runningUserJobs.length > 0
+                    ? tr(
+                        `${runningUserJobs.length} Hintergrundauftrag${runningUserJobs.length === 1 ? '' : 'e'} aktiv – Sie können das Dashboard verlassen oder weitere Befehle absenden.`,
+                        `${runningUserJobs.length} background job${runningUserJobs.length === 1 ? '' : 's'} running — you can leave the Dashboard or queue more commands.`
+                      )
+                    : tr(
+                        `Auftrag „${noticeJob?.title ?? ''}“ abgeschlossen.`,
+                        `Job "${noticeJob?.title ?? ''}" finished.`
+                      )}
                 </span>
-                <span className="text-slate-600">·</span>
-                <span className="text-red-400">
-                  {batchResults.filter((r) => r.exitCode !== 0).length} {tr('Fehler', 'Failed')}
-                </span>
+              </div>
+              {runningUserJobs.length === 0 && recentDispatchedNotice && (
                 <button
                   type="button"
-                  onClick={() => setBatchResults([])}
-                  title={tr('Ergebnisse schließen', 'Close results')}
-                  aria-label={tr('Ergebnisse schließen', 'Close results')}
-                  className="ml-1 p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                  onClick={() => setRecentDispatchedNotice(null)}
+                  aria-label={tr('Hinweis schließen', 'Dismiss notice')}
+                  className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          <div className="p-5 space-y-4 font-mono text-xs leading-relaxed">
-            {runningBatch ? (
-              <div className="py-8 text-center text-slate-400 flex items-center justify-center gap-2">
-                <CheckSquare className="w-4 h-4" />
-                <span>
-                  {tr(
-                    `Führe ${preparedJobs.length} SSH-Aufträge parallel per Schlüssel/Zertifikat aus...`,
-                    `Executing ${preparedJobs.length} SSH jobs in parallel...`
-                  )}
-                </span>
-              </div>
-            ) : (
-              batchResults.map((res) => {
-                const ok = res.exitCode === 0;
-                const showCmd = Boolean(expandedInvocations[res.id]);
-                return (
-                  <div
-                    key={res.id}
-                    className="border border-slate-800 rounded-md overflow-hidden bg-slate-950/50"
-                  >
-                    <div className="px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-slate-900/70">
-                      <div className="flex items-center gap-2">
-                        {ok ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        ) : (
-                          <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                        )}
-                        <span className="text-slate-100 font-medium">
-                          {res.serverLabel} ({res.sshUser}@{res.targetIp}:{res.targetPort})
-                        </span>
-                        <span className="text-slate-500">·</span>
-                        <span className="text-blue-300">{res.commandName}</span>
-                      </div>
-                      <div className="flex items-center gap-3 tabular-nums">
-                        <span className={ok ? 'text-emerald-400' : 'text-red-400'}>
-                          Exit {res.exitCode}
-                        </span>
-                        <span className="text-slate-400">{res.durationMs} ms</span>
-                      </div>
-                    </div>
-
-                    <div className="p-4 space-y-2.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedInvocations((prev) => ({ ...prev, [res.id]: !prev[res.id] }))
-                        }
-                        className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
-                      >
-                        {showCmd ? (
-                          <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        )}
-                        {tr('OpenSSH-Aufruf anzeigen', 'Show OpenSSH invocation')}
-                      </button>
-
-                      {showCmd && (
-                        <pre className="p-2.5 rounded bg-slate-900 text-slate-300 text-[11px] whitespace-pre-wrap break-all border border-slate-800">
-                          {res.sshInvocation}
-                        </pre>
+            <div className="flex flex-wrap gap-2">
+              {(runningUserJobs.length > 0 ? runningUserJobs : noticeJob ? [noticeJob] : []).map(
+                (job) => {
+                  const isRunning = job.status === 'running';
+                  return (
+                    <button
+                      key={job.id}
+                      type="button"
+                      onClick={() => onOpenBackgroundJob(job)}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border transition-colors cursor-pointer ${
+                        isRunning
+                          ? 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100'
+                          : job.status === 'completed'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100'
+                          : job.status === 'partial'
+                          ? 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100'
+                          : 'bg-red-50 border-red-200 text-red-900 hover:bg-red-100'
+                      }`}
+                    >
+                      {isRunning ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                      ) : job.status === 'completed' ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      ) : job.status === 'partial' ? (
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5 shrink-0" />
                       )}
-
-                      {res.stdout && (
-                        <pre className="text-slate-200 whitespace-pre-wrap break-words">
-                          {res.stdout}
-                        </pre>
-                      )}
-
-                      {(() => {
-                        const visibleStderr = filterBenignSshStderr(res.stderr);
-                        return visibleStderr ? (
-                          <pre className="text-amber-300 whitespace-pre-wrap break-words border-t border-slate-800 pt-2.5">
-                            {visibleStderr}
-                          </pre>
-                        ) : null;
-                      })()}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-      )}
+                      <span className="font-medium truncate max-w-[14rem]">{job.title}</span>
+                      <span className="font-mono tabular-nums text-[11px] opacity-80">
+                        {isRunning
+                          ? `${job.completedTargets}/${job.totalTargets}`
+                          : `${job.successCount} OK${job.failedCount > 0 ? ` · ${job.failedCount} ${tr('Fehler', 'Err')}` : ''}`}
+                      </span>
+                      <span className="underline font-medium">
+                        {isRunning ? tr('Status', 'Status') : tr('Ergebnis', 'Result')}
+                      </span>
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Main IP Table with Online/Offline Ping Status */}
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">

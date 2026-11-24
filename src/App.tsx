@@ -1,7 +1,8 @@
-import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { api, setUnauthorizedHandler } from './api';
 import { LanguageSwitcher, useI18n } from './i18n';
+import { BackgroundJobsBell } from './components/BackgroundJobsBell';
 import { DashboardView } from './components/DashboardView';
 import { LoginView } from './components/LoginView';
 import { SetupView } from './components/SetupView';
@@ -15,6 +16,9 @@ const AuditLogView = lazy(() =>
 );
 const AuthSecurityAdminView = lazy(() =>
   import('./components/AuthSecurityAdminView').then((m) => ({ default: m.AuthSecurityAdminView }))
+);
+const BackgroundJobsView = lazy(() =>
+  import('./components/BackgroundJobsView').then((m) => ({ default: m.BackgroundJobsView }))
 );
 const CertificatesView = lazy(() =>
   import('./components/CertificatesView').then((m) => ({ default: m.CertificatesView }))
@@ -34,6 +38,8 @@ const UsersAdminView = lazy(() =>
 import type {
   ActiveTab,
   AppSettings,
+  BackgroundJob,
+  BackgroundJobStatus,
   ExecutionLog,
   SshCommand,
   User,
@@ -65,6 +71,7 @@ export default function App() {
     passkeyEnforced: false,
     allowInsecureHostKey: false,
     publicUrl: '',
+    maxBackgroundJobs: 5,
   });
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -76,6 +83,96 @@ export default function App() {
   const [certificates, setCertificates] = useState<UserCertificate[]>([]);
   const [logs, setLogs] = useState<ExecutionLog[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+
+  // Global background quick-command jobs (persist across all tabs incl. SSH-Shell)
+  const [bgJobs, setBgJobs] = useState<BackgroundJob[]>([]);
+  const [bgActiveCount, setBgActiveCount] = useState(0);
+  const [bgTotalActiveCount, setBgTotalActiveCount] = useState(0);
+  const [bgUnreadCount, setBgUnreadCount] = useState(0);
+  const [bgMaxJobs, setBgMaxJobs] = useState(5);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedExternalJob, setSelectedExternalJob] = useState<BackgroundJob | null>(null);
+  const [toastJob, setToastJob] = useState<BackgroundJob | null>(null);
+  const prevJobStatusRef = useRef<Map<string, BackgroundJobStatus>>(new Map());
+  const toastTimerRef = useRef<number | null>(null);
+  const bgPollInFlightRef = useRef(false);
+
+  const selectedJob = useMemo(() => {
+    if (!selectedJobId) return null;
+    const own = bgJobs.find((j) => j.id === selectedJobId);
+    if (own) return own;
+    if (selectedExternalJob && selectedExternalJob.id === selectedJobId) {
+      return selectedExternalJob;
+    }
+    return null;
+  }, [bgJobs, selectedJobId, selectedExternalJob]);
+
+  const showCompletionToast = useCallback((job: BackgroundJob) => {
+    setToastJob(job);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastJob((curr) => (curr?.id === job.id ? null : curr));
+      toastTimerRef.current = null;
+    }, 10_000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof settings.maxBackgroundJobs === 'number' && settings.maxBackgroundJobs >= 1) {
+      setBgMaxJobs(settings.maxBackgroundJobs);
+    }
+  }, [settings.maxBackgroundJobs]);
+
+  const fetchBackgroundJobs = useCallback(async () => {
+    if (bgPollInFlightRef.current) return;
+    bgPollInFlightRef.current = true;
+    try {
+      const res = await api.listBackgroundJobs();
+      const prevMap = prevJobStatusRef.current;
+      let newlyFinished: BackgroundJob | null = null;
+      const nextMap = new Map<string, BackgroundJobStatus>();
+
+      for (const job of res.jobs) {
+        nextMap.set(job.id, job.status);
+        const prevStatus = prevMap.get(job.id);
+        if (prevStatus === 'running' && job.status !== 'running') {
+          if (!newlyFinished) newlyFinished = job;
+        }
+      }
+      prevJobStatusRef.current = nextMap;
+
+      setBgJobs(res.jobs);
+      setBgActiveCount(res.activeCount);
+      setBgTotalActiveCount(
+        typeof res.totalActiveCount === 'number' ? res.totalActiveCount : res.activeCount
+      );
+      setBgUnreadCount(res.unreadCount);
+      setBgMaxJobs(res.maxBackgroundJobs);
+
+      if (newlyFinished) {
+        showCompletionToast(newlyFinished);
+        void api
+          .listLogs()
+          .then((l) => setLogs(l.logs))
+          .catch(() => {
+            // ignore transient log refresh error
+          });
+      }
+    } catch {
+      // ignore transient background poll errors
+    } finally {
+      bgPollInFlightRef.current = false;
+    }
+  }, [showCompletionToast]);
 
   const loadWorkspaceData = useCallback(async (currentUser: User) => {
     if (currentUser.mustSetupTwoFactor || currentUser.mustSetupPasskey) {
@@ -149,6 +246,100 @@ export default function App() {
     };
   }, [activeTab, user]);
 
+  // Adaptive background job polling: fast (2s) while any job is running, relaxed (15s) while idle
+  useEffect(() => {
+    if (!user || user.mustSetupTwoFactor || user.mustSetupPasskey) return;
+    void fetchBackgroundJobs();
+    const intervalMs = bgActiveCount > 0 ? 2000 : 15_000;
+    const timer = window.setInterval(() => {
+      if (bgActiveCount > 0 || typeof document === 'undefined' || !document.hidden) {
+        void fetchBackgroundJobs();
+      }
+    }, intervalMs);
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        void fetchBackgroundJobs();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [user, bgActiveCount, fetchBackgroundJobs]);
+
+  const handleBackgroundJobStarted = useCallback(
+    (job: BackgroundJob, activeCount: number, maxBackgroundJobs: number) => {
+      prevJobStatusRef.current.set(job.id, job.status);
+      setBgJobs((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
+      setBgActiveCount(activeCount);
+      setBgTotalActiveCount((prev) => Math.max(activeCount, prev + 1));
+      setBgMaxJobs(maxBackgroundJobs);
+    },
+    []
+  );
+
+  const handleSelectBackgroundJob = useCallback((job: BackgroundJob | null) => {
+    setSelectedJobId(job ? job.id : null);
+    setSelectedExternalJob(job);
+    if (job && user && job.userId === user.id && job.status !== 'running' && !job.read) {
+      setBgJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, read: true } : j)));
+      setBgUnreadCount((prev) => Math.max(0, prev - 1));
+      void api
+        .markBackgroundJobRead(job.id)
+        .then((res) => {
+          setBgJobs((prev) => prev.map((j) => (j.id === res.job.id ? res.job : j)));
+          setBgUnreadCount(res.unreadCount);
+        })
+        .catch(() => {
+          // ignore transient error
+        });
+    }
+  }, [user]);
+
+  const handleSyncAdminJob = useCallback((job: BackgroundJob) => {
+    setSelectedExternalJob((curr) => (curr && curr.id === job.id ? job : curr));
+  }, []);
+
+  const handleMarkAllJobsRead = useCallback(async () => {
+    setBgJobs((prev) => prev.map((j) => (j.status !== 'running' ? { ...j, read: true } : j)));
+    setBgUnreadCount(0);
+    try {
+      const res = await api.markAllBackgroundJobsRead();
+      setBgUnreadCount(res.unreadCount);
+    } catch {
+      void fetchBackgroundJobs();
+    }
+  }, [fetchBackgroundJobs]);
+
+  const handleDeleteBackgroundJob = useCallback(
+    async (jobId: string) => {
+      setSelectedJobId((curr) => (curr === jobId ? null : curr));
+      setToastJob((curr) => (curr?.id === jobId ? null : curr));
+      try {
+        await api.deleteBackgroundJob(jobId);
+        setBgJobs((prev) => {
+          const next = prev.filter((j) => j.id !== jobId);
+          setBgUnreadCount(next.filter((j) => j.status !== 'running' && !j.read).length);
+          return next;
+        });
+      } catch {
+        void fetchBackgroundJobs();
+      }
+    },
+    [fetchBackgroundJobs]
+  );
+
+  const handleUpdateBackgroundJobLimit = useCallback(async (nextLimit: number) => {
+    const res = await api.updateBackgroundJobSettings(nextLimit);
+    setSettings(res.settings);
+    setBgMaxJobs(res.maxBackgroundJobs);
+    setBgActiveCount(res.activeCount);
+    if (typeof res.totalActiveCount === 'number') {
+      setBgTotalActiveCount(res.totalActiveCount);
+    }
+  }, []);
+
   async function handleSetupComplete(admin: User, newSettings: AppSettings) {
     setInitialized(true);
     setSettings(newSettings);
@@ -185,6 +376,14 @@ export default function App() {
     setCertificates([]);
     setLogs([]);
     setUsers([]);
+    setBgJobs([]);
+    setBgActiveCount(0);
+    setBgTotalActiveCount(0);
+    setBgUnreadCount(0);
+    setSelectedJobId(null);
+    setSelectedExternalJob(null);
+    setToastJob(null);
+    prevJobStatusRef.current.clear();
   }
 
   if (loading) {
@@ -214,6 +413,7 @@ export default function App() {
   const breadcrumbs: Record<ActiveTab, { group: string; title: string }> = {
     dashboard: { group: tr('Arbeitsbereich', 'Workspace'), title: 'Dashboard' },
     shell: { group: tr('Arbeitsbereich', 'Workspace'), title: 'SSH-Shell' },
+    jobs: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Hintergrundprozesse', 'Background Jobs') },
     servers: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Meine Server (IPs)', 'My Servers (IPs)') },
     certificates: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('SSH-Zertifikate', 'SSH Certificates') },
     logs: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Ausführungsprotokoll', 'Execution Log') },
@@ -235,6 +435,9 @@ export default function App() {
         onLogout={handleLogout}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
+        activeJobsCount={
+          user.role === 'admin' ? bgTotalActiveCount : bgActiveCount
+        }
       />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -256,6 +459,23 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
+            {!securitySetupRequired && (
+              <BackgroundJobsBell
+                jobs={bgJobs}
+                activeCount={bgActiveCount}
+                unreadCount={bgUnreadCount}
+                maxBackgroundJobs={bgMaxJobs}
+                isAdmin={user.role === 'admin'}
+                selectedJob={selectedJob}
+                toastJob={toastJob}
+                onSelectJob={handleSelectBackgroundJob}
+                onDismissToast={() => setToastJob(null)}
+                onMarkAllRead={handleMarkAllJobsRead}
+                onDeleteJob={handleDeleteBackgroundJob}
+                onUpdateLimit={handleUpdateBackgroundJobLimit}
+                onNavigateLogs={setActiveTab}
+              />
+            )}
             <LanguageSwitcher />
             {!securitySetupRequired &&
               (effectiveTab !== 'dashboard' ? (
@@ -301,10 +521,11 @@ export default function App() {
                 }}
                 onUpdateUser={setUser}
                 onUpdateSettings={setSettings}
-                onExecutionComplete={async () => {
-                  const res = await api.listLogs();
-                  setLogs(res.logs);
-                }}
+                bgJobs={bgJobs}
+                bgActiveCount={bgActiveCount}
+                bgMaxJobs={bgMaxJobs}
+                onBackgroundJobStarted={handleBackgroundJobStarted}
+                onOpenBackgroundJob={handleSelectBackgroundJob}
               />
             )}
 
@@ -324,6 +545,21 @@ export default function App() {
                   }}
                 />
               </div>
+            )}
+
+            {effectiveTab === 'jobs' && (
+              <BackgroundJobsView
+                currentUser={user}
+                myJobs={bgJobs}
+                myActiveCount={bgActiveCount}
+                totalActiveCount={bgTotalActiveCount}
+                maxBackgroundJobs={bgMaxJobs}
+                onRefreshMyJobs={fetchBackgroundJobs}
+                onSelectJob={handleSelectBackgroundJob}
+                onDeleteJob={handleDeleteBackgroundJob}
+                onUpdateLimit={handleUpdateBackgroundJobLimit}
+                onSyncAdminJob={handleSyncAdminJob}
+              />
             )}
 
             {effectiveTab === 'servers' && (

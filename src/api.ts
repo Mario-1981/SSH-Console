@@ -1,7 +1,10 @@
 import type {
   AdminAuthSettings,
+  AdminBackgroundJobsResponse,
   AppSettings,
   AppStatus,
+  BackgroundJob,
+  BackgroundJobsResponse,
   BmcCheckResult,
   CommandKind,
   DashboardPingResponse,
@@ -611,6 +614,59 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  executeBatchAsync: (payload: {
+    certificateId: string;
+    jobs: Array<{ serverId: string; commandId: string; workflowVars?: Record<string, string> }>;
+    passphrase?: string;
+    workflowVars?: Record<string, string>;
+    dryRun?: boolean;
+  }) =>
+    request<{ job: BackgroundJob; activeCount: number; maxBackgroundJobs: number }>(
+      '/api/execute/batch/async',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  listBackgroundJobs: () => request<BackgroundJobsResponse>('/api/jobs'),
+
+  listAdminBackgroundJobs: () => request<AdminBackgroundJobsResponse>('/api/admin/jobs'),
+
+  getBackgroundJob: (id: string) =>
+    request<{ job: BackgroundJob }>(`/api/jobs/${encodeURIComponent(id)}`),
+
+  markBackgroundJobRead: (id: string) =>
+    request<{ job: BackgroundJob; unreadCount: number }>(
+      `/api/jobs/${encodeURIComponent(id)}/read`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+
+  markAllBackgroundJobsRead: () =>
+    request<{ ok: boolean; unreadCount: number }>('/api/jobs/read-all', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  deleteBackgroundJob: (id: string) =>
+    request<{ ok: boolean }>(`/api/jobs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  updateBackgroundJobSettings: (maxBackgroundJobs: number) =>
+    request<{
+      settings: AppSettings;
+      maxBackgroundJobs: number;
+      activeCount: number;
+      totalActiveCount?: number;
+    }>(
+      '/api/admin/jobs/settings',
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ maxBackgroundJobs }),
+      }
+    ),
 
   // Interactive SSH Shell
   createShellTicket: (payload: {

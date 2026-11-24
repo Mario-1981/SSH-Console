@@ -2,6 +2,7 @@ mod auth;
 mod auth_extra;
 mod crypto;
 mod db;
+mod jobs;
 mod models;
 mod ping;
 mod shell;
@@ -50,6 +51,7 @@ pub(crate) struct AppState {
     ping_notify: Arc<Notify>,
     shell_tickets: shell::ShellTicketStore,
     auth_challenges: auth_extra::AuthChallengeStore,
+    bg_jobs: jobs::BackgroundJobStore,
 }
 
 type SharedState = Arc<AppState>;
@@ -250,7 +252,8 @@ fn serialize_public_settings(state: &SharedState) -> serde_json::Value {
         "passkeyEnabled": policy.passkey_enabled,
         "passkeyEnforced": policy.passkey_enabled && policy.passkey_enforced,
         "allowInsecureHostKey": policy.allow_insecure_host_key,
-        "publicUrl": policy.public_url
+        "publicUrl": policy.public_url,
+        "maxBackgroundJobs": state.db.get_max_background_jobs()
     })
 }
 
@@ -3935,6 +3938,427 @@ async fn api_execute_batch(
     Ok(Json(json!({ "results": logs })))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminBackgroundJobSettingsRequest {
+    max_background_jobs: Option<i64>,
+}
+
+async fn api_execute_batch_async(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<BatchExecuteRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let cert = state
+        .db
+        .get_accessible_certificate_secret(&req.certificate_id, &user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Zertifikatspaket nicht gefunden."))?;
+
+    if req.jobs.is_empty() || req.jobs.len() > 50 {
+        return Err(err_resp(StatusCode::BAD_REQUEST, "1 bis 50 Aufträge zulässig."));
+    }
+
+    let resolved_passphrase = resolve_cert_passphrase(&state, &cert, req.passphrase.as_deref())?;
+    if cert.private_key_encrypted && resolved_passphrase.is_none() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Der private Schlüssel dieses Zertifikats ist passwortgeschützt. Bitte geben Sie das Schlüssel-Passwort ein oder hinterlegen Sie es beim Zertifikat.",
+        ));
+    }
+
+    let policy = state.db.get_auth_policy();
+    let known_hosts_path = ssh::user_known_hosts_path(&state.data_dir, &user.id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let mut prepared: Vec<(UserServer, SshCommand, Option<std::collections::HashMap<String, String>>)> =
+        Vec::with_capacity(req.jobs.len());
+    for job in req.jobs {
+        let srv = state
+            .db
+            .get_accessible_server(&job.server_id, &user.id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Server nicht gefunden."))?;
+        let cmd = state
+            .db
+            .get_accessible_command(&job.command_id, &user.id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Befehl nicht verfügbar."))?;
+
+        let merged_vars = match (&req.workflow_vars, job.workflow_vars) {
+            (None, None) => None,
+            (Some(base), None) => Some(base.clone()),
+            (None, Some(override_map)) => Some(override_map),
+            (Some(base), Some(override_map)) => {
+                let mut combined = base.clone();
+                combined.extend(override_map);
+                Some(combined)
+            }
+        };
+
+        if cmd.kind == "workflow" {
+            let validated_wf = workflow::parse_and_validate_workflow(&cmd.workflow_json)
+                .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("Ungültiger JSON-Workflow: {e}")))?;
+            workflow::resolve_workflow_runtime_vars(&validated_wf, merged_vars.as_ref())
+                .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        }
+        prepared.push((srv, cmd, merged_vars));
+    }
+
+    let mut command_names: Vec<String> = Vec::new();
+    let mut target_labels: Vec<String> = Vec::new();
+    for (srv, cmd, _) in &prepared {
+        if !command_names.contains(&cmd.name) {
+            command_names.push(cmd.name.clone());
+        }
+        let label = if !srv.label.is_empty() && srv.label != srv.ip_address {
+            format!("{} ({})", srv.label, srv.ip_address)
+        } else {
+            srv.ip_address.clone()
+        };
+        if !target_labels.contains(&label) {
+            target_labels.push(label);
+        }
+    }
+
+    let title = if command_names.len() == 1 {
+        command_names[0].clone()
+    } else if !command_names.is_empty() {
+        format!("{} (+{})", command_names[0], command_names.len() - 1)
+    } else {
+        "SSH-Auftrag".to_string()
+    };
+
+    let mut max_per_target_timeout_sec: u64 = 30;
+    for (_, cmd, _) in &prepared {
+        let base_timeout = cmd.timeout_sec.clamp(5, 3600);
+        let mut effective = base_timeout;
+        if cmd.kind == "chain" && cmd.steps.len() > 1 {
+            let sleep_sum: u64 = cmd.steps[..cmd.steps.len() - 1]
+                .iter()
+                .map(|s| s.sleep_after_sec)
+                .fold(0u64, |acc, v| acc.saturating_add(v));
+            effective = base_timeout.saturating_add(sleep_sum).min(7200);
+        }
+        if effective > max_per_target_timeout_sec {
+            max_per_target_timeout_sec = effective;
+        }
+    }
+    let waves = ((prepared.len() + MAX_CONCURRENT_SSH_JOBS - 1) / MAX_CONCURRENT_SSH_JOBS).max(1) as u64;
+    let estimated_timeout_sec = max_per_target_timeout_sec.saturating_mul(waves).min(14400);
+
+    let now = Utc::now();
+    let started_epoch_ms = now.timestamp_millis();
+    let job_id = Uuid::new_v4().to_string();
+    let new_job = jobs::BackgroundJob {
+        id: job_id.clone(),
+        user_id: user.id.clone(),
+        username: user.username.clone(),
+        title,
+        command_names,
+        target_labels,
+        total_targets: prepared.len(),
+        completed_targets: 0,
+        success_count: 0,
+        failed_count: 0,
+        status: "running".to_string(),
+        started_at: now.to_rfc3339(),
+        finished_at: None,
+        duration_ms: None,
+        timeout_sec: max_per_target_timeout_sec,
+        estimated_timeout_sec,
+        read: false,
+        error_message: None,
+        results: Vec::new(),
+    };
+
+    let max_limit = state.db.get_max_background_jobs();
+    let (job_snapshot, active_count) = match state.bg_jobs.try_start(new_job, max_limit).await {
+        Ok(v) => v,
+        Err(active) => {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({
+                    "error": format!(
+                        "Maximale Anzahl gleichzeitiger Hintergrundprozesse pro Benutzer ({max_limit}) erreicht ({active}/{max_limit} für Ihr Konto aktiv). Bitte warten Sie, bis einer Ihrer laufenden Aufträge abgeschlossen ist."
+                    ),
+                    "activeCount": active,
+                    "maxBackgroundJobs": max_limit
+                })),
+            ));
+        }
+    };
+
+    let bg_state = Arc::clone(&state);
+    let cert = Arc::new(cert);
+    let resolved_passphrase = Arc::new(resolved_passphrase);
+    let known_hosts_path = Arc::new(known_hosts_path);
+    let allow_insecure_host_key = policy.allow_insecure_host_key;
+    let uid = user.id.clone();
+    let uname = user.username.clone();
+
+    tokio::spawn(async move {
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SSH_JOBS));
+        let mut handles = Vec::with_capacity(prepared.len());
+
+        for (srv, cmd, merged_vars) in prepared {
+            let st = Arc::clone(&bg_state);
+            let sem = Arc::clone(&semaphore);
+            let cert_ref = Arc::clone(&cert);
+            let pass_ref = Arc::clone(&resolved_passphrase);
+            let kh_ref = Arc::clone(&known_hosts_path);
+            let uid_ref = uid.clone();
+            let uname_ref = uname.clone();
+            let jid_ref = job_id.clone();
+
+            handles.push(tokio::spawn(async move {
+                let _permit = match sem.acquire_owned().await {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+
+                let cert_key_id = if cert_ref.key_id.is_empty() {
+                    cert_ref.name.clone()
+                } else {
+                    cert_ref.key_id.clone()
+                };
+
+                let log = match st
+                    .vault
+                    .decrypt(&cert_ref.private_key_enc, &cert_ref.private_key_nonce)
+                {
+                    Ok(plain_key) => {
+                        let pass_opt: Option<&str> = match pass_ref.as_ref() {
+                            Some(p) => Some(p.as_str()),
+                            None => None,
+                        };
+                        let ignore_host_key = allow_insecure_host_key && srv.ignore_host_key;
+                        match ssh::run_ssh_command(
+                            &srv.ip_address,
+                            srv.port,
+                            &srv.ssh_user,
+                            &srv.label,
+                            &cmd,
+                            &cert_ref,
+                            plain_key,
+                            pass_opt,
+                            merged_vars.as_ref(),
+                            ignore_host_key,
+                            kh_ref.as_path(),
+                        )
+                        .await
+                        {
+                            Ok(result) => ExecutionLog {
+                                id: Uuid::new_v4().to_string(),
+                                user_id: uid_ref,
+                                username: uname_ref,
+                                command_id: cmd.id.clone(),
+                                command_name: cmd.name.clone(),
+                                command_text: cmd.command.clone(),
+                                target_ip: srv.ip_address,
+                                target_port: srv.port,
+                                ssh_user: srv.ssh_user,
+                                server_label: srv.label,
+                                certificate_id: cert_ref.id.clone(),
+                                certificate_key_id: cert_key_id,
+                                mode: "openssh-live".into(),
+                                ssh_invocation: result.ssh_invocation,
+                                exit_code: result.exit_code,
+                                stdout: result.stdout,
+                                stderr: result.stderr,
+                                duration_ms: result.duration_ms,
+                                executed_at: Utc::now().to_rfc3339(),
+                            },
+                            Err(e) => ExecutionLog {
+                                id: Uuid::new_v4().to_string(),
+                                user_id: uid_ref,
+                                username: uname_ref,
+                                command_id: cmd.id.clone(),
+                                command_name: cmd.name.clone(),
+                                command_text: cmd.command.clone(),
+                                target_ip: srv.ip_address,
+                                target_port: srv.port,
+                                ssh_user: srv.ssh_user,
+                                server_label: srv.label,
+                                certificate_id: cert_ref.id.clone(),
+                                certificate_key_id: cert_key_id,
+                                mode: "openssh-live".into(),
+                                ssh_invocation: String::new(),
+                                exit_code: 255,
+                                stdout: String::new(),
+                                stderr: e,
+                                duration_ms: 0,
+                                executed_at: Utc::now().to_rfc3339(),
+                            },
+                        }
+                    }
+                    Err(e) => ExecutionLog {
+                        id: Uuid::new_v4().to_string(),
+                        user_id: uid_ref,
+                        username: uname_ref,
+                        command_id: cmd.id.clone(),
+                        command_name: cmd.name.clone(),
+                        command_text: cmd.command.clone(),
+                        target_ip: srv.ip_address,
+                        target_port: srv.port,
+                        ssh_user: srv.ssh_user,
+                        server_label: srv.label,
+                        certificate_id: cert_ref.id.clone(),
+                        certificate_key_id: cert_key_id,
+                        mode: "openssh-live".into(),
+                        ssh_invocation: String::new(),
+                        exit_code: 255,
+                        stdout: String::new(),
+                        stderr: e,
+                        duration_ms: 0,
+                        executed_at: Utc::now().to_rfc3339(),
+                    },
+                };
+
+                let _ = st.db.insert_log(&log);
+                st.bg_jobs.record_result(&jid_ref, log).await;
+            }));
+        }
+
+        for handle in handles {
+            let _ = handle.await;
+        }
+        bg_state.bg_jobs.finish(&job_id, started_epoch_ms, None).await;
+    });
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "job": job_snapshot,
+            "activeCount": active_count,
+            "maxBackgroundJobs": max_limit
+        })),
+    ))
+}
+
+async fn api_list_jobs(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let (jobs, active_count, total_active_count, unread_count) =
+        state.bg_jobs.list_for_user(&user.id).await;
+    let mut payload = json!({
+        "jobs": jobs,
+        "activeCount": active_count,
+        "unreadCount": unread_count,
+        "maxBackgroundJobs": state.db.get_max_background_jobs()
+    });
+    if user.role == "admin" {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("totalActiveCount".to_string(), json!(total_active_count));
+        }
+    }
+    Ok(Json(payload))
+}
+
+async fn api_get_job(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let job = state
+        .bg_jobs
+        .get_for_user(&user.id, &id)
+        .await
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Hintergrundauftrag nicht gefunden."))?;
+    Ok(Json(json!({ "job": job })))
+}
+
+async fn api_mark_job_read(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let (job, unread_count) = state
+        .bg_jobs
+        .mark_read(&user.id, &id)
+        .await
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Hintergrundauftrag nicht gefunden."))?;
+    Ok(Json(json!({
+        "job": job,
+        "unreadCount": unread_count
+    })))
+}
+
+async fn api_mark_all_jobs_read(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let unread_count = state.bg_jobs.mark_all_read(&user.id).await;
+    Ok(Json(json!({
+        "ok": true,
+        "unreadCount": unread_count
+    })))
+}
+
+async fn api_delete_job(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    state
+        .bg_jobs
+        .delete_for_user(&user.id, &id)
+        .await
+        .map_err(|(code, msg)| err_resp(code, msg))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn api_admin_list_jobs(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _ = require_admin(&state, &jar, &headers)?;
+    let (jobs, active_count) = state.bg_jobs.list_all().await;
+    Ok(Json(json!({
+        "jobs": jobs,
+        "activeCount": active_count,
+        "maxBackgroundJobs": state.db.get_max_background_jobs()
+    })))
+}
+
+async fn api_admin_job_settings(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<AdminBackgroundJobSettingsRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let admin = require_admin(&state, &jar, &headers)?;
+    let max_val = req
+        .max_background_jobs
+        .ok_or_else(|| err_resp(StatusCode::BAD_REQUEST, "Bitte geben Sie ein gültiges Limit (1–50) an."))?;
+    let updated_limit = state
+        .db
+        .set_max_background_jobs(max_val)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    let active_count = state.bg_jobs.active_count_for_user(&admin.id).await;
+    let total_active_count = state.bg_jobs.active_count().await;
+    Ok(Json(json!({
+        "settings": serialize_public_settings(&state),
+        "maxBackgroundJobs": updated_limit,
+        "activeCount": active_count,
+        "totalActiveCount": total_active_count
+    })))
+}
+
 async fn api_reset_user_host_key(
     State(state): State<SharedState>,
     jar: CookieJar,
@@ -4123,6 +4547,7 @@ async fn main() {
         ping_notify,
         shell_tickets: shell::ShellTicketStore::default(),
         auth_challenges: auth_extra::AuthChallengeStore::default(),
+        bg_jobs: jobs::BackgroundJobStore::default(),
     });
 
     // Hintergrund-Task: Gleichmäßig über pingIntervalSec verteilter Auto-Ping
@@ -4369,6 +4794,13 @@ async fn main() {
         )
         .route("/api/execute", post(api_execute))
         .route("/api/execute/batch", post(api_execute_batch))
+        .route("/api/execute/batch/async", post(api_execute_batch_async))
+        .route("/api/jobs", get(api_list_jobs))
+        .route("/api/jobs/read-all", post(api_mark_all_jobs_read))
+        .route("/api/jobs/:id", get(api_get_job).delete(api_delete_job))
+        .route("/api/jobs/:id/read", post(api_mark_job_read))
+        .route("/api/admin/jobs", get(api_admin_list_jobs))
+        .route("/api/admin/jobs/settings", patch(api_admin_job_settings))
         .route("/api/shell/ticket", post(api_shell_ticket))
         .route("/api/ws/shell", get(api_ws_shell))
         .route("/api/dashboard/status", get(api_dashboard_status))

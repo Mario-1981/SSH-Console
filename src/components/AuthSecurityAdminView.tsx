@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Bell,
   CheckCircle2,
   Copy,
   ExternalLink,
@@ -58,6 +59,8 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
   const [hostKeyStats, setHostKeyStats] = useState<{ totalEntries: number; userFiles: number } | null>(null);
   const [confirmClearHostKeys, setConfirmClearHostKeys] = useState(false);
   const [clearingHostKeys, setClearingHostKeys] = useState(false);
+  const [maxBackgroundJobsInput, setMaxBackgroundJobsInput] = useState('5');
+  const [savingBgLimit, setSavingBgLimit] = useState(false);
 
   function applyLoaded(a: AdminAuthSettings) {
     setSsoEnabled(a.ssoEnabled);
@@ -93,6 +96,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
         api.getAdminHostKeyStats().catch(() => null),
       ]);
       applyLoaded(res.authSettings);
+      setMaxBackgroundJobsInput(String(res.settings.maxBackgroundJobs ?? 5));
       if (hkStats) setHostKeyStats(hkStats);
       onSettingsUpdated(res.settings);
     } catch (err) {
@@ -941,6 +945,101 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                 {tr('Alle Host-Keys global löschen', 'Delete All Host Keys Globally')}
               </button>
             )}
+          </div>
+        </div>
+      </section>
+
+      {/* Section 5: Background Quick-Command Concurrency Limit (per User) */}
+      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
+        <div className="flex items-start gap-3 pb-4 border-b border-slate-200">
+          <Bell className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+          <div>
+            <h2 className="font-display text-base font-semibold text-slate-900">
+              {tr('Hintergrundprozesse pro Benutzer (Kurzbefehle)', 'Background Processes per User (Quick Commands)')}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {tr(
+                'Legt global fest, wie viele Kurzbefehl-/Sammelaufträge jeder Benutzer gleichzeitig im Hintergrund ausführen darf. Das Limit gilt jeweils eigenständig pro Benutzerkonto.',
+                'Globally sets how many quick-command/batch jobs each user may run concurrently in the background. The limit applies independently to every user account.'
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="space-y-1.5 max-w-md">
+            <label
+              htmlFor="admin-max-bg-jobs"
+              className="block text-xs font-medium text-slate-700"
+            >
+              {tr(
+                'Maximale Anzahl gleichzeitiger Hintergrundprozesse pro Benutzer (1–50)',
+                'Maximum concurrent background processes per user (1–50)'
+              )}
+            </label>
+            <div className="flex items-center gap-2.5">
+              <input
+                id="admin-max-bg-jobs"
+                type="number"
+                min={1}
+                max={50}
+                step={1}
+                value={maxBackgroundJobsInput}
+                onChange={(e) => setMaxBackgroundJobsInput(e.target.value)}
+                disabled={savingBgLimit}
+                className="w-24 px-3 py-2 text-sm font-mono tabular-nums bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <button
+                type="button"
+                disabled={savingBgLimit}
+                onClick={async () => {
+                  setError(null);
+                  setSuccess(null);
+                  const parsed = Math.round(Number(maxBackgroundJobsInput));
+                  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 50) {
+                    setError(
+                      tr(
+                        'Das Limit für Hintergrundprozesse pro Benutzer muss zwischen 1 und 50 liegen.',
+                        'Background process limit per user must be between 1 and 50.'
+                      )
+                    );
+                    return;
+                  }
+                  setSavingBgLimit(true);
+                  try {
+                    const res = await api.updateBackgroundJobSettings(parsed);
+                    setMaxBackgroundJobsInput(String(res.maxBackgroundJobs));
+                    onSettingsUpdated(res.settings);
+                    setSuccess(
+                      tr(
+                        `Limit auf ${res.maxBackgroundJobs} gleichzeitige Hintergrundprozesse pro Benutzer gesetzt.`,
+                        `Limit updated to ${res.maxBackgroundJobs} concurrent background processes per user.`
+                      )
+                    );
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : tr(
+                            'Hintergrundprozess-Limit konnte nicht gespeichert werden.',
+                            'Could not save background process limit.'
+                          )
+                    );
+                  } finally {
+                    setSavingBgLimit(false);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              >
+                {savingBgLimit ? tr('Speichert...', 'Saving...') : tr('Limit speichern', 'Save Limit')}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {tr(
+                'Standardwert: 5 pro Benutzer. Kann auch direkt unter „Hintergrundprozesse“ oder über das Einstellungs-Symbol in der Glocke oben rechts geändert werden.',
+                'Default: 5 per user. Can also be adjusted directly under "Background Jobs" or via the settings icon inside the top-right bell.'
+              )}
+            </p>
           </div>
         </div>
       </section>

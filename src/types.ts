@@ -65,6 +65,7 @@ export interface AppSettings {
   passkeyEnforced: boolean;
   allowInsecureHostKey: boolean;
   publicUrl?: string;
+  maxBackgroundJobs?: number;
 }
 
 export interface AdminAuthSettings {
@@ -243,6 +244,44 @@ export interface ExecutionLog {
   executedAt: string;
 }
 
+export type BackgroundJobStatus = 'running' | 'completed' | 'partial' | 'failed';
+
+export interface BackgroundJob {
+  id: string;
+  userId: string;
+  username: string;
+  title: string;
+  commandNames: string[];
+  targetLabels: string[];
+  totalTargets: number;
+  completedTargets: number;
+  successCount: number;
+  failedCount: number;
+  status: BackgroundJobStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  timeoutSec: number;
+  estimatedTimeoutSec: number;
+  read: boolean;
+  errorMessage?: string | null;
+  results: ExecutionLog[];
+}
+
+export interface BackgroundJobsResponse {
+  jobs: BackgroundJob[];
+  activeCount: number;
+  totalActiveCount?: number;
+  unreadCount: number;
+  maxBackgroundJobs: number;
+}
+
+export interface AdminBackgroundJobsResponse {
+  jobs: BackgroundJob[];
+  activeCount: number;
+  maxBackgroundJobs: number;
+}
+
 export interface RustProjectFile {
   path: string;
   size: number;
@@ -282,6 +321,7 @@ export interface DashboardPingResponse {
 export type ActiveTab =
   | 'dashboard'
   | 'shell'
+  | 'jobs'
   | 'servers'
   | 'certificates'
   | 'logs'

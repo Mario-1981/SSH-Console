@@ -66,6 +66,7 @@ import { buildDebianPackage } from './server/debBuilder.ts';
 import { pingMonitor } from './server/pingMonitor.ts';
 import { checkBmcHttps } from './server/bmcCheck.ts';
 import { attachSshShellWebSocket, issueShellTicket } from './server/sshShell.ts';
+import { backgroundJobs } from './server/backgroundJobs.ts';
 
 const COOKIE_NAME = 'trixiessh_session';
 const RUST_APP_DIR = path.resolve(process.cwd(), 'rust-app');
@@ -219,6 +220,7 @@ function serializePublicSettings() {
     passkeyEnforced: s.passkeyEnforced,
     allowInsecureHostKey: s.allowInsecureHostKey,
     publicUrl: s.publicUrl || '',
+    maxBackgroundJobs: s.maxBackgroundJobs ?? 5,
   };
 }
 
@@ -2764,6 +2766,175 @@ async function startServer() {
     res.json({ results: logs });
   });
 
+  // Asynchronous Dashboard Batch Execution: dispatches in background and returns immediately (202 Accepted)
+  app.post('/api/execute/batch/async', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const { certificateId, jobs, dryRun, passphrase, workflowVars } = req.body ?? {};
+
+    const certificate = store.getAccessibleCertificate(String(certificateId ?? ''), req.user!.id);
+    if (!certificate) {
+      res.status(404).json({ error: 'Bitte wählen Sie zuerst ein gültiges SSH-Schlüssel- oder Zertifikatspaket aus.' });
+      return;
+    }
+
+    const suppliedPassphrase = typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
+    if (certificate.metadata.privateKeyEncrypted && !certificate.passphraseEncrypted && !suppliedPassphrase) {
+      res.status(400).json({
+        error:
+          'Dieser private Schlüssel ist passwortgeschützt. Bitte geben Sie das Schlüssel-Passwort ein oder hinterlegen Sie es beim Zertifikat.',
+      });
+      return;
+    }
+
+    const baseVarsRes = sanitizeRuntimeVarsInput(workflowVars);
+    if (!baseVarsRes.ok) {
+      res.status(400).json({ error: baseVarsRes.error });
+      return;
+    }
+
+    if (!Array.isArray(jobs) || jobs.length === 0 || jobs.length > 50) {
+      res.status(400).json({ error: 'Bitte wählen Sie zwischen 1 und 50 Aufträge für die Sammelausführung aus.' });
+      return;
+    }
+
+    const allowInsecureHostKey = store.getSettings().allowInsecureHostKey;
+    const resolvedJobs: Array<{
+      server: { ipAddress: string; port: number; sshUser: string; label: string; ignoreHostKey: boolean };
+      command: NonNullable<ReturnType<typeof store.getCommand>>;
+      vars: Record<string, string>;
+    }> = [];
+
+    for (const item of jobs) {
+      const srv = store.getAccessibleServer(String(item?.serverId ?? ''), req.user!.id);
+      if (!srv) {
+        res.status(404).json({ error: `Server "${item?.serverId ?? ''}" wurde nicht gefunden.` });
+        return;
+      }
+      const cmd = store.getAccessibleCommand(String(item?.commandId ?? ''), req.user!.id);
+      if (!cmd) {
+        res.status(404).json({
+          error: `Befehl für Server ${srv.label} (${srv.ipAddress}) ist nicht verfügbar oder deaktiviert.`,
+        });
+        return;
+      }
+      const itemVarsRes = sanitizeRuntimeVarsInput(item?.workflowVars);
+      if (!itemVarsRes.ok) {
+        res.status(400).json({ error: itemVarsRes.error });
+        return;
+      }
+      const mergedVars = { ...baseVarsRes.vars, ...itemVarsRes.vars };
+      if (cmd.kind === 'workflow') {
+        const parsedWf = parseAndValidateWorkflow(cmd.workflowJson || '');
+        if (!parsedWf.ok) {
+          res.status(400).json({ error: `Ungültiger JSON-Workflow "${cmd.name}": ${parsedWf.error}` });
+          return;
+        }
+        const checkedVars = resolveWorkflowRuntimeVars(parsedWf.workflow, mergedVars);
+        if (!checkedVars.ok) {
+          res.status(400).json({ error: checkedVars.error });
+          return;
+        }
+      }
+      resolvedJobs.push({
+        server: {
+          ipAddress: srv.ipAddress,
+          port: srv.port,
+          sshUser: srv.sshUser,
+          label: srv.label,
+          ignoreHostKey: allowInsecureHostKey && Boolean(srv.ignoreHostKey),
+        },
+        command: cmd,
+        vars: mergedVars,
+      });
+    }
+
+    const started = backgroundJobs.startBatchJob({
+      userId: req.user!.id,
+      username: req.user!.username,
+      certificate,
+      passphrase: suppliedPassphrase,
+      dryRun: Boolean(dryRun),
+      resolvedJobs,
+    });
+
+    if (!started.ok) {
+      res.status(429).json({
+        error: started.error,
+        activeCount: started.activeCount,
+        maxBackgroundJobs: started.maxBackgroundJobs,
+      });
+      return;
+    }
+
+    res.status(202).json({
+      job: started.job,
+      activeCount: started.activeCount,
+      maxBackgroundJobs: started.maxBackgroundJobs,
+    });
+  });
+
+  // Background Jobs (Notifications & Detailed Results — strictly scoped to current user)
+  app.get('/api/jobs', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    res.json(backgroundJobs.listUserJobs(req.user!.id, req.user!.role === 'admin'));
+  });
+
+  app.post('/api/jobs/read-all', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const unreadCount = backgroundJobs.markAllRead(req.user!.id);
+    res.json({ ok: true, unreadCount });
+  });
+
+  app.get('/api/jobs/:id', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const job = backgroundJobs.getUserJob(req.user!.id, req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Hintergrundauftrag nicht gefunden.' });
+      return;
+    }
+    res.json({ job });
+  });
+
+  app.post('/api/jobs/:id/read', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const updated = backgroundJobs.markRead(req.user!.id, req.params.id);
+    if (!updated) {
+      res.status(404).json({ error: 'Hintergrundauftrag nicht gefunden.' });
+      return;
+    }
+    res.json(updated);
+  });
+
+  app.delete('/api/jobs/:id', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const result = backgroundJobs.deleteUserJob(req.user!.id, req.params.id);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  // Admin: List all background processes across all users & configure concurrency limit
+  app.get('/api/admin/jobs', requireAuth, requireAdmin, (_req: AuthedRequest, res) => {
+    res.json(backgroundJobs.listAllJobs());
+  });
+
+  app.patch('/api/admin/jobs/settings', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
+    const raw = req.body?.maxBackgroundJobs;
+    if (raw === undefined || raw === null || raw === '') {
+      res.status(400).json({ error: 'Bitte geben Sie ein gültiges Limit (1–50) an.' });
+      return;
+    }
+    try {
+      const updated = store.updateMaxBackgroundJobs(Number(raw));
+      res.json({
+        settings: serializePublicSettings(),
+        maxBackgroundJobs: updated.maxBackgroundJobs,
+        activeCount: backgroundJobs.getUserActiveCount(req.user!.id),
+        totalActiveCount: backgroundJobs.getActiveCount(),
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Hintergrundprozess-Limit konnte nicht gespeichert werden.',
+      });
+    }
+  });
+
   // Interactive SSH Shell: issue short-lived one-time WebSocket ticket
   app.post('/api/shell/ticket', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     const { serverId, ipAddress, port, sshUser, certificateId, passphrase, ignoreHostKey, cols, rows } =
@@ -2920,11 +3091,11 @@ async function startServer() {
 
   // Vite middleware in development, static dist in production
   if (process.env.NODE_ENV !== 'production') {
-    const disableHmr = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: disableHmr ? false : { server: httpServer },
+        hmr: { server: httpServer },
+        watch: process.env.DISABLE_HMR === 'true' ? null : undefined,
       },
       appType: 'spa',
     });

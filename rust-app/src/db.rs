@@ -565,6 +565,34 @@ impl Database {
         Ok((self.get_ping_allowed(), self.get_ping_interval_sec()))
     }
 
+    pub fn get_max_background_jobs(&self) -> usize {
+        let Ok(conn) = self.conn.lock() else {
+            return 5;
+        };
+        let raw: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'max_background_jobs'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "5".into());
+        raw.parse::<usize>().unwrap_or(5).clamp(1, 50)
+    }
+
+    pub fn set_max_background_jobs(&self, max_jobs: i64) -> Result<usize, String> {
+        if !(1..=50).contains(&max_jobs) {
+            return Err("Das Limit für Hintergrundprozesse muss zwischen 1 und 50 liegen.".into());
+        }
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('max_background_jobs', ?1)",
+            params![max_jobs.to_string()],
+        )
+        .map_err(|e| e.to_string())?;
+        drop(conn);
+        Ok(self.get_max_background_jobs())
+    }
+
     pub fn set_user_ping_enabled(&self, user_id: &str, enabled: bool) -> Result<Option<UserPublic>, String> {
         {
             let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;

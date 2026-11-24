@@ -213,6 +213,8 @@ export interface AppSettings {
   allowInsecureHostKey: boolean;
   // Public base URL / domain for curl API snippets (e.g. https://ssh.example.net)
   publicUrl: string;
+  // Max concurrent background quick-command jobs allowed globally (1..50)
+  maxBackgroundJobs: number;
 }
 
 interface DatabaseSchema {
@@ -323,6 +325,7 @@ function emptyDb(): DatabaseSchema {
       passkeyEnforced: false,
       allowInsecureHostKey: false,
       publicUrl: '',
+      maxBackgroundJobs: 5,
     },
     users: [],
     sessions: [],
@@ -490,6 +493,9 @@ class Store {
         passkeyEnforced: Boolean(parsed.settings?.passkeyEnforced && passkeyEnabled),
         allowInsecureHostKey: Boolean(parsed.settings?.allowInsecureHostKey),
         publicUrl: typeof parsed.settings?.publicUrl === 'string' ? parsed.settings.publicUrl : '',
+        maxBackgroundJobs: Number.isFinite(Number(parsed.settings?.maxBackgroundJobs))
+          ? Math.min(50, Math.max(1, Math.round(Number(parsed.settings?.maxBackgroundJobs))))
+          : 5,
       };
 
       const migratedWebauthn: StoredWebAuthnCredential[] = Array.isArray(parsed.webauthnCredentials)
@@ -564,6 +570,16 @@ class Store {
       }
       this.db.settings.pingOfflineMultiplier = m;
     }
+    this.save();
+    return this.db.settings;
+  }
+
+  updateMaxBackgroundJobs(maxJobs: number): AppSettings {
+    const n = Math.round(Number(maxJobs));
+    if (!Number.isFinite(n) || n < 1 || n > 50) {
+      throw new Error('Das Limit für Hintergrundprozesse muss zwischen 1 und 50 liegen.');
+    }
+    this.db.settings.maxBackgroundJobs = n;
     this.save();
     return this.db.settings;
   }

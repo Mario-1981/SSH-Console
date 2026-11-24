@@ -11,6 +11,7 @@ import {
   LogOut,
   Lock,
   X,
+  Activity,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { ActiveTab, User } from '../types';
@@ -23,6 +24,7 @@ interface SidebarProps {
   onLogout: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  activeJobsCount?: number;
 }
 
 interface NavItem {
@@ -39,12 +41,14 @@ export function Sidebar({
   onLogout,
   mobileOpen,
   onCloseMobile,
+  activeJobsCount = 0,
 }: SidebarProps) {
   const { tr } = useI18n();
 
   const workspaceItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'shell', label: 'SSH-Shell', icon: Terminal },
+    { id: 'jobs', label: tr('Hintergrundprozesse', 'Background Jobs'), icon: Activity },
     { id: 'admin-commands', label: tr('SSH-Befehle', 'SSH Commands'), icon: SlidersHorizontal },
     { id: 'servers', label: tr('Meine Server (IPs)', 'My Servers (IPs)'), icon: Server },
     { id: 'certificates', label: tr('SSH-Zertifikate', 'SSH Certificates'), icon: KeyRound },
@@ -112,7 +116,12 @@ export function Sidebar({
                         setupLocked ? 'text-slate-300' : isActive ? 'text-blue-700' : 'text-slate-500'
                       }`}
                     />
-                    <span className="truncate">{item.label}</span>
+                    <span className="truncate flex-1 text-left">{item.label}</span>
+                    {item.id === 'jobs' && activeJobsCount > 0 && !setupLocked && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold tabular-nums rounded bg-blue-600 text-white shrink-0">
+                        {activeJobsCount}
+                      </span>
+                    )}
                   </button>
                 </li>
               );
