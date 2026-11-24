@@ -20,18 +20,19 @@ import type {
   WebAuthnCredentialKind,
 } from './types';
 
-const TOKEN_STORAGE_KEY = 'trixiessh_session_token';
+const LEGACY_TOKEN_STORAGE_KEY = 'trixiessh_session_token';
 let memoryToken: string | null = null;
 
+// Purge any legacy browser-storage session token from earlier versions; rely on HttpOnly cookie + in-memory token.
+try {
+  window.localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+  window.sessionStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+} catch {
+  // ignore restricted storage
+}
+
 function getStoredToken(): string | null {
-  if (memoryToken) return memoryToken;
-  try {
-    const t = window.sessionStorage.getItem(TOKEN_STORAGE_KEY) || window.localStorage.getItem(TOKEN_STORAGE_KEY);
-    if (t) memoryToken = t;
-    return t;
-  } catch {
-    return memoryToken;
-  }
+  return memoryToken;
 }
 
 export function setSessionToken(token: string | null) {
@@ -40,21 +41,20 @@ export function setSessionToken(token: string | null) {
 
 function setStoredToken(token: string | null) {
   memoryToken = token;
-  try {
-    if (token) {
-      window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-      window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } else {
-      window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  if (!token) {
+    try {
+      window.sessionStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+    } catch {
+      // ignore restricted storage
     }
-  } catch {
-    // storage may be restricted in sandboxed iframes; memoryToken remains active
   }
 }
 
 function authHeaders(extra?: HeadersInit): Record<string, string> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    'X-Requested-With': 'SSHConsole',
+  };
   if (extra) {
     if (extra instanceof Headers) {
       extra.forEach((v, k) => {

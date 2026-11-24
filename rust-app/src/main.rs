@@ -40,6 +40,7 @@ const SESSION_COOKIE: &str = "ssh_console_session";
 const MAX_CONCURRENT_AUTO_PINGS: usize = 32;
 const MAX_CONCURRENT_MANUAL_PINGS: usize = 24;
 const MANUAL_PING_STAGGER_MS: u64 = 15;
+const MAX_CONCURRENT_SSH_JOBS: usize = 8;
 
 pub(crate) struct AppState {
     pub(crate) data_dir: PathBuf,
@@ -3321,11 +3322,15 @@ async fn api_execute(
     }
 
     let policy = state.db.get_auth_policy();
-    let known_hosts_path = ssh::user_known_hosts_path(&state.data_dir, &user.id)
-        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let mut logs = Vec::new();
+    let known_hosts_path = Arc::new(
+        ssh::user_known_hosts_path(&state.data_dir, &user.id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?,
+    );
+
+    let mut resolved_targets: Vec<(String, u16, String, String, bool)> =
+        Vec::with_capacity(req.targets.len());
     for target in req.targets {
-        let (ip, port, ssh_user, label, ignore_host_key) = if let Some(srv_id) = target.server_id {
+        let resolved = if let Some(srv_id) = target.server_id {
             let srv = state
                 .db
                 .get_accessible_server(&srv_id, &user.id)
@@ -3350,56 +3355,95 @@ async fn api_execute(
                 policy.allow_insecure_host_key && target.ignore_host_key.unwrap_or(false);
             (ip, target.port.unwrap_or(22), ssh_u, lbl, ignore)
         };
+        resolved_targets.push(resolved);
+    }
 
-        let plain_key = state
-            .vault
-            .decrypt(&cert.private_key_enc, &cert.private_key_nonce)
+    let cmd = Arc::new(cmd);
+    let cert = Arc::new(cert);
+    let resolved_passphrase = Arc::new(resolved_passphrase);
+    let workflow_vars = Arc::new(req.workflow_vars);
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SSH_JOBS));
+
+    let mut handles = Vec::with_capacity(resolved_targets.len());
+    for (ip, port, ssh_user, label, ignore_host_key) in resolved_targets {
+        let st = Arc::clone(&state);
+        let sem = Arc::clone(&semaphore);
+        let cmd_ref = Arc::clone(&cmd);
+        let cert_ref = Arc::clone(&cert);
+        let pass_ref = Arc::clone(&resolved_passphrase);
+        let wf_vars_ref = Arc::clone(&workflow_vars);
+        let kh_ref = Arc::clone(&known_hosts_path);
+        let uid = user.id.clone();
+        let uname = user.username.clone();
+
+        handles.push(tokio::spawn(async move {
+            let _permit = sem
+                .acquire_owned()
+                .await
+                .map_err(|_| err_resp(StatusCode::INTERNAL_SERVER_ERROR, "SSH-Job-Semaphore fehlgeschlagen."))?;
+            let plain_key = st
+                .vault
+                .decrypt(&cert_ref.private_key_enc, &cert_ref.private_key_nonce)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+            let pass_opt: Option<&str> = match pass_ref.as_ref() {
+                Some(p) => Some(p.as_str()),
+                None => None,
+            };
+
+            let result = ssh::run_ssh_command(
+                &ip,
+                port,
+                &ssh_user,
+                &label,
+                &cmd_ref,
+                &cert_ref,
+                plain_key,
+                pass_opt,
+                wf_vars_ref.as_ref().as_ref(),
+                ignore_host_key,
+                kh_ref.as_path(),
+            )
+            .await
             .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-        let result = ssh::run_ssh_command(
-            &ip,
-            port,
-            &ssh_user,
-            &label,
-            &cmd,
-            &cert,
-            plain_key,
-            resolved_passphrase.as_deref().map(|s| s.as_str()),
-            req.workflow_vars.as_ref(),
-            ignore_host_key,
-            &known_hosts_path,
-        )
-        .await
-        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            let cert_key_id = if cert_ref.key_id.is_empty() {
+                cert_ref.name.clone()
+            } else {
+                cert_ref.key_id.clone()
+            };
 
-        let cert_key_id = if cert.key_id.is_empty() {
-            cert.name.clone()
-        } else {
-            cert.key_id.clone()
-        };
+            let log = ExecutionLog {
+                id: Uuid::new_v4().to_string(),
+                user_id: uid,
+                username: uname,
+                command_id: cmd_ref.id.clone(),
+                command_name: cmd_ref.name.clone(),
+                command_text: cmd_ref.command.clone(),
+                target_ip: ip,
+                target_port: port,
+                ssh_user,
+                server_label: label,
+                certificate_id: cert_ref.id.clone(),
+                certificate_key_id: cert_key_id,
+                mode: "openssh-live".into(),
+                ssh_invocation: result.ssh_invocation,
+                exit_code: result.exit_code,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                duration_ms: result.duration_ms,
+                executed_at: Utc::now().to_rfc3339(),
+            };
+            let _ = st.db.insert_log(&log);
+            Ok::<ExecutionLog, ApiError>(log)
+        }));
+    }
 
-        let log = ExecutionLog {
-            id: Uuid::new_v4().to_string(),
-            user_id: user.id.clone(),
-            username: user.username.clone(),
-            command_id: cmd.id.clone(),
-            command_name: cmd.name.clone(),
-            command_text: cmd.command.clone(),
-            target_ip: ip,
-            target_port: port,
-            ssh_user,
-            server_label: label,
-            certificate_id: cert.id.clone(),
-            certificate_key_id: cert_key_id,
-            mode: "openssh-live".into(),
-            ssh_invocation: result.ssh_invocation,
-            exit_code: result.exit_code,
-            stdout: result.stdout,
-            stderr: result.stderr,
-            duration_ms: result.duration_ms,
-            executed_at: Utc::now().to_rfc3339(),
-        };
-        let _ = state.db.insert_log(&log);
+    let mut logs = Vec::with_capacity(handles.len());
+    for handle in handles {
+        let log = handle
+            .await
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("SSH-Task-Fehler: {e}")))??;
         logs.push(log);
     }
 
@@ -3800,58 +3844,91 @@ async fn api_execute_batch(
         prepared.push((srv, cmd, merged_vars));
     }
 
-    let mut logs = Vec::new();
+    let cert = Arc::new(cert);
+    let resolved_passphrase = Arc::new(resolved_passphrase);
+    let known_hosts_path = Arc::new(known_hosts_path);
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SSH_JOBS));
+    let allow_insecure_host_key = policy.allow_insecure_host_key;
+
+    let mut handles = Vec::with_capacity(prepared.len());
     for (srv, cmd, merged_vars) in prepared {
-        let plain_key = state
-            .vault
-            .decrypt(&cert.private_key_enc, &cert.private_key_nonce)
+        let st = Arc::clone(&state);
+        let sem = Arc::clone(&semaphore);
+        let cert_ref = Arc::clone(&cert);
+        let pass_ref = Arc::clone(&resolved_passphrase);
+        let kh_ref = Arc::clone(&known_hosts_path);
+        let uid = user.id.clone();
+        let uname = user.username.clone();
+
+        handles.push(tokio::spawn(async move {
+            let _permit = sem
+                .acquire_owned()
+                .await
+                .map_err(|_| err_resp(StatusCode::INTERNAL_SERVER_ERROR, "SSH-Job-Semaphore fehlgeschlagen."))?;
+            let plain_key = st
+                .vault
+                .decrypt(&cert_ref.private_key_enc, &cert_ref.private_key_nonce)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+            let pass_opt: Option<&str> = match pass_ref.as_ref() {
+                Some(p) => Some(p.as_str()),
+                None => None,
+            };
+
+            let ignore_host_key = allow_insecure_host_key && srv.ignore_host_key;
+            let result = ssh::run_ssh_command(
+                &srv.ip_address,
+                srv.port,
+                &srv.ssh_user,
+                &srv.label,
+                &cmd,
+                &cert_ref,
+                plain_key,
+                pass_opt,
+                merged_vars.as_ref(),
+                ignore_host_key,
+                kh_ref.as_path(),
+            )
+            .await
             .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-        let ignore_host_key = policy.allow_insecure_host_key && srv.ignore_host_key;
-        let result = ssh::run_ssh_command(
-            &srv.ip_address,
-            srv.port,
-            &srv.ssh_user,
-            &srv.label,
-            &cmd,
-            &cert,
-            plain_key,
-            resolved_passphrase.as_deref().map(|s| s.as_str()),
-            merged_vars.as_ref(),
-            ignore_host_key,
-            &known_hosts_path,
-        )
-        .await
-        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            let cert_key_id = if cert_ref.key_id.is_empty() {
+                cert_ref.name.clone()
+            } else {
+                cert_ref.key_id.clone()
+            };
 
-        let cert_key_id = if cert.key_id.is_empty() {
-            cert.name.clone()
-        } else {
-            cert.key_id.clone()
-        };
+            let log = ExecutionLog {
+                id: Uuid::new_v4().to_string(),
+                user_id: uid,
+                username: uname,
+                command_id: cmd.id.clone(),
+                command_name: cmd.name.clone(),
+                command_text: cmd.command.clone(),
+                target_ip: srv.ip_address,
+                target_port: srv.port,
+                ssh_user: srv.ssh_user,
+                server_label: srv.label,
+                certificate_id: cert_ref.id.clone(),
+                certificate_key_id: cert_key_id,
+                mode: "openssh-live".into(),
+                ssh_invocation: result.ssh_invocation,
+                exit_code: result.exit_code,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                duration_ms: result.duration_ms,
+                executed_at: Utc::now().to_rfc3339(),
+            };
+            let _ = st.db.insert_log(&log);
+            Ok::<ExecutionLog, ApiError>(log)
+        }));
+    }
 
-        let log = ExecutionLog {
-            id: Uuid::new_v4().to_string(),
-            user_id: user.id.clone(),
-            username: user.username.clone(),
-            command_id: cmd.id.clone(),
-            command_name: cmd.name.clone(),
-            command_text: cmd.command.clone(),
-            target_ip: srv.ip_address,
-            target_port: srv.port,
-            ssh_user: srv.ssh_user,
-            server_label: srv.label,
-            certificate_id: cert.id.clone(),
-            certificate_key_id: cert_key_id,
-            mode: "openssh-live".into(),
-            ssh_invocation: result.ssh_invocation,
-            exit_code: result.exit_code,
-            stdout: result.stdout,
-            stderr: result.stderr,
-            duration_ms: result.duration_ms,
-            executed_at: Utc::now().to_rfc3339(),
-        };
-        let _ = state.db.insert_log(&log);
+    let mut logs = Vec::with_capacity(handles.len());
+    for handle in handles {
+        let log = handle
+            .await
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("SSH-Task-Fehler: {e}")))??;
         logs.push(log);
     }
 

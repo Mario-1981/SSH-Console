@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RefreshCw,
   Play,
@@ -210,39 +210,72 @@ export function DashboardView({
     setOfflineMultiplierInput(String(offlineMultiplier));
   }, [offlineMultiplier]);
 
+  const pollInFlightRef = useRef(false);
+  const refreshedCycleRef = useRef<string | null>(null);
+  const savedNoticeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedNoticeTimerRef.current !== null) {
+        window.clearTimeout(savedNoticeTimerRef.current);
+      }
+    };
+  }, []);
+
   const fetchPingStatus = useCallback(async () => {
+    if (pollInFlightRef.current) return;
+    pollInFlightRef.current = true;
     try {
       const data = await api.getDashboardStatus();
       setPingData(data);
     } catch {
       // keep existing state on transient poll error
+    } finally {
+      pollInFlightRef.current = false;
     }
   }, []);
 
-  // Poll backend status every 15s (server runs actual ping cycle based on configured interval)
+  // Poll backend status every 15s while tab is visible (server runs actual ping cycle based on configured interval)
   useEffect(() => {
     void fetchPingStatus();
-    const poll = setInterval(() => {
-      void fetchPingStatus();
+    const poll = window.setInterval(() => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        void fetchPingStatus();
+      }
     }, 15_000);
-    return () => clearInterval(poll);
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        void fetchPingStatus();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [fetchPingStatus, servers.length]);
 
-  // Live 1-second countdown synced to backend nextCycleAt
+  // Live 1-second countdown synced to backend nextCycleAt (trigger at most one refresh per cycle)
   useEffect(() => {
     if (!effectivePingActive || !pingData?.nextCycleAt) {
       return;
     }
+    const targetCycleAt = pingData.nextCycleAt;
     const updateCountdown = () => {
-      const diff = Math.max(0, Math.ceil((Date.parse(pingData.nextCycleAt!) - Date.now()) / 1000));
+      const diff = Math.max(0, Math.ceil((Date.parse(targetCycleAt) - Date.now()) / 1000));
       setSecondsToNext(diff);
-      if (diff === 0) {
+      if (
+        diff === 0 &&
+        refreshedCycleRef.current !== targetCycleAt &&
+        (typeof document === 'undefined' || !document.hidden)
+      ) {
+        refreshedCycleRef.current = targetCycleAt;
         void fetchPingStatus();
       }
     };
     updateCountdown();
-    const tick = setInterval(updateCountdown, 1000);
-    return () => clearInterval(tick);
+    const tick = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(tick);
   }, [effectivePingActive, pingData?.nextCycleAt, fetchPingStatus]);
 
   useEffect(() => {
@@ -602,7 +635,13 @@ export function DashboardView({
       onUpdateSettings(res.settings);
       setPingData(res.dashboardStatus);
       setIntervalSavedNotice(true);
-      setTimeout(() => setIntervalSavedNotice(false), 2500);
+      if (savedNoticeTimerRef.current !== null) {
+        window.clearTimeout(savedNoticeTimerRef.current);
+      }
+      savedNoticeTimerRef.current = window.setTimeout(() => {
+        setIntervalSavedNotice(false);
+        savedNoticeTimerRef.current = null;
+      }, 2500);
     } catch (err) {
       setError(
         err instanceof Error

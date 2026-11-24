@@ -1,19 +1,36 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { api, setUnauthorizedHandler } from './api';
 import { LanguageSwitcher, useI18n } from './i18n';
-import { AccountView } from './components/AccountView';
-import { AuditLogView } from './components/AuditLogView';
-import { AuthSecurityAdminView } from './components/AuthSecurityAdminView';
-import { CertificatesView } from './components/CertificatesView';
-import { CommandsAdminView } from './components/CommandsAdminView';
 import { DashboardView } from './components/DashboardView';
 import { LoginView } from './components/LoginView';
-import { ServersView } from './components/ServersView';
-import { SshShellView } from './components/SshShellView';
 import { SetupView } from './components/SetupView';
 import { Sidebar } from './components/Sidebar';
-import { UsersAdminView } from './components/UsersAdminView';
+
+const AccountView = lazy(() =>
+  import('./components/AccountView').then((m) => ({ default: m.AccountView }))
+);
+const AuditLogView = lazy(() =>
+  import('./components/AuditLogView').then((m) => ({ default: m.AuditLogView }))
+);
+const AuthSecurityAdminView = lazy(() =>
+  import('./components/AuthSecurityAdminView').then((m) => ({ default: m.AuthSecurityAdminView }))
+);
+const CertificatesView = lazy(() =>
+  import('./components/CertificatesView').then((m) => ({ default: m.CertificatesView }))
+);
+const CommandsAdminView = lazy(() =>
+  import('./components/CommandsAdminView').then((m) => ({ default: m.CommandsAdminView }))
+);
+const ServersView = lazy(() =>
+  import('./components/ServersView').then((m) => ({ default: m.ServersView }))
+);
+const SshShellView = lazy(() =>
+  import('./components/SshShellView').then((m) => ({ default: m.SshShellView }))
+);
+const UsersAdminView = lazy(() =>
+  import('./components/UsersAdminView').then((m) => ({ default: m.UsersAdminView }))
+);
 import type {
   ActiveTab,
   AppSettings,
@@ -263,6 +280,13 @@ export default function App() {
 
         <main className="flex-1 overflow-y-auto px-6 py-8">
           <div className="max-w-6xl mx-auto">
+            <Suspense
+              fallback={
+                <div className="py-12 text-center text-sm text-slate-500">
+                  {tr('Lade Ansicht...', 'Loading view...')}
+                </div>
+              }
+            >
             {effectiveTab === 'dashboard' && (
               <DashboardView
                 currentUser={user}
@@ -385,6 +409,7 @@ export default function App() {
                 }}
               />
             )}
+            </Suspense>
           </div>
         </main>
       </div>

@@ -22,6 +22,8 @@ impl Database {
         conn.execute_batch(
             "
             PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA busy_timeout = 5000;
             PRAGMA foreign_keys = ON;
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -160,6 +162,15 @@ impl Database {
                 created_at TEXT NOT NULL,
                 last_used_at TEXT
             );
+
+            CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_logs_user_executed ON execution_logs(user_id, executed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_logs_executed_at ON execution_logs(executed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_servers_user_id ON user_servers(user_id);
+            CREATE INDEX IF NOT EXISTS idx_certs_user_id ON user_certificates(user_id);
+            CREATE INDEX IF NOT EXISTS idx_commands_user_id ON ssh_commands(user_id);
+            CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON user_api_keys(user_id);
             ",
         )
         .map_err(|e| format!("Schema-Initialisierung fehlgeschlagen: {e}"))?;
@@ -748,15 +759,17 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let now = Utc::now();
+        let now_str = now.to_rfc3339();
         let expires = now + Duration::hours(24);
+        let _ = conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", params![now_str]);
         conn.execute(
             "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)",
-            params![token, user_id, now.to_rfc3339(), expires.to_rfc3339()],
+            params![token, user_id, now_str, expires.to_rfc3339()],
         )
         .map_err(|e| e.to_string())?;
         let _ = conn.execute(
             "UPDATE users SET last_login_at = ?1 WHERE id = ?2",
-            params![now.to_rfc3339(), user_id],
+            params![now_str, user_id],
         );
         Ok(token)
     }
@@ -2435,6 +2448,13 @@ impl Database {
             ],
         )
         .map_err(|e| e.to_string())?;
+        // Protokolltabelle auf die neuesten 5.000 Einträge begrenzen, damit SQLite dauerhaft kompakt bleibt
+        let _ = conn.execute(
+            "DELETE FROM execution_logs WHERE id IN (
+                SELECT id FROM execution_logs ORDER BY executed_at DESC LIMIT -1 OFFSET 5000
+            )",
+            [],
+        );
         Ok(())
     }
 

@@ -83,10 +83,38 @@ function parseCookies(cookieHeader: string | undefined): Record<string, string> 
     if (idx > 0) {
       const key = part.slice(0, idx).trim();
       const val = part.slice(idx + 1).trim();
-      result[key] = decodeURIComponent(val);
+      if (!key) continue;
+      try {
+        result[key] = decodeURIComponent(val);
+      } catch {
+        result[key] = val;
+      }
     }
   }
   return result;
+}
+
+const MAX_CONCURRENT_SSH_JOBS = 8;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const current = nextIndex++;
+        if (current >= items.length) break;
+        results[current] = await worker(items[current], current);
+      }
+    })
+  );
+  return results;
 }
 
 function isHttpsRequest(req: Request): boolean {
@@ -253,10 +281,24 @@ function sanitizeUser(u: StoredUser) {
   };
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function renderSsoCallbackPage(payload: Record<string, unknown>, title: string, message: string): string {
-  const safeJson = JSON.stringify(payload).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-  const escapedTitle = title.replace(/[<>&"]/g, '');
-  const escapedMsg = message.replace(/[<>&"]/g, '');
+  const safeJson = JSON.stringify(payload)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  const escapedTitle = escapeHtml(title);
+  const escapedMsg = escapeHtml(message);
   return `<!doctype html>
 <html lang="de">
 <head>
@@ -393,7 +435,49 @@ const DEBIAN_PRESET_COMMANDS = [
 
 async function startServer() {
   const app = express();
+  app.disable('x-powered-by');
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    if (req.path.startsWith('/api/')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+    next();
+  });
   app.use(express.json({ limit: '2mb' }));
+
+  // Same-origin / custom-header check for cookie-authenticated API mutations
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      next();
+      return;
+    }
+    const hasBearerOrApiKey = Boolean(req.headers.authorization || req.headers['x-api-key']);
+    const hasCustomHeader = Boolean(req.headers['x-requested-with']);
+    const cookies = parseCookies(req.headers.cookie);
+    if (!cookies[COOKIE_NAME] || hasBearerOrApiKey || hasCustomHeader) {
+      next();
+      return;
+    }
+    const origin = req.headers.origin;
+    const expectedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+    if (origin && expectedHost) {
+      try {
+        if (new URL(origin).host.toLowerCase() === expectedHost) {
+          next();
+          return;
+        }
+      } catch {
+        // invalid origin header falls through to 403
+      }
+      res.status(403).json({ error: 'Ungültiger Anfrage-Ursprung (Origin).' });
+      return;
+    }
+    next();
+  });
 
   // System & Auth Status
   app.get('/api/status', (req: AuthedRequest, res: Response) => {
@@ -2453,8 +2537,10 @@ async function startServer() {
       }
     }
 
-    const logs = await Promise.all(
-      resolvedTargets.map(async (target) => {
+    const logs = await mapWithConcurrency(
+      resolvedTargets,
+      MAX_CONCURRENT_SSH_JOBS,
+      async (target) => {
         const result = await executeSshCommand({
           userId: req.user!.id,
           ipAddress: target.ipAddress,
@@ -2488,7 +2574,7 @@ async function startServer() {
           stderr: result.stderr,
           durationMs: result.durationMs,
         });
-      })
+      }
     );
 
     res.json({ results: logs });
@@ -2635,8 +2721,10 @@ async function startServer() {
       });
     }
 
-    const logs = await Promise.all(
-      resolvedJobs.map(async ({ server, command, vars }) => {
+    const logs = await mapWithConcurrency(
+      resolvedJobs,
+      MAX_CONCURRENT_SSH_JOBS,
+      async ({ server, command, vars }) => {
         const result = await executeSshCommand({
           userId: req.user!.id,
           ipAddress: server.ipAddress,
@@ -2670,7 +2758,7 @@ async function startServer() {
           stderr: result.stderr,
           durationMs: result.durationMs,
         });
-      })
+      }
     );
 
     res.json({ results: logs });
@@ -2811,10 +2899,33 @@ async function startServer() {
     }
   });
 
+  // Structured JSON error handler for malformed JSON bodies or unexpected API errors
+  app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    if (err instanceof SyntaxError && 'status' in err && (err as { status?: number }).status === 400) {
+      res.status(400).json({ error: 'Ungültiges JSON-Format im Anfragekörper.' });
+      return;
+    }
+    if (req.path.startsWith('/api/')) {
+      res.status(500).json({ error: 'Interner Serverfehler.' });
+      return;
+    }
+    next(err);
+  });
+
+  const httpServer = http.createServer(app);
+
   // Vite middleware in development, static dist in production
   if (process.env.NODE_ENV !== 'production') {
+    const disableHmr = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: disableHmr ? false : { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -2828,7 +2939,6 @@ async function startServer() {
 
   pingMonitor.start();
   const PORT = 3000;
-  const httpServer = http.createServer(app);
   attachSshShellWebSocket(httpServer);
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`SSH Console server listening on http://0.0.0.0:${PORT}`);

@@ -296,7 +296,7 @@ impl AuthChallengeStore {
         let state = random_b64url(24);
         let code_verifier = random_b64url(32);
         let code_challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
-        let mut guard = self.sso_states.lock().unwrap();
+        let mut guard = self.sso_states.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.insert(
             state.clone(),
@@ -312,7 +312,7 @@ impl AuthChallengeStore {
 
     pub fn consume_sso_state(&self, state: &str) -> Option<SsoStateEntry> {
         let now = Utc::now().timestamp();
-        let mut guard = self.sso_states.lock().unwrap();
+        let mut guard = self.sso_states.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.remove(state).filter(|v| v.expires_at > now)
     }
@@ -320,7 +320,10 @@ impl AuthChallengeStore {
     pub fn create_2fa_ticket(&self, user_id: &str, webauthn_challenge: Option<String>) -> String {
         let now = Utc::now().timestamp();
         let ticket = random_hex(24);
-        let mut guard = self.two_factor_tickets.lock().unwrap();
+        let mut guard = self
+            .two_factor_tickets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.insert(
             ticket.clone(),
@@ -335,21 +338,27 @@ impl AuthChallengeStore {
 
     pub fn peek_2fa_ticket(&self, ticket: &str) -> Option<TwoFactorTicketEntry> {
         let now = Utc::now().timestamp();
-        let mut guard = self.two_factor_tickets.lock().unwrap();
+        let mut guard = self
+            .two_factor_tickets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.get(ticket).cloned()
     }
 
     pub fn consume_2fa_ticket(&self, ticket: &str) -> Option<TwoFactorTicketEntry> {
         let now = Utc::now().timestamp();
-        let mut guard = self.two_factor_tickets.lock().unwrap();
+        let mut guard = self
+            .two_factor_tickets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.remove(ticket)
     }
 
     pub fn store_pending_totp(&self, user_id: &str, secret: &str) {
         let now = Utc::now().timestamp();
-        let mut guard = self.pending_totp.lock().unwrap();
+        let mut guard = self.pending_totp.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.insert(
             user_id.to_string(),
@@ -362,7 +371,7 @@ impl AuthChallengeStore {
 
     pub fn consume_pending_totp(&self, user_id: &str) -> Option<String> {
         let now = Utc::now().timestamp();
-        let mut guard = self.pending_totp.lock().unwrap();
+        let mut guard = self.pending_totp.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.remove(user_id).map(|e| e.secret)
     }
@@ -378,7 +387,7 @@ impl AuthChallengeStore {
         let now = Utc::now().timestamp();
         let challenge_id = random_hex(20);
         let challenge = random_b64url(32);
-        let mut guard = self.webauthn.lock().unwrap();
+        let mut guard = self.webauthn.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.insert(
             challenge_id.clone(),
@@ -397,7 +406,7 @@ impl AuthChallengeStore {
 
     pub fn consume_webauthn_challenge(&self, challenge_id: &str) -> Option<WebAuthnChallengeEntry> {
         let now = Utc::now().timestamp();
-        let mut guard = self.webauthn.lock().unwrap();
+        let mut guard = self.webauthn.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, v| v.expires_at > now);
         guard.remove(challenge_id)
     }
@@ -1046,9 +1055,9 @@ pub fn build_webauthn_auth_options(
             .iter()
             .map(|id| json!({ "id": id, "type": "public-key" }))
             .collect();
-        obj.as_object_mut()
-            .unwrap()
-            .insert("allowCredentials".into(), Value::Array(allow));
+        if let Some(map) = obj.as_object_mut() {
+            map.insert("allowCredentials".into(), Value::Array(allow));
+        }
     }
     obj
 }
