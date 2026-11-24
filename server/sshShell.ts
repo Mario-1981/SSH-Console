@@ -537,7 +537,7 @@ function startLiveOpenSshShell(
       fs.writeFileSync(passPath, `${effectivePassphrase}\n`, { mode: 0o600 });
       fs.writeFileSync(
         askpassPath,
-        '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\n  rm -f "$TRIXIESSH_PASS_FILE"\nfi\n',
+        '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\nfi\n',
         { mode: 0o700 }
       );
       spawnEnv.SSH_ASKPASS = askpassPath;

@@ -763,8 +763,16 @@ pub async fn run_ssh_command(
     let effective_pass = passphrase.filter(|p| !p.is_empty());
     let is_workflow = command.kind == "workflow";
 
-    fs::write(&key_path, private_key_plain.as_slice())
-        .map_err(|e| format!("Schreiben von zertifikat fehlgeschlagen: {e}"))?;
+    if private_key_plain.ends_with(b"\n") {
+        fs::write(&key_path, private_key_plain.as_slice())
+            .map_err(|e| format!("Schreiben von zertifikat fehlgeschlagen: {e}"))?;
+    } else {
+        let mut key_with_nl = Zeroizing::new(Vec::with_capacity(private_key_plain.len() + 1));
+        key_with_nl.extend_from_slice(private_key_plain.as_slice());
+        key_with_nl.push(b'\n');
+        fs::write(&key_path, key_with_nl.as_slice())
+            .map_err(|e| format!("Schreiben von zertifikat fehlgeschlagen: {e}"))?;
+    }
     fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))
         .map_err(|e| format!("chmod 0600 fehlgeschlagen: {e}"))?;
     fs::write(&pub_path, cert.public_key.as_bytes())
@@ -775,16 +783,13 @@ pub async fn run_ssh_command(
     }
 
     if let Some(pass) = effective_pass {
-        fs::write(&pass_path, pass.as_bytes())
+        let pass_line = Zeroizing::new(format!("{pass}\n"));
+        fs::write(&pass_path, pass_line.as_bytes())
             .map_err(|e| format!("Schreiben der Passwortdatei fehlgeschlagen: {e}"))?;
         fs::set_permissions(&pass_path, fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("chmod 0600 für Passwortdatei fehlgeschlagen: {e}"))?;
-        // Bei Multi-Step-Workflows Passwortdatei erst beim finalen Zeroize entfernen
-        let askpass_script = if is_workflow {
-            "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\n"
-        } else {
-            "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\nrm -f \"$TRIXIESSH_PASS_FILE\" 2>/dev/null || true\n"
-        };
+        // Passwortdatei wird nach Befehlsende zuverlässig mit Nullen überschrieben und gelöscht
+        let askpass_script = "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\n";
         fs::write(&askpass_path, askpass_script.as_bytes())
             .map_err(|e| format!("Schreiben von askpass.sh fehlgeschlagen: {e}"))?;
         fs::set_permissions(&askpass_path, fs::Permissions::from_mode(0o700))
@@ -797,7 +802,7 @@ pub async fn run_ssh_command(
         "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=<known_hosts>"
     };
     let mode_display = if effective_pass.is_some() {
-        "-o NumberOfPasswordPrompts=0"
+        "-o NumberOfPasswordPrompts=1"
     } else {
         "-o BatchMode=yes"
     };
@@ -822,8 +827,10 @@ pub async fn run_ssh_command(
     base_args.push("-o".into());
     base_args.push("IdentitiesOnly=yes".into());
     if effective_pass.is_some() {
+        // NumberOfPasswordPrompts muss >= 1 sein, damit OpenSSH SSH_ASKPASS zum Entsperren
+        // passwortgeschützter privater Schlüssel aufruft (PasswordAuthentication bleibt deaktiviert).
         base_args.push("-o".into());
-        base_args.push("NumberOfPasswordPrompts=0".into());
+        base_args.push("NumberOfPasswordPrompts=1".into());
     } else {
         base_args.push("-o".into());
         base_args.push("BatchMode=yes".into());

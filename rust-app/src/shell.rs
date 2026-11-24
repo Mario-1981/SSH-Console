@@ -204,7 +204,14 @@ pub async fn handle_ssh_websocket(
         let _ = fs::remove_file(&askpass_path);
     };
 
-    if let Err(e) = fs::write(&key_path, private_key_plain.as_slice())
+    if let Err(e) = (if private_key_plain.ends_with(b"\n") {
+        fs::write(&key_path, private_key_plain.as_slice())
+    } else {
+        let mut key_with_nl = Zeroizing::new(Vec::with_capacity(private_key_plain.len() + 1));
+        key_with_nl.extend_from_slice(private_key_plain.as_slice());
+        key_with_nl.push(b'\n');
+        fs::write(&key_path, key_with_nl.as_slice())
+    })
         .and_then(|_| fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)))
         .and_then(|_| fs::write(&pub_path, cert.public_key.as_bytes()))
         .and_then(|_| {
@@ -216,9 +223,10 @@ pub async fn handle_ssh_websocket(
         })
         .and_then(|_| {
             if let Some(pass) = effective_pass {
-                fs::write(&pass_path, pass.as_bytes())?;
+                let pass_line = Zeroizing::new(format!("{pass}\n"));
+                fs::write(&pass_path, pass_line.as_bytes())?;
                 fs::set_permissions(&pass_path, fs::Permissions::from_mode(0o600))?;
-                let script = "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\nrm -f \"$TRIXIESSH_PASS_FILE\" 2>/dev/null || true\n";
+                let script = "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\n";
                 fs::write(&askpass_path, script.as_bytes())?;
                 fs::set_permissions(&askpass_path, fs::Permissions::from_mode(0o700))?;
             }

@@ -14,12 +14,7 @@ const MAX_VAR_VALUE_LEN: usize = 2000;
 
 #[derive(Debug, Clone)]
 pub struct WorkflowSummary {
-    pub step_count: usize,
-    pub run_count: usize,
-    pub condition_count: usize,
     pub total_sleep_sec: u64,
-    pub input_count: usize,
-    pub output_format: String,
     pub preview_line: String,
     pub stop_on_error: bool,
 }
@@ -57,7 +52,6 @@ pub struct WorkflowExecResult {
 
 #[derive(Debug, Clone)]
 struct StepRecord {
-    id: String,
     exit_code: i32,
     ok: bool,
     stdout: String,
@@ -578,12 +572,7 @@ pub fn parse_and_validate_workflow(raw_json: &str) -> Result<ValidatedWorkflow, 
         root,
         normalized_json,
         summary: WorkflowSummary {
-            step_count: counters.step_count,
-            run_count: counters.run_count,
-            condition_count: counters.condition_count,
             total_sleep_sec: counters.total_sleep_sec,
-            input_count,
-            output_format,
             preview_line,
             stop_on_error,
         },
@@ -1456,7 +1445,6 @@ fn run_block<'a>(
                         .unwrap_or_else(|| format!("step_{}", ctx.step_order.len() + 1));
 
                     let record = StepRecord {
-                        id: step_id.clone(),
                         exit_code: res.exit_code,
                         ok: res.exit_code == 0,
                         stdout: filtered_stdout,

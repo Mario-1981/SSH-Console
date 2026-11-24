@@ -171,6 +171,11 @@ export async function executeSshCommand(params: {
     ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
     : ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=<known_hosts>'];
 
+  const hasPassphraseConfigured = Boolean(
+    (typeof params.passphrase === 'string' && params.passphrase.length > 0) ||
+      params.certificate.passphraseEncrypted
+  );
+
   const displayInvocation = [
     'ssh',
     '-i',
@@ -179,7 +184,7 @@ export async function executeSshCommand(params: {
     '-o',
     'IdentitiesOnly=yes',
     '-o',
-    'BatchMode=yes',
+    hasPassphraseConfigured ? 'NumberOfPasswordPrompts=1' : 'BatchMode=yes',
     '-o',
     'PasswordAuthentication=no',
     '-o',
@@ -229,10 +234,9 @@ export async function executeSshCommand(params: {
         const passPath = path.join(tempDir, 'passphrase');
         const askpassPath = path.join(tempDir, 'askpass.sh');
         fs.writeFileSync(passPath, `${effectivePassphrase}\n`, { mode: 0o600 });
-        // For multi-step workflows, keep passfile until wipeAndRemoveDir() zeros it in finally
-        const askpassBody = isWorkflow
-          ? '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\nfi\n'
-          : '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\n  rm -f "$TRIXIESSH_PASS_FILE"\nfi\n';
+        // Keep passfile until wipeAndRemoveDir() zeros and removes it in finally
+        const askpassBody =
+          '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\nfi\n';
         fs.writeFileSync(askpassPath, askpassBody, { mode: 0o700 });
         childEnv.SSH_ASKPASS = askpassPath;
         childEnv.SSH_ASKPASS_REQUIRE = 'force';
@@ -257,8 +261,9 @@ export async function executeSshCommand(params: {
         ...(hasCert ? ['-o', `CertificateFile=${certPath}`] : []),
         '-o',
         'IdentitiesOnly=yes',
-        // BatchMode=yes disables SSH_ASKPASS in OpenSSH; omit it only when unlocking via SSH_ASKPASS_REQUIRE=force
-        ...(useAskPass ? ['-o', 'NumberOfPasswordPrompts=0'] : ['-o', 'BatchMode=yes']),
+        // BatchMode=yes disables SSH_ASKPASS and NumberOfPasswordPrompts=0 skips the key passphrase loop;
+        // use NumberOfPasswordPrompts=1 with PasswordAuthentication=no so SSH_ASKPASS unlocks the key once.
+        ...(useAskPass ? ['-o', 'NumberOfPasswordPrompts=1'] : ['-o', 'BatchMode=yes']),
         '-o',
         'PasswordAuthentication=no',
         '-o',
