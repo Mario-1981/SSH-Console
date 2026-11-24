@@ -5,6 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { decryptSecret, type SshCommand, type UserCertificateBundle } from './store.ts';
 import { getUserKnownHostsPath } from './knownHosts.ts';
+import {
+  executeWorkflowEngine,
+  parseAndValidateWorkflow,
+  type WorkflowStep,
+} from '../src/workflowEngine.ts';
 
 let cachedSshBinary: string | null | undefined;
 
@@ -106,11 +111,44 @@ export interface SshExecutionResult {
   durationMs: number;
 }
 
+function summarizeWorkflowSteps(steps: WorkflowStep[], indent = '  '): string[] {
+  const lines: string[] = [];
+  steps.forEach((s, idx) => {
+    const num = `${indent}${idx + 1}.`;
+    if (s.type === 'run') {
+      const idTag = s.id ? `[${s.id}] ` : '';
+      const filterTag = s.filter ? ' (+filter)' : '';
+      lines.push(`${num} RUN ${idTag}${s.command}${filterTag}`);
+      if (s.sleepAfterSec && s.sleepAfterSec > 0) {
+        lines.push(`${indent}   ↳ sleep ${s.sleepAfterSec}s`);
+      }
+    } else if (s.type === 'sleep') {
+      lines.push(`${num} SLEEP ${s.seconds}s`);
+    } else if (s.type === 'if') {
+      lines.push(`${num} IF ${JSON.stringify(s.when)}`);
+      lines.push(`${indent}   THEN:`);
+      lines.push(...summarizeWorkflowSteps(s.then, `${indent}     `));
+      if (s.else && s.else.length > 0) {
+        lines.push(`${indent}   ELSE:`);
+        lines.push(...summarizeWorkflowSteps(s.else, `${indent}     `));
+      }
+    } else if (s.type === 'set') {
+      lines.push(`${num} SET ${s.name} = ${s.value}${s.filter ? ' (+filter)' : ''}`);
+    } else if (s.type === 'log') {
+      lines.push(`${num} LOG ${s.message}`);
+    } else if (s.type === 'stop' || s.type === 'fail') {
+      lines.push(`${num} ${s.type.toUpperCase()} (exit ${s.exitCode ?? (s.type === 'fail' ? 1 : 0)})${s.message ? `: ${s.message}` : ''}`);
+    }
+  });
+  return lines;
+}
+
 export async function executeSshCommand(params: {
   userId: string;
   ipAddress: string;
   port: number;
   sshUser: string;
+  serverLabel?: string;
   command: SshCommand;
   certificate: UserCertificateBundle;
   passphrase?: string;
@@ -120,6 +158,7 @@ export async function executeSshCommand(params: {
   const started = Date.now();
   const sshBinary = findOpenSshBinary();
   const hasCert = Boolean(params.certificate.certContent && params.certificate.certContent.trim());
+  const isWorkflow = params.command.kind === 'workflow';
   const displayHostKeyArgs = params.ignoreHostKey
     ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
     : ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=<known_hosts>'];
@@ -182,11 +221,11 @@ export async function executeSshCommand(params: {
         const passPath = path.join(tempDir, 'passphrase');
         const askpassPath = path.join(tempDir, 'askpass.sh');
         fs.writeFileSync(passPath, `${effectivePassphrase}\n`, { mode: 0o600 });
-        fs.writeFileSync(
-          askpassPath,
-          '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\n  rm -f "$TRIXIESSH_PASS_FILE"\nfi\n',
-          { mode: 0o700 }
-        );
+        // For multi-step workflows, keep passfile until wipeAndRemoveDir() zeros it in finally
+        const askpassBody = isWorkflow
+          ? '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\nfi\n'
+          : '#!/bin/sh\nif [ -f "$TRIXIESSH_PASS_FILE" ]; then\n  cat "$TRIXIESSH_PASS_FILE"\n  rm -f "$TRIXIESSH_PASS_FILE"\nfi\n';
+        fs.writeFileSync(askpassPath, askpassBody, { mode: 0o700 });
         childEnv.SSH_ASKPASS = askpassPath;
         childEnv.SSH_ASKPASS_REQUIRE = 'force';
         childEnv.DISPLAY = 'none:0';
@@ -204,7 +243,7 @@ export async function executeSshCommand(params: {
             'HashKnownHosts=no',
           ];
 
-      const args = [
+      const baseArgs = [
         '-i',
         privKeyPath,
         ...(hasCert ? ['-o', `CertificateFile=${certPath}`] : []),
@@ -223,33 +262,76 @@ export async function executeSshCommand(params: {
         String(params.port),
         `${params.sshUser}@${params.ipAddress}`,
         '--',
-        params.command.command,
       ];
 
-      const execResult = await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve) => {
-        execFile(
-          sshBinary,
-          args,
-          {
-            timeout: params.command.timeoutSec * 1000,
-            maxBuffer: 4 * 1024 * 1024,
-            env: childEnv,
-          },
-          (error, stdout, stderr) => {
-            const cleanedStderr = filterBenignSshStderr(stderr.toString());
-            if (!error) {
-              resolve({ exitCode: 0, stdout: stdout.toString(), stderr: cleanedStderr });
-            } else {
-              const code = typeof error.code === 'number' ? error.code : 255;
-              resolve({
-                exitCode: code,
-                stdout: stdout.toString(),
-                stderr: cleanedStderr || error.message,
-              });
+      const runSingleRemote = (remoteCommand: string, timeoutMs: number) =>
+        new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve) => {
+          execFile(
+            sshBinary,
+            [...baseArgs, remoteCommand],
+            {
+              timeout: Math.max(1000, timeoutMs),
+              maxBuffer: 4 * 1024 * 1024,
+              env: childEnv,
+            },
+            (error, stdout, stderr) => {
+              const cleanedStderr = filterBenignSshStderr(stderr.toString());
+              if (!error) {
+                resolve({ exitCode: 0, stdout: stdout.toString(), stderr: cleanedStderr });
+              } else {
+                const code = typeof error.code === 'number' ? error.code : 255;
+                resolve({
+                  exitCode: code,
+                  stdout: stdout.toString(),
+                  stderr: cleanedStderr || error.message,
+                });
+              }
             }
-          }
-        );
-      });
+          );
+        });
+
+      if (isWorkflow) {
+        const parsed = parseAndValidateWorkflow(params.command.workflowJson || '');
+        if (!parsed.ok) {
+          return {
+            mode: 'openssh-live',
+            sshInvocation: displayInvocation,
+            exitCode: 2,
+            stdout: '',
+            stderr: `Ungültiger JSON-Workflow: ${parsed.error}`,
+            durationMs: Date.now() - started,
+          };
+        }
+        const wfRes = await executeWorkflowEngine({
+          workflow: parsed.workflow,
+          target: {
+            ip: params.ipAddress,
+            port: params.port,
+            user: params.sshUser,
+            label: params.serverLabel || params.ipAddress,
+          },
+          timeoutSec: params.command.timeoutSec,
+          runRemoteCommand: runSingleRemote,
+        });
+
+        const wfInvocation =
+          wfRes.commandsRun.length > 0
+            ? `[JSON-Workflow · ${wfRes.executedSteps} Schritte · ${wfRes.commandsRun.length} SSH-Befehle]\n${wfRes.commandsRun
+                .map((c, i) => `  ${i + 1}. ssh ... ${params.sshUser}@${params.ipAddress} -- ${c}`)
+                .join('\n')}`
+            : displayInvocation;
+
+        return {
+          mode: 'openssh-live',
+          sshInvocation: wfInvocation,
+          exitCode: wfRes.exitCode,
+          stdout: wfRes.stdout,
+          stderr: wfRes.stderr,
+          durationMs: Date.now() - started,
+        };
+      }
+
+      const execResult = await runSingleRemote(params.command.command, params.command.timeoutSec * 1000);
 
       return {
         mode: 'openssh-live',
@@ -317,6 +399,22 @@ export async function executeSshCommand(params: {
             return lines;
           }),
         ]
+      : []),
+    ...(isWorkflow
+      ? (() => {
+          const parsed = parseAndValidateWorkflow(params.command.workflowJson || '');
+          if (!parsed.ok) {
+            return ['', `[JSON-Workflow ungültig: ${parsed.error}]`];
+          }
+          return [
+            '',
+            `[Komplexe Befehlskette / ${parsed.summary.previewLine}]`,
+            ...summarizeWorkflowSteps(parsed.workflow.steps),
+            ...(parsed.workflow.output
+              ? [`  ↳ Ausgabeformat: ${parsed.workflow.output.format ?? 'text'}`]
+              : []),
+          ];
+        })()
       : []),
     '',
     `[OpenSSH-Aufruf auf Debian Trixie]`,

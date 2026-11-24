@@ -12,10 +12,20 @@ import {
   ArrowDown,
   Clock,
   Share2,
+  Braces,
+  BookOpen,
+  Wand2,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { api } from '../api';
 import { translateCategory, useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
+import {
+  parseAndValidateWorkflow,
+  WORKFLOW_TEMPLATES,
+  type WorkflowStep,
+} from '../workflowEngine';
 import type { CommandKind, CommandStep, SshCommand, User } from '../types';
 
 interface CommandsAdminViewProps {
@@ -52,6 +62,48 @@ function getTotalSleepSec(steps: CommandStep[]): number {
   return steps.slice(0, -1).reduce((sum, s) => sum + Math.max(0, Math.floor(Number(s.sleepAfterSec) || 0)), 0);
 }
 
+function renderWorkflowOutline(steps: WorkflowStep[], depth = 0): string[] {
+  const indent = '  '.repeat(depth);
+  const lines: string[] = [];
+  steps.forEach((step, idx) => {
+    const prefix = `${indent}${idx + 1}.`;
+    if (step.type === 'run') {
+      const idTag = step.id ? `[${step.id}] ` : '';
+      const flags = [
+        step.filter ? 'filter' : '',
+        step.continueOnError ? 'continueOnError' : '',
+        step.silent ? 'silent' : '',
+      ].filter(Boolean);
+      const badge = flags.length > 0 ? ` (${flags.join(', ')})` : '';
+      lines.push(`${prefix} RUN ${idTag}${step.command}${badge}`);
+      if (step.sleepAfterSec && step.sleepAfterSec > 0) {
+        lines.push(`${indent}   ↳ SLEEP ${step.sleepAfterSec}s`);
+      }
+    } else if (step.type === 'sleep') {
+      lines.push(`${prefix} SLEEP ${step.seconds}s`);
+    } else if (step.type === 'if') {
+      lines.push(`${prefix} IF ${JSON.stringify(step.when)}`);
+      lines.push(`${indent}   THEN:`);
+      lines.push(...renderWorkflowOutline(step.then, depth + 2));
+      if (step.else && step.else.length > 0) {
+        lines.push(`${indent}   ELSE:`);
+        lines.push(...renderWorkflowOutline(step.else, depth + 2));
+      }
+    } else if (step.type === 'set') {
+      lines.push(`${prefix} SET ${step.name} = ${step.value}${step.filter ? ' (+filter)' : ''}`);
+    } else if (step.type === 'log') {
+      lines.push(`${prefix} LOG ${step.message}`);
+    } else if (step.type === 'stop' || step.type === 'fail') {
+      lines.push(
+        `${prefix} ${step.type.toUpperCase()} (exit ${step.exitCode ?? (step.type === 'fail' ? 1 : 0)})${
+          step.message ? `: ${step.message}` : ''
+        }`
+      );
+    }
+  });
+  return lines;
+}
+
 export function CommandsAdminView({ currentUser, users, commands, onRefresh }: CommandsAdminViewProps) {
   const { locale, tr } = useI18n();
   const isAdmin = currentUser.role === 'admin';
@@ -63,6 +115,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
     { command: '', sleepAfterSec: 3 },
     { command: '', sleepAfterSec: 0 },
   ]);
+  const [workflowJson, setWorkflowJson] = useState(WORKFLOW_TEMPLATES[0].json);
+  const [showWorkflowHelp, setShowWorkflowHelp] = useState(false);
   const [stopOnError, setStopOnError] = useState(true);
   const [description, setDescription] = useState('');
   const [timeoutSec, setTimeoutSec] = useState('30');
@@ -71,7 +125,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
   const [editingId, setEditingId] = useState<string | null>(null);
   const [sharingCmd, setSharingCmd] = useState<SshCommand | null>(null);
   const [search, setSearch] = useState('');
-  const [filterKind, setFilterKind] = useState<'all' | 'single' | 'chain'>('all');
+  const [filterKind, setFilterKind] = useState<'all' | 'single' | 'chain' | 'workflow'>('all');
   const [saving, setSaving] = useState(false);
   const [loadingPresets, setLoadingPresets] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +138,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       return (
         c.name.toLowerCase().includes(q) ||
         c.command.toLowerCase().includes(q) ||
+        (c.workflowJson || '').toLowerCase().includes(q) ||
         c.category.toLowerCase().includes(q) ||
         translateCategory(c.category, locale).toLowerCase().includes(q) ||
         c.description.toLowerCase().includes(q)
@@ -93,7 +148,25 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
   const chainPreview = useMemo(() => buildPreviewCommand(steps, stopOnError), [steps, stopOnError]);
   const totalChainSleep = useMemo(() => getTotalSleepSec(steps), [steps]);
-  const recommendedMinTimeout = Math.max(15, totalChainSleep + 15);
+  const workflowValidation = useMemo(
+    () => (kind === 'workflow' ? parseAndValidateWorkflow(workflowJson) : null),
+    [kind, workflowJson]
+  );
+  const workflowOutline = useMemo(() => {
+    if (!workflowValidation || !workflowValidation.ok) return '';
+    const lines = renderWorkflowOutline(workflowValidation.workflow.steps);
+    if (workflowValidation.workflow.output) {
+      lines.push(`↳ OUTPUT format=${workflowValidation.workflow.output.format ?? 'text'}`);
+    }
+    return lines.join('\n');
+  }, [workflowValidation]);
+
+  const totalWorkflowSleep =
+    workflowValidation && workflowValidation.ok ? workflowValidation.summary.totalSleepSec : 0;
+  const recommendedMinTimeout = Math.max(
+    15,
+    (kind === 'workflow' ? totalWorkflowSleep : totalChainSleep) + 15
+  );
 
   function resetForm() {
     setEditingId(null);
@@ -105,6 +178,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       { command: '', sleepAfterSec: 3 },
       { command: '', sleepAfterSec: 0 },
     ]);
+    setWorkflowJson(WORKFLOW_TEMPLATES[0].json);
     setStopOnError(true);
     setDescription('');
     setTimeoutSec('30');
@@ -113,7 +187,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
   function startEdit(cmd: SshCommand) {
     setEditingId(cmd.id);
-    const cmdKind: CommandKind = cmd.kind === 'chain' ? 'chain' : 'single';
+    const cmdKind: CommandKind =
+      cmd.kind === 'workflow' ? 'workflow' : cmd.kind === 'chain' ? 'chain' : 'single';
     setKind(cmdKind);
     setName(cmd.name);
     setCategory(cmd.category);
@@ -126,10 +201,46 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             { command: '', sleepAfterSec: 0 },
           ]
     );
+    setWorkflowJson(
+      cmdKind === 'workflow' && cmd.workflowJson
+        ? cmd.workflowJson
+        : WORKFLOW_TEMPLATES[0].json
+    );
     setStopOnError(cmd.stopOnError ?? true);
     setDescription(cmd.description);
     setTimeoutSec(String(cmd.timeoutSec));
     setError(null);
+  }
+
+  function applyWorkflowTemplate(templateId: string) {
+    const tpl = WORKFLOW_TEMPLATES.find((t) => t.id === templateId);
+    if (!tpl) return;
+    setWorkflowJson(tpl.json);
+    if (!editingId && !name.trim()) {
+      setName(locale === 'de' ? tpl.labelDe : tpl.labelEn);
+    }
+    if (!editingId && !description.trim()) {
+      setDescription(locale === 'de' ? tpl.descriptionDe : tpl.descriptionEn);
+    }
+    if (!editingId) {
+      setCategory(tpl.category);
+      setTimeoutSec(String(tpl.timeoutSec));
+    }
+  }
+
+  function handlePrettifyJson() {
+    const res = parseAndValidateWorkflow(workflowJson);
+    if (res.ok) {
+      setWorkflowJson(res.normalizedJson);
+      setError(null);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(workflowJson);
+      setWorkflowJson(JSON.stringify(parsed, null, 2));
+    } catch {
+      setError(res.error);
+    }
   }
 
   function updateStep(idx: number, patch: Partial<CommandStep>) {
@@ -183,19 +294,37 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       }
     }
 
+    if (kind === 'workflow') {
+      const parsed = parseAndValidateWorkflow(workflowJson);
+      if (!parsed.ok) {
+        setError(parsed.error);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const effectiveTimeout =
-        kind === 'chain'
-          ? Math.max(Number(timeoutSec) || 30, totalChainSleep + 10)
-          : Number(timeoutSec) || 30;
+        kind === 'workflow'
+          ? Math.max(Number(timeoutSec) || 30, totalWorkflowSleep + 10)
+          : kind === 'chain'
+            ? Math.max(Number(timeoutSec) || 30, totalChainSleep + 10)
+            : Number(timeoutSec) || 30;
 
       const payload = {
         name: name.trim(),
         category: category.trim() || 'Allgemein',
         kind,
-        command: kind === 'chain' ? chainPreview : command.trim(),
+        command:
+          kind === 'workflow'
+            ? workflowValidation && workflowValidation.ok
+              ? workflowValidation.summary.previewLine
+              : 'JSON-Workflow'
+            : kind === 'chain'
+              ? chainPreview
+              : command.trim(),
         steps: kind === 'chain' ? steps.filter((s) => s.command.trim().length > 0) : [],
+        workflowJson: kind === 'workflow' ? workflowJson : '',
         stopOnError,
         description: description.trim(),
         timeoutSec: effectiveTimeout,
@@ -327,7 +456,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             )}
           </div>
 
-          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md self-start">
+          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md self-start flex-wrap">
             <button
               type="button"
               onClick={() => setKind('single')}
@@ -356,7 +485,24 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {tr('Befehlskette (mit Sleep)', 'Command Chain (with sleep)')}
+              {tr('Befehlskette (Sleep)', 'Simple Chain (sleep)')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setKind('workflow');
+                if (!workflowJson.trim()) {
+                  setWorkflowJson(WORKFLOW_TEMPLATES[0].json);
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                kind === 'workflow'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Braces className="w-3.5 h-3.5" />
+              {tr('Komplexe Kette (JSON)', 'Complex Chain (JSON)')}
             </button>
           </div>
         </div>
@@ -372,9 +518,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={
-                kind === 'chain'
-                  ? tr('z. B. Dienst stoppen, warten & neu starten', 'e.g. Stop service, wait & restart')
-                  : tr('z. B. Nginx-Konfiguration prüfen', 'e.g. Validate Nginx configuration')
+                kind === 'workflow'
+                  ? tr('z. B. Dienst prüfen, bei Bedarf neu starten & formatieren', 'e.g. Check service, restart if needed & format output')
+                  : kind === 'chain'
+                    ? tr('z. B. Dienst stoppen, warten & neu starten', 'e.g. Stop service, wait & restart')
+                    : tr('z. B. Nginx-Konfiguration prüfen', 'e.g. Validate Nginx configuration')
               }
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
@@ -402,8 +550,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           <div className="lg:col-span-3">
             <label htmlFor="cmd-timeout" className="block text-xs font-medium text-slate-700 mb-1.5">
               {tr(
-                `Timeout (Sekunden${kind === 'chain' ? `, min. ${recommendedMinTimeout}s` : ''})`,
-                `Timeout (seconds${kind === 'chain' ? `, min. ${recommendedMinTimeout}s` : ''})`
+                `Timeout (Sekunden${kind !== 'single' ? `, min. ${recommendedMinTimeout}s` : ''})`,
+                `Timeout (seconds${kind !== 'single' ? `, min. ${recommendedMinTimeout}s` : ''})`
               )}
             </label>
             <input
@@ -437,7 +585,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               required
             />
           </div>
-        ) : (
+        ) : kind === 'chain' ? (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <p className="text-xs font-medium text-slate-700">
@@ -577,6 +725,179 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               </code>
             </div>
           </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Template bar */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-slate-700">
+                  {tr('Vorlagen:', 'Templates:')}
+                </span>
+                {WORKFLOW_TEMPLATES.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => applyWorkflowTemplate(tpl.id)}
+                    className="px-2.5 py-1 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors cursor-pointer"
+                  >
+                    {locale === 'de' ? tpl.labelDe : tpl.labelEn}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handlePrettifyJson}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  {tr('JSON formatieren', 'Prettify JSON')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowWorkflowHelp((v) => !v)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  {showWorkflowHelp
+                    ? tr('Syntax-Hilfe ausblenden', 'Hide Syntax Reference')
+                    : tr('JSON-Syntax-Hilfe', 'JSON Syntax Reference')}
+                </button>
+              </div>
+            </div>
+
+            {showWorkflowHelp && (
+              <div className="rounded-md bg-slate-50 border border-slate-200 p-4 text-xs text-slate-700 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <p className="font-semibold text-slate-900">
+                      {tr('Schritt-Typen (steps[])', 'Step Types (steps[])')}
+                    </p>
+                    <ul className="space-y-1 font-mono text-[11px]">
+                      <li>
+                        <span className="text-blue-800 font-semibold">run</span>: {'{ "type": "run", "id": "s1", "command": "...", "continueOnError": true, "sleepAfterSec": 2, "silent": false, "filter": {...} }'}
+                      </li>
+                      <li>
+                        <span className="text-blue-800 font-semibold">sleep</span>: {'{ "type": "sleep", "seconds": 3 }'}
+                      </li>
+                      <li>
+                        <span className="text-blue-800 font-semibold">if</span>: {'{ "type": "if", "when": {...}, "then": [...], "else": [...] }'}
+                      </li>
+                      <li>
+                        <span className="text-blue-800 font-semibold">set</span>: {'{ "type": "set", "name": "var", "value": "{{s1.stdout}}", "filter": {...} }'}
+                      </li>
+                      <li>
+                        <span className="text-blue-800 font-semibold">log / stop / fail</span>: {'{ "type": "fail", "exitCode": 2, "message": "Fehler: {{s1.stdout}}" }'}
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <p className="font-semibold text-slate-900">
+                      {tr('Bedingungen (when) & Platzhalter', 'Conditions (when) & Placeholders')}
+                    </p>
+                    <p className="font-mono text-[11px]">
+                      {'{ "from": "s1"|"last"|"vars.x", "field": "stdout"|"rawStdout"|"stderr"|"exitCode"|"ok"|"linesCount", "op": "...", "value": "..." }'}
+                    </p>
+                    <p className="text-[11px]">
+                      <strong>{tr('Operatoren:', 'Operators:')}</strong>{' '}
+                      <code className="font-mono">equals, notEquals, contains, notContains, startsWith, endsWith, matches, notMatches, isEmpty, isNotEmpty, gt, gte, lt, lte</code>{' '}
+                      · <strong>{tr('Verknüpfung:', 'Combinators:')}</strong>{' '}
+                      <code className="font-mono">all[], any[], not</code>
+                    </p>
+                    <p className="text-[11px]">
+                      <strong>{tr('Platzhalter:', 'Placeholders:')}</strong>{' '}
+                      <code className="font-mono">{'{{s1.stdout}} {{s1.exitCode}} {{s1.linesCount}} {{last.stdout}} {{vars.name}} {{target.ip}} {{target.label}} {{target.user}}'}</code>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
+                  <div className="space-y-1">
+                    <p className="font-semibold text-slate-900">
+                      {tr('Ausgabe-Filter (filter)', 'Output Filter (filter)')}
+                    </p>
+                    <p className="font-mono text-[11px]">
+                      trim, dropEmpty, include, exclude, caseInsensitive, regex, regexGroup, regexAll, replace:[&#123;pattern,with,flags&#125;], columns:[1,5], delimiter, columnJoin, sort, unique, head, tail, prefix, suffix, joinWith
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-slate-900">
+                      {tr('Ausgabe-Formatierung (output)', 'Output Formatting (output)')}
+                    </p>
+                    <p className="font-mono text-[11px]">
+                      format: &quot;template&quot; (template / lines[]) · &quot;table&quot; (headers + rows[] / fields / source+columns) · &quot;json&quot; (fields) · &quot;lines&quot; (source + filter)
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                <label htmlFor="cmd-workflow-json" className="text-xs font-medium text-slate-700">
+                  {tr(
+                    'JSON-Workflow-Definition (SSH-Befehle, Sleep, Wenn/Dann-Bedingungen, Filter & Formatierung)',
+                    'JSON Workflow Definition (SSH commands, sleep, if/then conditions, filtering & formatting)'
+                  )}
+                </label>
+                {workflowValidation && (
+                  <span
+                    className={`inline-flex items-center gap-1 text-xs font-medium ${
+                      workflowValidation.ok ? 'text-emerald-700' : 'text-red-700'
+                    }`}
+                  >
+                    {workflowValidation.ok ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {workflowValidation.summary.previewLine}
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {tr('JSON-Fehler', 'JSON Error')}
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
+              <textarea
+                id="cmd-workflow-json"
+                rows={16}
+                spellCheck={false}
+                value={workflowJson}
+                onChange={(e) => setWorkflowJson(e.target.value)}
+                className={`w-full px-3 py-2.5 text-xs font-mono leading-relaxed border rounded-md focus:outline-none focus:ring-2 ${
+                  workflowValidation && !workflowValidation.ok
+                    ? 'border-red-400 bg-red-50/30 focus:ring-red-500'
+                    : 'border-slate-300 bg-slate-950 text-slate-100 focus:ring-blue-600'
+                }`}
+                required
+              />
+              {workflowValidation && !workflowValidation.ok && (
+                <p className="mt-1.5 text-xs text-red-700 font-medium">{workflowValidation.error}</p>
+              )}
+            </div>
+
+            {/* Live structural preview of the workflow */}
+            {workflowValidation && workflowValidation.ok && (
+              <div className="rounded-md bg-slate-50 border border-slate-200 p-3.5 space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <span className="font-medium text-slate-700">
+                    {tr('Ablauf-Vorschau (validiert)', 'Execution Flow Preview (validated)')}
+                  </span>
+                  <span className="font-mono tabular-nums">
+                    {workflowValidation.summary.runCount} SSH · {workflowValidation.summary.conditionCount} if ·{' '}
+                    {tr('Gesamt-Sleep', 'Total sleep')}: {workflowValidation.summary.totalSleepSec}s ·{' '}
+                    {tr('Ausgabe', 'Output')}: {workflowValidation.summary.outputFormat}
+                  </span>
+                </div>
+                <pre className="font-mono text-xs text-slate-800 whitespace-pre-wrap overflow-x-auto">
+                  {workflowOutline}
+                </pre>
+              </div>
+            )}
+          </div>
         )}
 
         <div className="space-y-4 pt-2 border-t border-slate-200">
@@ -599,7 +920,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             </div>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || (kind === 'workflow' && Boolean(workflowValidation && !workflowValidation.ok))}
               className="inline-flex items-center justify-center gap-1.5 px-5 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               {editingId ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -607,6 +928,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 ? tr('Speichert...', 'Saving...')
                 : editingId
                 ? tr('Änderungen speichern', 'Save Changes')
+                : kind === 'workflow'
+                ? tr('JSON-Workflow speichern', 'Save JSON Workflow')
                 : kind === 'chain'
                 ? tr('Befehlskette speichern', 'Save Command Chain')
                 : tr('Befehl speichern', 'Save Command')}
@@ -639,12 +962,13 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             <h2 className="font-display text-base font-semibold text-slate-900">
               {tr(`Sichtbare Befehle (${filtered.length})`, `Visible Commands (${filtered.length})`)}
             </h2>
-            <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-md">
+            <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-md flex-wrap">
               {(
                 [
                   { id: 'all', label: tr('Alle', 'All') },
                   { id: 'single', label: tr('Einzelbefehle', 'Single Commands') },
-                  { id: 'chain', label: tr('Befehlsketten', 'Command Chains') },
+                  { id: 'chain', label: tr('Befehlsketten', 'Simple Chains') },
+                  { id: 'workflow', label: tr('JSON-Workflows', 'JSON Workflows') },
                 ] as const
               ).map((tab) => (
                 <button
@@ -705,6 +1029,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               <tbody className="divide-y divide-slate-200 text-sm">
                 {filtered.map((cmd) => {
                   const isChain = cmd.kind === 'chain';
+                  const isWorkflow = cmd.kind === 'workflow';
                   const sleepSum = isChain ? getTotalSleepSec(cmd.steps) : 0;
                   const isOwner = cmd.userId === currentUser.id;
                   const catLabel = translateCategory(cmd.category, locale);
@@ -722,7 +1047,14 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                         )}
                       </td>
                       <td className="py-3 px-4 text-xs text-slate-600 whitespace-nowrap tabular-nums">
-                        {isChain ? (
+                        {isWorkflow ? (
+                          <span>
+                            <span className="font-medium text-indigo-700">
+                              {tr('JSON-Workflow', 'JSON Workflow')}
+                            </span>{' '}
+                            · {catLabel}
+                          </span>
+                        ) : isChain ? (
                           <span>
                             <span className="font-medium text-blue-800">
                               {tr(

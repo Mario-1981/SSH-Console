@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import { generateTestOpenSshCertBundle } from './server/certGen.ts';
 import { validateAndParseCertificateBundle } from './server/opensshCert.ts';
+import { WORKFLOW_TEMPLATES } from './src/workflowEngine.ts';
 import {
   clearGlobalHostKeys,
   getGlobalKnownHostsStats,
@@ -410,6 +411,18 @@ const DEBIAN_PRESET_COMMANDS = [
     stopOnError: true,
     description: 'Befehlskette: Aktualisiert den APT-Index, pausiert 2 s und listet verfügbare Debian-Updates auf.',
     timeoutSec: 60,
+  },
+  {
+    name: 'Dienst prüfen & bei Bedarf neu starten (JSON-Workflow)',
+    category: 'Dienste',
+    kind: 'workflow' as const,
+    command: '',
+    steps: [],
+    workflowJson: WORKFLOW_TEMPLATES[0].json,
+    stopOnError: true,
+    description:
+      'Komplexe JSON-Befehlskette mit Wenn/Dann-Bedingung, Sleep, Ausgabe-Filterung und Tabellenformatierung.',
+    timeoutSec: 30,
   },
 ];
 
@@ -1310,6 +1323,7 @@ async function startServer() {
       kind,
       command,
       steps,
+      workflowJson,
       stopOnError,
       description,
       timeoutSec,
@@ -1322,12 +1336,17 @@ async function startServer() {
       return;
     }
     const isChain = kind === 'chain';
-    if (!isChain && (typeof command !== 'string' || !command.trim())) {
+    const isWorkflow = kind === 'workflow';
+    if (!isChain && !isWorkflow && (typeof command !== 'string' || !command.trim())) {
       res.status(400).json({ error: 'Der auszuführende SSH-Befehl ist erforderlich.' });
       return;
     }
     if (isChain && (!Array.isArray(steps) || steps.length === 0)) {
       res.status(400).json({ error: 'Eine Befehlskette benötigt mindestens einen Schritt.' });
+      return;
+    }
+    if (isWorkflow && (typeof workflowJson !== 'string' || !workflowJson.trim())) {
+      res.status(400).json({ error: 'Eine komplexe Befehlskette benötigt eine gültige JSON-Definition.' });
       return;
     }
     const isAdmin = req.user!.role === 'admin';
@@ -1336,9 +1355,10 @@ async function startServer() {
         userId: req.user!.id,
         name,
         category: typeof category === 'string' ? category : 'Allgemein',
-        kind: isChain ? 'chain' : 'single',
+        kind: isWorkflow ? 'workflow' : isChain ? 'chain' : 'single',
         command: typeof command === 'string' ? command : '',
         steps: Array.isArray(steps) ? steps : [],
+        workflowJson: typeof workflowJson === 'string' ? workflowJson : '',
         stopOnError: typeof stopOnError === 'boolean' ? stopOnError : true,
         description: typeof description === 'string' ? description : '',
         timeoutSec: Number(timeoutSec) || 30,
@@ -2332,6 +2352,7 @@ async function startServer() {
           ipAddress: target.ipAddress,
           port: target.port,
           sshUser: target.sshUser,
+          serverLabel: target.label,
           command,
           certificate,
           passphrase: suppliedPassphrase,
@@ -2486,6 +2507,7 @@ async function startServer() {
           ipAddress: server.ipAddress,
           port: server.port,
           sshUser: server.sshUser,
+          serverLabel: server.label,
           command,
           certificate,
           passphrase: suppliedPassphrase,

@@ -739,6 +739,7 @@ pub async fn run_ssh_command(
     ip: &str,
     port: u16,
     ssh_user: &str,
+    server_label: &str,
     command: &SshCommand,
     cert: &UserCertificateSecret,
     private_key_plain: Zeroizing<Vec<u8>>,
@@ -758,6 +759,7 @@ pub async fn run_ssh_command(
     let askpass_path = tmp_dir.path().join("askpass.sh");
     let has_cert = !cert.certificate.trim().is_empty();
     let effective_pass = passphrase.filter(|p| !p.is_empty());
+    let is_workflow = command.kind == "workflow";
 
     fs::write(&key_path, private_key_plain.as_slice())
         .map_err(|e| format!("Schreiben von zertifikat fehlgeschlagen: {e}"))?;
@@ -775,7 +777,12 @@ pub async fn run_ssh_command(
             .map_err(|e| format!("Schreiben der Passwortdatei fehlgeschlagen: {e}"))?;
         fs::set_permissions(&pass_path, fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("chmod 0600 für Passwortdatei fehlgeschlagen: {e}"))?;
-        let askpass_script = "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\nrm -f \"$TRIXIESSH_PASS_FILE\" 2>/dev/null || true\n";
+        // Bei Multi-Step-Workflows Passwortdatei erst beim finalen Zeroize entfernen
+        let askpass_script = if is_workflow {
+            "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\n"
+        } else {
+            "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\nrm -f \"$TRIXIESSH_PASS_FILE\" 2>/dev/null || true\n"
+        };
         fs::write(&askpass_path, askpass_script.as_bytes())
             .map_err(|e| format!("Schreiben von askpass.sh fehlgeschlagen: {e}"))?;
         fs::set_permissions(&askpass_path, fs::Permissions::from_mode(0o700))
@@ -805,63 +812,187 @@ pub async fn run_ssh_command(
         )
     };
 
-    let mut cmd = Command::new("/usr/bin/ssh");
-    cmd.env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("HOME", tmp_dir.path());
-
-    if effective_pass.is_some() {
-        cmd.env("SSH_ASKPASS", &askpass_path)
-            .env("SSH_ASKPASS_REQUIRE", "force")
-            .env("DISPLAY", "none:0")
-            .env("TRIXIESSH_PASS_FILE", &pass_path);
-    }
-
-    cmd.arg("-i").arg(&key_path);
-
+    let mut base_args: Vec<String> = vec!["-i".into(), key_path.display().to_string()];
     if has_cert {
-        cmd.arg("-o")
-            .arg(format!("CertificateFile={}", cert_path.display()));
+        base_args.push("-o".into());
+        base_args.push(format!("CertificateFile={}", cert_path.display()));
     }
-
-    cmd.arg("-o").arg("IdentitiesOnly=yes");
-
+    base_args.push("-o".into());
+    base_args.push("IdentitiesOnly=yes".into());
     if effective_pass.is_some() {
-        // BatchMode=yes würde SSH_ASKPASS in OpenSSH deaktivieren
-        cmd.arg("-o").arg("NumberOfPasswordPrompts=0");
+        base_args.push("-o".into());
+        base_args.push("NumberOfPasswordPrompts=0".into());
     } else {
-        cmd.arg("-o").arg("BatchMode=yes");
+        base_args.push("-o".into());
+        base_args.push("BatchMode=yes".into());
     }
-
-    cmd.arg("-o")
-        .arg("PasswordAuthentication=no")
-        .arg("-o")
-        .arg("KbdInteractiveAuthentication=no");
-
+    base_args.extend([
+        "-o".into(),
+        "PasswordAuthentication=no".into(),
+        "-o".into(),
+        "KbdInteractiveAuthentication=no".into(),
+    ]);
     if ignore_host_key {
-        cmd.arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null");
+        base_args.extend([
+            "-o".into(),
+            "StrictHostKeyChecking=no".into(),
+            "-o".into(),
+            "UserKnownHostsFile=/dev/null".into(),
+        ]);
     } else {
-        cmd.arg("-o")
-            .arg("StrictHostKeyChecking=accept-new")
-            .arg("-o")
-            .arg(format!("UserKnownHostsFile={}", known_hosts_path.display()))
-            .arg("-o")
-            .arg("HashKnownHosts=no");
+        base_args.extend([
+            "-o".into(),
+            "StrictHostKeyChecking=accept-new".into(),
+            "-o".into(),
+            format!("UserKnownHostsFile={}", known_hosts_path.display()),
+            "-o".into(),
+            "HashKnownHosts=no".into(),
+        ]);
     }
+    base_args.extend([
+        "-o".into(),
+        "ConnectTimeout=10".into(),
+        "-p".into(),
+        port.to_string(),
+        format!("{ssh_user}@{ip}"),
+        "--".into(),
+    ]);
 
-    cmd.arg("-o")
-        .arg("ConnectTimeout=10")
-        .arg("-p")
-        .arg(port.to_string())
-        .arg(format!("{ssh_user}@{ip}"))
-        .arg("--")
-        .arg(&command.command);
+    let tmp_home = tmp_dir.path().to_path_buf();
+    let use_askpass = effective_pass.is_some();
 
-    let max_duration = Duration::from_secs(command.timeout_sec.clamp(5, 3600));
-    let output_res = timeout(max_duration, cmd.output()).await;
+    let run_result: Result<SshRunOutput, String> = if is_workflow {
+        match crate::workflow::parse_and_validate_workflow(&command.workflow_json) {
+            Err(err_msg) => Ok(SshRunOutput {
+                exit_code: 2,
+                stdout: String::new(),
+                stderr: format!("Ungültiger JSON-Workflow: {err_msg}"),
+                duration_ms: started.elapsed().as_millis() as u64,
+                ssh_invocation,
+            }),
+            Ok(validated) => {
+                let target_info = crate::workflow::WorkflowTargetInfo {
+                    ip: ip.to_string(),
+                    port,
+                    user: ssh_user.to_string(),
+                    label: if server_label.trim().is_empty() {
+                        ip.to_string()
+                    } else {
+                        server_label.to_string()
+                    },
+                };
+                let args_shared = base_args.clone();
+                let home_shared = tmp_home.clone();
+                let askpass_shared = askpass_path.clone();
+                let pass_shared = pass_path.clone();
+
+                let wf_out = crate::workflow::execute_workflow(
+                    &validated,
+                    target_info,
+                    command.timeout_sec,
+                    move |remote_cmd: String, step_timeout: Duration| {
+                        let args_clone = args_shared.clone();
+                        let home_clone = home_shared.clone();
+                        let askpass_clone = askpass_shared.clone();
+                        let pass_clone = pass_shared.clone();
+                        async move {
+                            let mut cmd = Command::new("/usr/bin/ssh");
+                            cmd.env_clear()
+                                .env("PATH", "/usr/bin:/bin")
+                                .env("HOME", &home_clone);
+                            if use_askpass {
+                                cmd.env("SSH_ASKPASS", &askpass_clone)
+                                    .env("SSH_ASKPASS_REQUIRE", "force")
+                                    .env("DISPLAY", "none:0")
+                                    .env("TRIXIESSH_PASS_FILE", &pass_clone);
+                            }
+                            for a in &args_clone {
+                                cmd.arg(a);
+                            }
+                            cmd.arg(&remote_cmd);
+                            match timeout(step_timeout.max(Duration::from_secs(1)), cmd.output()).await {
+                                Ok(Ok(out)) => Ok(crate::workflow::StepExecOutput {
+                                    exit_code: out.status.code().unwrap_or(255),
+                                    stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+                                    stderr: filter_benign_ssh_stderr(&String::from_utf8_lossy(&out.stderr)),
+                                }),
+                                Ok(Err(e)) => Err(format!("OpenSSH-Ausführung fehlgeschlagen: {e}")),
+                                Err(_) => Ok(crate::workflow::StepExecOutput {
+                                    exit_code: 124,
+                                    stdout: String::new(),
+                                    stderr: "Schritt wegen Zeitüberschreitung abgebrochen (Timeout).".into(),
+                                }),
+                            }
+                        }
+                    },
+                )
+                .await;
+
+                match wf_out {
+                    Ok(res) => {
+                        let wf_invocation = if res.commands_run.is_empty() {
+                            ssh_invocation
+                        } else {
+                            let lines: Vec<String> = res
+                                .commands_run
+                                .iter()
+                                .enumerate()
+                                .map(|(i, c)| format!("  {}. ssh ... {ssh_user}@{ip} -- {c}", i + 1))
+                                .collect();
+                            format!(
+                                "[JSON-Workflow · {} Schritte · {} SSH-Befehle]\n{}",
+                                res.executed_steps,
+                                res.commands_run.len(),
+                                lines.join("\n")
+                            )
+                        };
+                        Ok(SshRunOutput {
+                            exit_code: res.exit_code,
+                            stdout: res.stdout,
+                            stderr: res.stderr,
+                            duration_ms: started.elapsed().as_millis() as u64,
+                            ssh_invocation: wf_invocation,
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        }
+    } else {
+        let mut cmd = Command::new("/usr/bin/ssh");
+        cmd.env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", &tmp_home);
+        if use_askpass {
+            cmd.env("SSH_ASKPASS", &askpass_path)
+                .env("SSH_ASKPASS_REQUIRE", "force")
+                .env("DISPLAY", "none:0")
+                .env("TRIXIESSH_PASS_FILE", &pass_path);
+        }
+        for a in &base_args {
+            cmd.arg(a);
+        }
+        cmd.arg(&command.command);
+
+        let max_duration = Duration::from_secs(command.timeout_sec.clamp(5, 3600));
+        match timeout(max_duration, cmd.output()).await {
+            Ok(Ok(out)) => Ok(SshRunOutput {
+                exit_code: out.status.code().unwrap_or(255),
+                stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+                stderr: filter_benign_ssh_stderr(&String::from_utf8_lossy(&out.stderr)),
+                duration_ms: started.elapsed().as_millis() as u64,
+                ssh_invocation,
+            }),
+            Ok(Err(e)) => Err(format!("OpenSSH-Ausführung fehlgeschlagen: {e}")),
+            Err(_) => Ok(SshRunOutput {
+                exit_code: 124,
+                stdout: String::new(),
+                stderr: format!("Befehl nach {} Sekunden abgebrochen (Timeout).", command.timeout_sec),
+                duration_ms: started.elapsed().as_millis() as u64,
+                ssh_invocation,
+            }),
+        }
+    };
 
     // Privatschlüssel und ggf. Passwortdatei vor dem Entfernen des TempDir mit Nullen überschreiben
     let _ = fs::write(&key_path, vec![0u8; private_key_plain.len()]);
@@ -873,21 +1004,5 @@ pub async fn run_ssh_command(
         let _ = fs::remove_file(&askpass_path);
     }
 
-    match output_res {
-        Ok(Ok(out)) => Ok(SshRunOutput {
-            exit_code: out.status.code().unwrap_or(255),
-            stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-            stderr: filter_benign_ssh_stderr(&String::from_utf8_lossy(&out.stderr)),
-            duration_ms: started.elapsed().as_millis() as u64,
-            ssh_invocation,
-        }),
-        Ok(Err(e)) => Err(format!("OpenSSH-Ausführung fehlgeschlagen: {e}")),
-        Err(_) => Ok(SshRunOutput {
-            exit_code: 124,
-            stdout: String::new(),
-            stderr: format!("Befehl nach {} Sekunden abgebrochen (Timeout).", command.timeout_sec),
-            duration_ms: started.elapsed().as_millis() as u64,
-            ssh_invocation,
-        }),
-    }
+    run_result
 }

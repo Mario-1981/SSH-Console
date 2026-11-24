@@ -6,6 +6,7 @@ mod models;
 mod ping;
 mod shell;
 mod ssh;
+mod workflow;
 
 use axum::{
     extract::{
@@ -1659,20 +1660,40 @@ async fn api_create_command(
     }
 
     let is_chain = req.kind.as_deref() == Some("chain");
-    let stop_on_error = req.stop_on_error.unwrap_or(true);
+    let is_workflow = req.kind.as_deref() == Some("workflow");
+    let mut stop_on_error = req.stop_on_error.unwrap_or(true);
 
-    let (kind, compiled_cmd, steps, min_timeout) = if is_chain {
+    let (kind, compiled_cmd, steps, workflow_json, min_timeout) = if is_workflow {
+        let raw_wf = req.workflow_json.unwrap_or_default();
+        let validated = workflow::parse_and_validate_workflow(&raw_wf)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        stop_on_error = validated.summary.stop_on_error;
+        let min_t = validated.summary.total_sleep_sec.saturating_add(10);
+        (
+            "workflow",
+            validated.summary.preview_line,
+            Vec::new(),
+            validated.normalized_json,
+            min_t,
+        )
+    } else if is_chain {
         let raw_steps = req.steps.unwrap_or_default();
         let (compiled, cleaned_steps, total_sleep) =
             ssh::compile_command_chain(&raw_steps, stop_on_error)
                 .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
-        ("chain", compiled, cleaned_steps, total_sleep.saturating_add(10))
+        (
+            "chain",
+            compiled,
+            cleaned_steps,
+            String::new(),
+            total_sleep.saturating_add(10),
+        )
     } else {
         let single = req.command.unwrap_or_default();
         if single.trim().is_empty() {
             return Err(err_resp(StatusCode::BAD_REQUEST, "SSH-Befehl ist ein Pflichtfeld."));
         }
-        ("single", single.trim().to_string(), Vec::new(), 5)
+        ("single", single.trim().to_string(), Vec::new(), String::new(), 5)
     };
 
     let is_admin = user.role == "admin";
@@ -1694,6 +1715,7 @@ async fn api_create_command(
             kind,
             &compiled_cmd,
             &steps,
+            &workflow_json,
             stop_on_error,
             req.description.as_deref().unwrap_or("").trim(),
             timeout,
@@ -1741,7 +1763,7 @@ async fn api_update_command(
         .filter(|s| !s.is_empty())
         .unwrap_or(&existing.category);
     let next_kind = req.kind.as_deref().unwrap_or(&existing.kind);
-    let next_stop = req.stop_on_error.unwrap_or(existing.stop_on_error);
+    let mut next_stop = req.stop_on_error.unwrap_or(existing.stop_on_error);
     let next_desc = req
         .description
         .as_deref()
@@ -1749,11 +1771,30 @@ async fn api_update_command(
         .unwrap_or(&existing.description);
     let next_enabled = req.enabled.unwrap_or(existing.enabled);
 
-    let (compiled_cmd, cleaned_steps, min_timeout) = if next_kind == "chain" {
+    let (compiled_cmd, cleaned_steps, next_workflow_json, min_timeout) = if next_kind == "workflow" {
+        let raw_wf = req
+            .workflow_json
+            .unwrap_or_else(|| existing.workflow_json.clone());
+        let validated = workflow::parse_and_validate_workflow(&raw_wf)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        next_stop = validated.summary.stop_on_error;
+        let min_t = validated.summary.total_sleep_sec.saturating_add(10);
+        (
+            validated.summary.preview_line,
+            Vec::new(),
+            validated.normalized_json,
+            min_t,
+        )
+    } else if next_kind == "chain" {
         let raw_steps = req.steps.unwrap_or(existing.steps);
         let (compiled, steps, total_sleep) = ssh::compile_command_chain(&raw_steps, next_stop)
             .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
-        (compiled, steps, total_sleep.saturating_add(10))
+        (
+            compiled,
+            steps,
+            String::new(),
+            total_sleep.saturating_add(10),
+        )
     } else {
         let cmd_text = req
             .command
@@ -1762,7 +1803,7 @@ async fn api_update_command(
             .filter(|s| !s.is_empty())
             .unwrap_or(&existing.command)
             .to_string();
-        (cmd_text, Vec::new(), 5)
+        (cmd_text, Vec::new(), String::new(), 5)
     };
 
     let next_timeout = req
@@ -1781,6 +1822,7 @@ async fn api_update_command(
             next_kind,
             &compiled_cmd,
             &cleaned_steps,
+            &next_workflow_json,
             next_stop,
             next_desc,
             next_timeout,
@@ -1852,6 +1894,7 @@ async fn api_load_presets(
                 "single",
                 cmd_text,
                 &[],
+                "",
                 true,
                 desc,
                 timeout_sec,
@@ -1899,6 +1942,7 @@ async fn api_load_presets(
                     "chain",
                     &compiled,
                     &cleaned,
+                    "",
                     true,
                     desc,
                     timeout_sec,
@@ -1909,6 +1953,32 @@ async fn api_load_presets(
                 ) {
                     added.push(created);
                 }
+            }
+        }
+    }
+
+    let wf_name = "Dienst prüfen & bei Bedarf neu starten (JSON-Workflow)";
+    if !existing_names.contains(&wf_name.to_lowercase()) {
+        if let Ok(validated) =
+            workflow::parse_and_validate_workflow(workflow::DEFAULT_SERVICE_WORKFLOW_JSON)
+        {
+            if let Ok(created) = state.db.create_command(
+                &user.id,
+                wf_name,
+                "Dienste",
+                "workflow",
+                &validated.summary.preview_line,
+                &[],
+                &validated.normalized_json,
+                validated.summary.stop_on_error,
+                "Komplexe JSON-Befehlskette mit Wenn/Dann-Bedingung, Sleep, Ausgabe-Filterung und Tabellenformatierung.",
+                30,
+                true,
+                &user.username,
+                false,
+                &[],
+            ) {
+                added.push(created);
             }
         }
     }
@@ -3189,6 +3259,7 @@ async fn api_execute(
             &ip,
             port,
             &ssh_user,
+            &label,
             &cmd,
             &cert,
             plain_key,
@@ -3615,6 +3686,7 @@ async fn api_execute_batch(
             &srv.ip_address,
             srv.port,
             &srv.ssh_user,
+            &srv.label,
             &cmd,
             &cert,
             plain_key,

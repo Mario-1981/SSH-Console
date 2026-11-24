@@ -113,7 +113,7 @@ export interface AppStatus {
   opensshAvailable: boolean;
 }
 
-export type CommandKind = 'single' | 'chain';
+export type CommandKind = 'single' | 'chain' | 'workflow';
 
 export interface CommandStep {
   command: string;
@@ -128,6 +128,7 @@ export interface SshCommand {
   kind: CommandKind;
   command: string;
   steps: CommandStep[];
+  workflowJson?: string;
   stopOnError: boolean;
   description: string;
   timeoutSec: number;

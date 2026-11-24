@@ -29,15 +29,67 @@ Die Verwaltung erfolgt unter **SSH-Befehle**:
 ### Einzelbefehle
 - Hinterlegen Sie häufig genutzte Shell-Befehle (z. B. `systemctl status nginx --no-pager`, `df -h`, `uptime`) samt Kategorie, Beschreibung und Timeout (`5–600 s`).
 
-### Befehlsketten
-- Verketten Sie mehrere aufeinanderfolgende Schritte innerhalb **einer einzigen SSH-Sitzung** (ideal für Wartungsabläufe wie Dienst stoppen, warten, neu starten und Status prüfen).
+### Befehlsketten (einfach)
+- Verketten Sie mehrere aufeinanderfolgende Schritte innerhalb **einer einzigen SSH-Sitzung** (ideal für lineare Wartungsabläufe wie Dienst stoppen, warten, neu starten und Status prüfen).
 - Nach jedem Schritt lässt sich eine optionale **Wartezeit (`sleep` in Sekunden)** festlegen.
 - Wählbares Fehlerverhalten:
   - **Bei Fehler stoppen (`&&`)**: Bricht die Kette sofort ab, sobald ein Schritt einen Exit-Code ungleich `0` liefert.
   - **Trotz Fehler fortfahren (`;`)**: Führt alle Schritte unabhängig von einzelnen Exit-Codes aus.
 
+### Komplexe Befehlsketten (JSON-Workflows)
+Für verzweigte Abläufe mit **Wenn-Dann-Sonst-Logik**, **Ausgabefiltern** und **formatierter Ausgabe** steht der Befehlstyp **Komplexe Kette (JSON)** zur Verfügung:
+
+- **Schritttypen (`steps`)**:
+  - `run`: Führt einen SSH-Befehl aus (`id`, `command`, `continueOnError`, `sleepAfterSec`, `silent`, optionaler `filter`).
+  - `sleep`: Pausiert die Ausführung um `seconds` (`0–600`).
+  - `if`: Wertet Bedingungen (`when` mit `all` / `any` / `not` sowie Operatoren wie `equals`, `notEquals`, `contains`, `matches`, `isEmpty`, `gt`, `gte`, `lt`, `lte` auf `stdout`, `stderr`, `exitCode`, `ok`, `linesCount` oder Variablen) aus und verzweigt in `then` und optional `else` (verschachtelbar).
+  - `set` & `log`: Setzt Variablen (optional gefiltert) bzw. schreibt eigene Logzeilen.
+  - `stop` / `fail`: Beendet den Workflow vorzeitig mit eigenem Exit-Code und Meldung.
+- **Ausgabe filtern (`filter`)**: Pro Schritt oder für die Gesamtausgabe lassen sich Ausgaben mit `trim`, `dropEmpty`, `include`, `exclude`, `regex` / `regexGroup` / `regexAll`, `replace`, `columns` + `delimiter`, `sort`, `unique`, `head`, `tail`, `prefix`, `suffix` und `joinWith` bereinigen.
+- **Ausgabe formatieren (`output`)**:
+  - `template` / `text`: Frei gestaltete Textvorlage mit Platzhaltern.
+  - `table`: Sauber ausgerichtete ASCII-Tabelle aus `rows`, `fields` oder `source` + `columns`.
+  - `json`: Strukturierte JSON-Ausgabe (`fields` + `autoType`).
+  - `lines`: Gefilterte Zeilenliste.
+- **Platzhalter & Vorlagen**: Über {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}` und `{{target.label}}`{% endraw %} stehen Ergebnisse aller Schritte in Befehlen, Variablen und Ausgabeformaten bereit. Im Editor sind direkte **Starter-Vorlagen**, **Live-Validierung**, **JSON-Formatierung** und eine **Ablaufvorschau** integriert.
+
+{% raw %}
+```json
+{
+  "stopOnError": true,
+  "vars": { "service": "nginx" },
+  "steps": [
+    {
+      "type": "run",
+      "id": "check",
+      "command": "systemctl is-active {{vars.service}}",
+      "continueOnError": true,
+      "filter": { "trim": true }
+    },
+    {
+      "type": "if",
+      "when": { "from": "check", "field": "stdout", "op": "notEquals", "value": "active" },
+      "then": [
+        { "type": "run", "id": "restart", "command": "systemctl restart {{vars.service}}" },
+        { "type": "sleep", "seconds": 3 },
+        { "type": "run", "id": "verify", "command": "systemctl is-active {{vars.service}}", "filter": { "trim": true } }
+      ]
+    }
+  ],
+  "output": {
+    "format": "table",
+    "headers": ["Eigenschaft", "Wert"],
+    "rows": [
+      { "label": "Host", "value": "{{target.label}} ({{target.ip}})" },
+      { "label": "Status", "value": "{{last.stdout}}" }
+    ]
+  }
+}
+```
+{% endraw %}
+
 ### Vorlagen & Admin-Freigaben
-- Mit einem Klick lassen sich praxisnahe Linux-Diagnose-Vorlagen laden.
+- Mit einem Klick lassen sich praxisnahe Linux-Diagnose-Vorlagen (inkl. JSON-Workflow) laden.
 - Befehle sind privat für ihren Ersteller; Administratoren können eigene Befehle für alle oder ausgewählte Benutzer freigeben.
 
 ---

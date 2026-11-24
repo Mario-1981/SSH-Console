@@ -29,15 +29,67 @@ Manage commands under **SSH Commands**:
 ### Single Commands
 - Store a single shell command (e.g. `systemctl status nginx --no-pager`, `df -h`, `uptime`), a category, description, and timeout (`5–600 s`).
 
-### Command Chains
-- Combine multiple sequential steps inside **one single SSH session** (ideal for maintenance workflows like draining a node, restarting a service, waiting, and verifying status).
+### Command Chains (Simple)
+- Combine multiple sequential steps inside **one single SSH session** (ideal for linear maintenance workflows like draining a node, restarting a service, waiting, and verifying status).
 - Each step supports an optional **Wait / `sleep` after step (seconds)**.
 - Choose error handling:
   - **Stop on error (`&&`)**: Halts the chain immediately if any step returns a non-zero exit code.
   - **Continue on error (`;`)**: Runs all steps regardless of individual exit codes.
 
+### Complex Command Chains (JSON Workflows)
+For branching automations with **if/then/else conditions**, **output filtering**, and **structured formatting**, choose the **Complex Chain (JSON)** command type:
+
+- **Step Types (`steps`)**:
+  - `run`: Executes a remote SSH command (`id`, `command`, `continueOnError`, `sleepAfterSec`, `silent`, optional `filter`).
+  - `sleep`: Pauses execution for `seconds` (`0–600`).
+  - `if`: Evaluates `when` conditions (`all` / `any` / `not` combinators and operators such as `equals`, `notEquals`, `contains`, `matches`, `isEmpty`, `gt`, `gte`, `lt`, `lte` against `stdout`, `stderr`, `exitCode`, `ok`, `linesCount`, or variables) and branches into nestable `then` / `else` blocks.
+  - `set` & `log`: Stores computed/filtered variables or appends custom log lines.
+  - `stop` / `fail`: Exits the workflow early with a custom exit code and message.
+- **Output Filtering (`filter`)**: Clean and transform step or final output using `trim`, `dropEmpty`, `include`, `exclude`, `regex` / `regexGroup` / `regexAll`, `replace`, `columns` + `delimiter`, `sort`, `unique`, `head`, `tail`, `prefix`, `suffix`, and `joinWith`.
+- **Output Formatting (`output`)**:
+  - `template` / `text`: Custom text template using placeholders.
+  - `table`: Aligned ASCII table built from `rows`, `fields`, or `source` + `columns`.
+  - `json`: Structured JSON output (`fields` + `autoType`).
+  - `lines`: Filtered line list.
+- **Placeholders & Editor Tooling**: Reference step outputs and metadata via {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}`, and `{{target.label}}`{% endraw %}. The UI includes **starter templates**, **live JSON validation**, **auto-formatting**, and a **structural execution preview**.
+
+{% raw %}
+```json
+{
+  "stopOnError": true,
+  "vars": { "service": "nginx" },
+  "steps": [
+    {
+      "type": "run",
+      "id": "check",
+      "command": "systemctl is-active {{vars.service}}",
+      "continueOnError": true,
+      "filter": { "trim": true }
+    },
+    {
+      "type": "if",
+      "when": { "from": "check", "field": "stdout", "op": "notEquals", "value": "active" },
+      "then": [
+        { "type": "run", "id": "restart", "command": "systemctl restart {{vars.service}}" },
+        { "type": "sleep", "seconds": 3 },
+        { "type": "run", "id": "verify", "command": "systemctl is-active {{vars.service}}", "filter": { "trim": true } }
+      ]
+    }
+  ],
+  "output": {
+    "format": "table",
+    "headers": ["Property", "Value"],
+    "rows": [
+      { "label": "Host", "value": "{{target.label}} ({{target.ip}})" },
+      { "label": "State", "value": "{{last.stdout}}" }
+    ]
+  }
+}
+```
+{% endraw %}
+
 ### Presets & Admin Sharing
-- Load ready-made Linux diagnostics presets with one click.
+- Load ready-made Linux diagnostics presets (including a JSON workflow) with one click.
 - Commands are private to their creator; administrators can share commands with all users or selected accounts.
 
 ---

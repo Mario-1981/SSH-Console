@@ -67,6 +67,7 @@ impl Database {
                 kind TEXT NOT NULL DEFAULT 'single',
                 command TEXT NOT NULL,
                 steps_json TEXT NOT NULL DEFAULT '[]',
+                workflow_json TEXT NOT NULL DEFAULT '',
                 stop_on_error INTEGER NOT NULL DEFAULT 1,
                 description TEXT NOT NULL,
                 timeout_sec INTEGER NOT NULL DEFAULT 30,
@@ -241,6 +242,10 @@ impl Database {
         );
         let _ = conn.execute(
             "ALTER TABLE user_certificates ADD COLUMN passphrase_nonce BLOB",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE ssh_commands ADD COLUMN workflow_json TEXT NOT NULL DEFAULT ''",
             [],
         );
 
@@ -977,11 +982,12 @@ impl Database {
     fn map_command_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SshCommand> {
         let steps_json: String = r.get(6)?;
         let steps: Vec<CommandStep> = serde_json::from_str(&steps_json).unwrap_or_default();
-        let shared_json: String = r.get(13)?;
+        let workflow_json: String = r.get(7)?;
+        let shared_json: String = r.get(14)?;
         let shared_with_user_ids: Vec<String> =
             serde_json::from_str(&shared_json).unwrap_or_default();
-        let created_at: String = r.get(14)?;
-        let updated_raw: String = r.get(15)?;
+        let created_at: String = r.get(15)?;
+        let updated_raw: String = r.get(16)?;
         let updated_at = if updated_raw.is_empty() {
             created_at.clone()
         } else {
@@ -995,12 +1001,13 @@ impl Database {
             kind: r.get(4)?,
             command: r.get(5)?,
             steps,
-            stop_on_error: r.get::<_, i64>(7)? == 1,
-            description: r.get(8)?,
-            timeout_sec: r.get::<_, i64>(9)? as u64,
-            enabled: r.get::<_, i64>(10)? == 1,
-            created_by: r.get(11)?,
-            shared_with_all: r.get::<_, i64>(12)? == 1,
+            workflow_json,
+            stop_on_error: r.get::<_, i64>(8)? == 1,
+            description: r.get(9)?,
+            timeout_sec: r.get::<_, i64>(10)? as u64,
+            enabled: r.get::<_, i64>(11)? == 1,
+            created_by: r.get(12)?,
+            shared_with_all: r.get::<_, i64>(13)? == 1,
             shared_with_user_ids,
             created_at,
             updated_at,
@@ -1015,7 +1022,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
+                "SELECT id, user_id, name, category, kind, command, steps_json, workflow_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
                  FROM ssh_commands ORDER BY category ASC, name ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -1040,7 +1047,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
+                "SELECT id, user_id, name, category, kind, command, steps_json, workflow_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
                  FROM ssh_commands WHERE user_id = ?1 ORDER BY category ASC, name ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -1053,7 +1060,7 @@ impl Database {
     pub fn get_command(&self, id: &str) -> Result<Option<SshCommand>, String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         conn.query_row(
-            "SELECT id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
+            "SELECT id, user_id, name, category, kind, command, steps_json, workflow_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at
              FROM ssh_commands WHERE id = ?1",
             params![id],
             Self::map_command_row,
@@ -1088,6 +1095,7 @@ impl Database {
         kind: &str,
         command: &str,
         steps: &[CommandStep],
+        workflow_json: &str,
         stop_on_error: bool,
         description: &str,
         timeout_sec: u64,
@@ -1107,8 +1115,8 @@ impl Database {
         };
         let shared_json = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
         conn.execute(
-            "INSERT INTO ssh_commands (id, user_id, name, category, kind, command, steps_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            "INSERT INTO ssh_commands (id, user_id, name, category, kind, command, steps_json, workflow_json, stop_on_error, description, timeout_sec, enabled, created_by, shared_with_all, shared_with_user_ids, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 id,
                 user_id,
@@ -1117,6 +1125,7 @@ impl Database {
                 kind,
                 command,
                 steps_json,
+                workflow_json,
                 if stop_on_error { 1i64 } else { 0i64 },
                 description,
                 timeout_sec as i64,
@@ -1137,6 +1146,7 @@ impl Database {
             kind: kind.to_string(),
             command: command.to_string(),
             steps: steps.to_vec(),
+            workflow_json: workflow_json.to_string(),
             stop_on_error,
             description: description.to_string(),
             timeout_sec,
@@ -1159,6 +1169,7 @@ impl Database {
         kind: &str,
         command: &str,
         steps: &[CommandStep],
+        workflow_json: &str,
         stop_on_error: bool,
         description: &str,
         timeout_sec: u64,
@@ -1172,14 +1183,15 @@ impl Database {
                 .execute(
                     "UPDATE ssh_commands
                      SET name = ?1, category = ?2, kind = ?3, command = ?4, steps_json = ?5,
-                         stop_on_error = ?6, description = ?7, timeout_sec = ?8, enabled = ?9, updated_at = ?10
-                     WHERE id = ?11 AND user_id = ?12",
+                         workflow_json = ?6, stop_on_error = ?7, description = ?8, timeout_sec = ?9, enabled = ?10, updated_at = ?11
+                     WHERE id = ?12 AND user_id = ?13",
                     params![
                         name,
                         category,
                         kind,
                         command,
                         steps_json,
+                        workflow_json,
                         if stop_on_error { 1i64 } else { 0i64 },
                         description,
                         timeout_sec as i64,

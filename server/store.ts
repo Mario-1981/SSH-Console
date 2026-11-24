@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ParsedCertMetadata } from './opensshCert.ts';
+import { parseAndValidateWorkflow } from '../src/workflowEngine.ts';
 
 export type UserRole = 'admin' | 'user';
 export type AuthProvider = 'local' | 'sso';
@@ -57,7 +58,7 @@ export interface StoredApiKey {
   lastUsedAt: string | null;
 }
 
-export type CommandKind = 'single' | 'chain';
+export type CommandKind = 'single' | 'chain' | 'workflow';
 
 export interface CommandStep {
   command: string;
@@ -72,6 +73,7 @@ export interface SshCommand {
   kind: CommandKind;
   command: string;
   steps: CommandStep[];
+  workflowJson?: string;
   stopOnError: boolean;
   description: string;
   timeoutSec: number;
@@ -382,8 +384,9 @@ class Store {
       const migratedCommands: SshCommand[] = (parsed.commands ?? []).map((c) => ({
         ...c,
         userId: c.userId || usernameToId.get((c.createdBy || '').toLowerCase()) || fallbackAdminId,
-        kind: (c.kind ?? 'single') as CommandKind,
+        kind: (c.kind === 'chain' || c.kind === 'workflow' ? c.kind : 'single') as CommandKind,
         steps: Array.isArray(c.steps) ? c.steps : [],
+        workflowJson: typeof c.workflowJson === 'string' ? c.workflowJson : '',
         stopOnError: typeof c.stopOnError === 'boolean' ? c.stopOnError : true,
         sharedWithAll: Boolean(c.sharedWithAll),
         sharedWithUserIds: Array.isArray(c.sharedWithUserIds) ? c.sharedWithUserIds : [],
@@ -1238,6 +1241,7 @@ class Store {
     kind?: CommandKind;
     command: string;
     steps?: CommandStep[];
+    workflowJson?: string;
     stopOnError?: boolean;
     description: string;
     timeoutSec: number;
@@ -1247,8 +1251,9 @@ class Store {
     sharedWithUserIds?: string[];
   }): SshCommand {
     const now = new Date().toISOString();
-    const kind: CommandKind = params.kind === 'chain' ? 'chain' : 'single';
-    const stopOnError = params.stopOnError ?? true;
+    const kind: CommandKind =
+      params.kind === 'chain' ? 'chain' : params.kind === 'workflow' ? 'workflow' : 'single';
+    let stopOnError = params.stopOnError ?? true;
     const normalizedSteps: CommandStep[] =
       kind === 'chain' && Array.isArray(params.steps)
         ? params.steps
@@ -1259,15 +1264,26 @@ class Store {
             .filter((s) => s.command.length > 0)
         : [];
 
-    const compiledCommand =
-      kind === 'chain'
-        ? compileCommandChain(normalizedSteps, stopOnError)
-        : params.command.trim();
+    let compiledCommand = '';
+    let workflowJson = '';
+    let totalSleepSec = 0;
 
-    const totalSleepSec =
-      kind === 'chain'
-        ? normalizedSteps.slice(0, -1).reduce((acc, s) => acc + s.sleepAfterSec, 0)
-        : 0;
+    if (kind === 'workflow') {
+      const parsed = parseAndValidateWorkflow(String(params.workflowJson ?? ''));
+      if (!parsed.ok) {
+        throw new Error(parsed.error);
+      }
+      workflowJson = parsed.normalizedJson;
+      compiledCommand = parsed.summary.previewLine;
+      totalSleepSec = parsed.summary.totalSleepSec;
+      stopOnError = parsed.workflow.stopOnError !== false;
+    } else if (kind === 'chain') {
+      compiledCommand = compileCommandChain(normalizedSteps, stopOnError);
+      totalSleepSec = normalizedSteps.slice(0, -1).reduce((acc, s) => acc + s.sleepAfterSec, 0);
+    } else {
+      compiledCommand = params.command.trim();
+    }
+
     const requestedTimeout = Number(params.timeoutSec) || 30;
     const minTimeout = Math.max(5, totalSleepSec + 10);
 
@@ -1284,6 +1300,7 @@ class Store {
       kind,
       command: compiledCommand,
       steps: normalizedSteps,
+      workflowJson,
       stopOnError,
       description: params.description.trim(),
       timeoutSec: Math.min(3600, Math.max(minTimeout, requestedTimeout)),
@@ -1309,6 +1326,7 @@ class Store {
         | 'kind'
         | 'command'
         | 'steps'
+        | 'workflowJson'
         | 'stopOnError'
         | 'description'
         | 'timeoutSec'
@@ -1322,10 +1340,26 @@ class Store {
     if (!cmd) throw new Error('SSH-Befehl nicht gefunden.');
     if (patch.name !== undefined) cmd.name = patch.name.trim();
     if (patch.category !== undefined) cmd.category = patch.category.trim() || 'Allgemein';
-    if (patch.kind !== undefined) cmd.kind = patch.kind === 'chain' ? 'chain' : 'single';
+    if (patch.kind !== undefined) {
+      cmd.kind = patch.kind === 'chain' ? 'chain' : patch.kind === 'workflow' ? 'workflow' : 'single';
+    }
     if (patch.stopOnError !== undefined) cmd.stopOnError = Boolean(patch.stopOnError);
 
-    if (cmd.kind === 'chain') {
+    let totalSleepSec = 0;
+
+    if (cmd.kind === 'workflow') {
+      const nextJson = patch.workflowJson !== undefined ? String(patch.workflowJson) : cmd.workflowJson ?? '';
+      const parsed = parseAndValidateWorkflow(nextJson);
+      if (!parsed.ok) {
+        throw new Error(parsed.error);
+      }
+      cmd.workflowJson = parsed.normalizedJson;
+      cmd.steps = [];
+      cmd.command = parsed.summary.previewLine;
+      cmd.stopOnError = parsed.workflow.stopOnError !== false;
+      totalSleepSec = parsed.summary.totalSleepSec;
+    } else if (cmd.kind === 'chain') {
+      cmd.workflowJson = '';
       if (patch.steps !== undefined) {
         cmd.steps = patch.steps
           .map((s) => ({
@@ -1335,17 +1369,15 @@ class Store {
           .filter((s) => s.command.length > 0);
       }
       cmd.command = compileCommandChain(cmd.steps, cmd.stopOnError);
+      totalSleepSec = cmd.steps.slice(0, -1).reduce((acc, s) => acc + s.sleepAfterSec, 0);
     } else {
       cmd.steps = [];
+      cmd.workflowJson = '';
       if (patch.command !== undefined) cmd.command = patch.command.trim();
     }
 
     if (patch.description !== undefined) cmd.description = patch.description.trim();
-    if (patch.timeoutSec !== undefined || patch.steps !== undefined) {
-      const totalSleepSec =
-        cmd.kind === 'chain'
-          ? cmd.steps.slice(0, -1).reduce((acc, s) => acc + s.sleepAfterSec, 0)
-          : 0;
+    if (patch.timeoutSec !== undefined || patch.steps !== undefined || patch.workflowJson !== undefined) {
       const minTimeout = Math.max(5, totalSleepSec + 10);
       const nextTimeout = patch.timeoutSec !== undefined ? Number(patch.timeoutSec) || 30 : cmd.timeoutSec;
       cmd.timeoutSec = Math.min(3600, Math.max(minTimeout, nextTimeout));

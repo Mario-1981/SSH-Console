@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AppStatus,
   BmcCheckResult,
+  CommandKind,
   DashboardPingResponse,
   ExecutionLog,
   LoginResponse,
@@ -335,9 +336,10 @@ export const api = {
   createCommand: (payload: {
     name: string;
     category: string;
-    kind: 'single' | 'chain';
+    kind: CommandKind;
     command: string;
     steps?: Array<{ command: string; sleepAfterSec: number }>;
+    workflowJson?: string;
     stopOnError?: boolean;
     description: string;
     timeoutSec: number;
@@ -365,6 +367,7 @@ export const api = {
         | 'kind'
         | 'command'
         | 'steps'
+        | 'workflowJson'
         | 'stopOnError'
         | 'description'
         | 'timeoutSec'

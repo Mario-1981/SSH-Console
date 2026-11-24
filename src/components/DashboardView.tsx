@@ -996,9 +996,11 @@ export function DashboardView({
                 activeCommands.map((cmd) => (
                   <option key={cmd.id} value={cmd.id}>
                     [{translateCategory(cmd.category, locale)}] {cmd.name}
-                    {cmd.kind === 'chain'
-                      ? tr(` (Kette · ${cmd.steps.length})`, ` (Chain · ${cmd.steps.length})`)
-                      : ''}
+                    {cmd.kind === 'workflow'
+                      ? tr(' (JSON-Workflow)', ' (JSON Workflow)')
+                      : cmd.kind === 'chain'
+                        ? tr(` (Kette · ${cmd.steps.length})`, ` (Chain · ${cmd.steps.length})`)
+                        : ''}
                     {cmd.userId !== currentUser.id ? tr(' · Geteilt', ' · Shared') : ''}
                   </option>
                 ))

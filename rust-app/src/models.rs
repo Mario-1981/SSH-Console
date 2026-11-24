@@ -108,9 +108,11 @@ pub struct SshCommand {
     pub user_id: String,
     pub name: String,
     pub category: String,
-    pub kind: String, // "single" | "chain"
+    pub kind: String, // "single" | "chain" | "workflow"
     pub command: String,
     pub steps: Vec<CommandStep>,
+    #[serde(default)]
+    pub workflow_json: String,
     pub stop_on_error: bool,
     pub description: String,
     pub timeout_sec: u64,
@@ -374,6 +376,8 @@ pub struct CreateCommandRequest {
     pub kind: Option<String>,
     pub command: Option<String>,
     pub steps: Option<Vec<CommandStep>>,
+    #[serde(default, alias = "workflow_json")]
+    pub workflow_json: Option<String>,
     #[serde(alias = "stop_on_error")]
     pub stop_on_error: Option<bool>,
     pub description: Option<String>,
@@ -394,6 +398,8 @@ pub struct UpdateCommandRequest {
     pub kind: Option<String>,
     pub command: Option<String>,
     pub steps: Option<Vec<CommandStep>>,
+    #[serde(default, alias = "workflow_json")]
+    pub workflow_json: Option<String>,
     #[serde(alias = "stop_on_error")]
     pub stop_on_error: Option<bool>,
     pub description: Option<String>,
