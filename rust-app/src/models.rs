@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -595,6 +596,8 @@ pub struct ExecuteRequest {
     pub targets: Vec<ExecuteTarget>,
     #[serde(default, alias = "key_passphrase", alias = "keyPassphrase")]
     pub passphrase: Option<String>,
+    #[serde(default, alias = "workflow_vars")]
+    pub workflow_vars: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -652,6 +655,8 @@ pub struct BatchJobItem {
     pub server_id: String,
     #[serde(alias = "command_id")]
     pub command_id: String,
+    #[serde(default, alias = "workflow_vars")]
+    pub workflow_vars: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -662,6 +667,8 @@ pub struct BatchExecuteRequest {
     pub jobs: Vec<BatchJobItem>,
     #[serde(default, alias = "key_passphrase", alias = "keyPassphrase")]
     pub passphrase: Option<String>,
+    #[serde(default, alias = "workflow_vars")]
+    pub workflow_vars: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]

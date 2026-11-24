@@ -1,6 +1,7 @@
 use crate::models::{CertInspection, CommandStep, SshCommand, UserCertificateSecret};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use std::collections::HashMap;
 use std::fs;
 use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt;
@@ -744,6 +745,7 @@ pub async fn run_ssh_command(
     cert: &UserCertificateSecret,
     private_key_plain: Zeroizing<Vec<u8>>,
     passphrase: Option<&str>,
+    workflow_vars: Option<&HashMap<String, String>>,
     ignore_host_key: bool,
     known_hosts_path: &Path,
 ) -> Result<SshRunOutput, String> {
@@ -890,6 +892,7 @@ pub async fn run_ssh_command(
                     &validated,
                     target_info,
                     command.timeout_sec,
+                    workflow_vars,
                     move |remote_cmd: String, step_timeout: Duration| {
                         let args_clone = args_shared.clone();
                         let home_clone = home_shared.clone();

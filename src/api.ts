@@ -592,6 +592,7 @@ export const api = {
       | { ipAddress: string; port: number; sshUser: string; ignoreHostKey?: boolean }
     >;
     passphrase?: string;
+    workflowVars?: Record<string, string>;
     dryRun?: boolean;
   }) =>
     request<{ results: ExecutionLog[] }>('/api/execute', {
@@ -601,8 +602,9 @@ export const api = {
 
   executeBatch: (payload: {
     certificateId: string;
-    jobs: Array<{ serverId: string; commandId: string }>;
+    jobs: Array<{ serverId: string; commandId: string; workflowVars?: Record<string, string> }>;
     passphrase?: string;
+    workflowVars?: Record<string, string>;
     dryRun?: boolean;
   }) =>
     request<{ results: ExecutionLog[] }>('/api/execute/batch', {

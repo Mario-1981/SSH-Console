@@ -8,6 +8,7 @@ import { getUserKnownHostsPath } from './knownHosts.ts';
 import {
   executeWorkflowEngine,
   parseAndValidateWorkflow,
+  resolveWorkflowRuntimeVars,
   type WorkflowStep,
 } from '../src/workflowEngine.ts';
 
@@ -158,6 +159,7 @@ export async function executeSshCommand(params: {
   command: SshCommand;
   certificate: UserCertificateBundle;
   passphrase?: string;
+  workflowVars?: Record<string, string>;
   ignoreHostKey?: boolean;
   forceDryRun?: boolean;
 }): Promise<SshExecutionResult> {
@@ -317,6 +319,7 @@ export async function executeSshCommand(params: {
             label: params.serverLabel || params.ipAddress,
           },
           timeoutSec: params.command.timeoutSec,
+          runtimeVars: params.workflowVars,
           runRemoteCommand: runSingleRemote,
         });
 
@@ -412,9 +415,23 @@ export async function executeSshCommand(params: {
           if (!parsed.ok) {
             return ['', `[JSON-Workflow ungültig: ${parsed.error}]`];
           }
+          const resolvedVars = resolveWorkflowRuntimeVars(parsed.workflow, params.workflowVars);
+          const varLines: string[] = [];
+          if (!resolvedVars.ok) {
+            varLines.push(`  · Variablen-Fehler: ${resolvedVars.error}`);
+          } else {
+            const entries = Object.entries(resolvedVars.vars);
+            if (entries.length > 0) {
+              const formattedVars = entries
+                .map(([k, v]) => `${k}=${resolvedVars.secretKeys.has(k) ? '********' : v}`)
+                .join(', ');
+              varLines.push(`  · Variablen: ${formattedVars}`);
+            }
+          }
           return [
             '',
             `[Komplexe Befehlskette / ${parsed.summary.previewLine}]`,
+            ...varLines,
             ...summarizeWorkflowSteps(parsed.workflow.steps),
             ...(parsed.workflow.output
               ? [`  ↳ Ausgabeformat: ${parsed.workflow.output.format ?? 'text'}`]

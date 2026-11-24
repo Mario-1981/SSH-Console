@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 const MAX_DEPTH: usize = 10;
 const MAX_DEFINED_STEPS: usize = 100;
 const MAX_EXECUTED_STEPS: usize = 300;
+const MAX_INPUTS: usize = 30;
+const MAX_RUNTIME_VARS: usize = 50;
+const MAX_VAR_VALUE_LEN: usize = 2000;
 
 #[derive(Debug, Clone)]
 pub struct WorkflowSummary {
@@ -15,6 +18,7 @@ pub struct WorkflowSummary {
     pub run_count: usize,
     pub condition_count: usize,
     pub total_sleep_sec: u64,
+    pub input_count: usize,
     pub output_format: String,
     pub preview_line: String,
     pub stop_on_error: bool,
@@ -457,6 +461,62 @@ pub fn parse_and_validate_workflow(raw_json: &str) -> Result<ValidatedWorkflow, 
         );
     }
 
+    let mut input_count: usize = 0;
+    if let Some(inputs_v) = obj.get("inputs").filter(|v| !v.is_null()) {
+        let Some(arr) = inputs_v.as_array() else {
+            return Err("\"inputs\" muss ein JSON-Array aus Variablen-Definitionen sein.".into());
+        };
+        if arr.len() > MAX_INPUTS {
+            return Err(format!("\"inputs\" darf maximal {MAX_INPUTS} Variablen enthalten."));
+        }
+        let mut seen = HashSet::new();
+        for (idx, item) in arr.iter().enumerate() {
+            let p = format!("inputs[{idx}]");
+            let Some(io) = item.as_object() else {
+                return Err(format!("{p}: Jede Eingabe-Variable muss ein JSON-Objekt sein."));
+            };
+            let name = io.get("name").and_then(Value::as_str).unwrap_or("").trim();
+            if !is_valid_ident(name) {
+                return Err(format!(
+                    "{p}.name: Ungültiger Variablenname \"{name}\" (erlaubt: Buchstaben, Ziffern, _, -)."
+                ));
+            }
+            if !seen.insert(name.to_string()) {
+                return Err(format!("{p}.name: Doppelter Variablenname \"{name}\"."));
+            }
+            let input_type = io
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("text")
+                .trim();
+            if !matches!(input_type, "text" | "password" | "select" | "number" | "boolean") {
+                return Err(format!(
+                    "{p}.type: Ungültiger Typ \"{input_type}\". Erlaubt: text, password, select, number, boolean."
+                ));
+            }
+            let mut has_options = false;
+            if let Some(opts_v) = io.get("options").filter(|v| !v.is_null()) {
+                let Some(opts) = opts_v.as_array() else {
+                    return Err(format!(
+                        "{p}.options: Muss ein nicht-leeres Array aus maximal 100 Auswahlwerten sein."
+                    ));
+                };
+                if opts.is_empty() || opts.len() > 100 {
+                    return Err(format!(
+                        "{p}.options: Muss ein nicht-leeres Array aus maximal 100 Auswahlwerten sein."
+                    ));
+                }
+                has_options = true;
+            }
+            if input_type == "select" && !has_options {
+                return Err(format!(
+                    "{p}.options: Für Typ \"select\" muss ein nicht-leeres \"options\"-Array angegeben werden."
+                ));
+            }
+        }
+        input_count = arr.len();
+    }
+
     if let Some(vars_v) = obj.get("vars").filter(|v| !v.is_null()) {
         if !vars_v.is_object() {
             return Err("\"vars\" muss ein JSON-Objekt aus Schlüssel-Wert-Paaren sein.".into());
@@ -496,7 +556,11 @@ pub fn parse_and_validate_workflow(raw_json: &str) -> Result<ValidatedWorkflow, 
         .and_then(Value::as_bool)
         .unwrap_or(true);
 
-    let mut summary_parts = vec![format!("{} SSH", counters.run_count)];
+    let mut summary_parts = Vec::new();
+    if input_count > 0 {
+        summary_parts.push(format!("{input_count} Var"));
+    }
+    summary_parts.push(format!("{} SSH", counters.run_count));
     if counters.condition_count > 0 {
         summary_parts.push(format!("{} if", counters.condition_count));
     }
@@ -518,10 +582,148 @@ pub fn parse_and_validate_workflow(raw_json: &str) -> Result<ValidatedWorkflow, 
             run_count: counters.run_count,
             condition_count: counters.condition_count,
             total_sleep_sec: counters.total_sleep_sec,
+            input_count,
             output_format,
             preview_line,
             stop_on_error,
         },
+    })
+}
+
+pub struct ResolvedRuntimeVars {
+    pub vars: HashMap<String, String>,
+    pub secret_values: Vec<String>,
+}
+
+pub fn redact_secrets(text: &str, secret_values: &[String]) -> String {
+    if text.is_empty() || secret_values.is_empty() {
+        return text.to_string();
+    }
+    let mut out = text.to_string();
+    for secret in secret_values {
+        if !secret.is_empty() && out.contains(secret.as_str()) {
+            out = out.replace(secret.as_str(), "********");
+        }
+    }
+    out
+}
+
+pub fn resolve_workflow_runtime_vars(
+    workflow: &ValidatedWorkflow,
+    runtime_vars: Option<&HashMap<String, String>>,
+) -> Result<ResolvedRuntimeVars, String> {
+    let mut merged: HashMap<String, String> = HashMap::new();
+    if let Some(v_obj) = workflow.root.get("vars").and_then(Value::as_object) {
+        for (k, v) in v_obj {
+            merged.insert(k.clone(), value_to_string(v));
+        }
+    }
+
+    if let Some(inputs_arr) = workflow.root.get("inputs").and_then(Value::as_array) {
+        for item in inputs_arr {
+            if let Some(io) = item.as_object() {
+                if let Some(name) = io.get("name").and_then(Value::as_str).map(str::trim) {
+                    if let Some(def_v) = io.get("default").filter(|v| !v.is_null()) {
+                        merged.entry(name.to_string()).or_insert_with(|| value_to_string(def_v));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(rt) = runtime_vars {
+        if rt.len() > MAX_RUNTIME_VARS {
+            return Err(format!(
+                "Es sind maximal {MAX_RUNTIME_VARS} Laufzeit-Variablen zulässig."
+            ));
+        }
+        for (k, v) in rt {
+            let key = k.trim();
+            if !is_valid_ident(key) {
+                return Err(format!(
+                    "Ungültiger Variablenname \"{k}\" (erlaubt: Buchstaben, Ziffern, _, -)."
+                ));
+            }
+            if v.chars().count() > MAX_VAR_VALUE_LEN {
+                return Err(format!(
+                    "Wert für Variable \"{key}\" überschreitet das Limit von {MAX_VAR_VALUE_LEN} Zeichen."
+                ));
+            }
+            merged.insert(key.to_string(), v.clone());
+        }
+    }
+
+    let mut secret_set: HashSet<String> = HashSet::new();
+    if let Some(inputs_arr) = workflow.root.get("inputs").and_then(Value::as_array) {
+        for item in inputs_arr {
+            let Some(io) = item.as_object() else {
+                continue;
+            };
+            let name = io.get("name").and_then(Value::as_str).unwrap_or("").trim();
+            let label = io
+                .get("label")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(name);
+            let input_type = io
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("text")
+                .trim();
+            let required = io.get("required").and_then(Value::as_bool).unwrap_or(false);
+            let is_secret = io
+                .get("secret")
+                .and_then(Value::as_bool)
+                .unwrap_or(input_type == "password");
+
+            let val = merged.get(name).map(|s| s.as_str()).unwrap_or("");
+            let trimmed = val.trim();
+
+            if required && trimmed.is_empty() {
+                return Err(format!(
+                    "Pflicht-Variable \"{label}\" ({name}) muss vor der Ausführung angegeben werden."
+                ));
+            }
+
+            if input_type == "select" && !trimmed.is_empty() {
+                if let Some(opts) = io.get("options").and_then(Value::as_array) {
+                    let allowed: Vec<String> = opts.iter().map(value_to_string).collect();
+                    if !allowed.iter().any(|o| o == val) {
+                        return Err(format!(
+                            "Ungültiger Wert für Variable \"{label}\" ({name}). Erlaubt: {}.",
+                            allowed.join(", ")
+                        ));
+                    }
+                }
+            }
+
+            if input_type == "number" && !trimmed.is_empty() && trimmed.parse::<f64>().is_err() {
+                return Err(format!(
+                    "Variable \"{label}\" ({name}) muss eine gültige Zahl sein."
+                ));
+            }
+
+            if input_type == "boolean"
+                && !trimmed.is_empty()
+                && !matches!(trimmed.to_ascii_lowercase().as_str(), "true" | "false" | "1" | "0")
+            {
+                return Err(format!(
+                    "Variable \"{label}\" ({name}) muss \"true\" oder \"false\" sein."
+                ));
+            }
+
+            if is_secret && !val.is_empty() {
+                secret_set.insert(val.to_string());
+            }
+        }
+    }
+
+    let mut secret_values: Vec<String> = secret_set.into_iter().collect();
+    secret_values.sort_by(|a, b| b.len().cmp(&a.len()));
+    Ok(ResolvedRuntimeVars {
+        vars: merged,
+        secret_values,
     })
 }
 
@@ -1004,6 +1206,34 @@ fn format_workflow_output(root: &Value, ctx: &WorkflowContext) -> String {
                 sm.insert("stdout".into(), Value::String(rec.stdout.clone()));
                 steps_map.insert(id.clone(), Value::Object(sm));
             }
+            let mut secret_keys: HashSet<String> = HashSet::new();
+            if let Some(inputs_arr) = root.get("inputs").and_then(Value::as_array) {
+                for item in inputs_arr {
+                    if let Some(io) = item.as_object() {
+                        let input_type = io.get("type").and_then(Value::as_str).unwrap_or("text");
+                        let is_secret = io
+                            .get("secret")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(input_type == "password");
+                        if is_secret {
+                            if let Some(name) = io.get("name").and_then(Value::as_str) {
+                                secret_keys.insert(name.trim().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            let safe_vars: HashMap<String, String> = ctx
+                .vars
+                .iter()
+                .map(|(k, v)| {
+                    if secret_keys.contains(k) {
+                        (k.clone(), "********".to_string())
+                    } else {
+                        (k.clone(), v.clone())
+                    }
+                })
+                .collect();
             map.insert(
                 "target".into(),
                 serde_json::json!({
@@ -1013,7 +1243,7 @@ fn format_workflow_output(root: &Value, ctx: &WorkflowContext) -> String {
                     "label": ctx.target.label,
                 }),
             );
-            map.insert("vars".into(), serde_json::json!(ctx.vars));
+            map.insert("vars".into(), serde_json::json!(safe_vars));
             map.insert("steps".into(), Value::Object(steps_map));
             if !ctx.logs.is_empty() {
                 map.insert("logs".into(), serde_json::json!(ctx.logs));
@@ -1443,6 +1673,7 @@ pub async fn execute_workflow<F, Fut>(
     workflow: &ValidatedWorkflow,
     target: WorkflowTargetInfo,
     timeout_sec: u64,
+    runtime_vars: Option<&HashMap<String, String>>,
     run_remote: F,
 ) -> Result<WorkflowExecResult, String>
 where
@@ -1452,16 +1683,22 @@ where
     let started = Instant::now();
     let total_budget = Duration::from_secs(timeout_sec.clamp(5, 3600));
 
-    let mut vars = HashMap::new();
-    if let Some(v_obj) = workflow.root.get("vars").and_then(Value::as_object) {
-        for (k, v) in v_obj {
-            vars.insert(k.clone(), value_to_string(v));
+    let resolved = match resolve_workflow_runtime_vars(workflow, runtime_vars) {
+        Ok(r) => r,
+        Err(err_msg) => {
+            return Ok(WorkflowExecResult {
+                exit_code: 2,
+                stdout: String::new(),
+                stderr: err_msg,
+                executed_steps: 0,
+                commands_run: Vec::new(),
+            });
         }
-    }
+    };
 
     let mut ctx = WorkflowContext {
         target,
-        vars,
+        vars: resolved.vars,
         steps: HashMap::new(),
         step_order: Vec::new(),
         last: None,
@@ -1490,21 +1727,34 @@ where
         .await?;
     }
 
-    let stdout = format_workflow_output(&workflow.root, &ctx);
+    let stdout = redact_secrets(&format_workflow_output(&workflow.root, &ctx), &resolved.secret_values);
+    let stderr = redact_secrets(&ctx.stderr_parts.join("\n"), &resolved.secret_values);
+    let commands_run = ctx
+        .commands_run
+        .iter()
+        .map(|c| redact_secrets(c, &resolved.secret_values))
+        .collect();
     Ok(WorkflowExecResult {
         exit_code: ctx.final_exit_code,
         stdout,
-        stderr: ctx.stderr_parts.join("\n"),
+        stderr,
         executed_steps: ctx.executed_count,
-        commands_run: ctx.commands_run,
+        commands_run,
     })
 }
 
 pub const DEFAULT_SERVICE_WORKFLOW_JSON: &str = r#"{
   "stopOnError": true,
-  "vars": {
-    "service": "nginx"
-  },
+  "inputs": [
+    {
+      "name": "service",
+      "label": "Systemd-Dienst",
+      "type": "text",
+      "default": "nginx",
+      "placeholder": "z. B. nginx, postgresql, docker",
+      "required": true
+    }
+  ],
   "steps": [
     {
       "type": "run",

@@ -37,12 +37,17 @@ Manage commands under **SSH Commands**:
   - **Continue on error (`;`)**: Runs all steps regardless of individual exit codes.
 
 ### Complex Command Chains (JSON Workflows)
-For branching automations with **if/then/else conditions**, **output filtering**, and **structured formatting**, choose the **Complex Chain (JSON)** command type:
+For branching automations with **if/then/else conditions**, **polling loops**, **runtime variables**, **output filtering**, and **structured formatting**, choose the **Complex Chain (JSON)** command type:
 
+- **Runtime Variables (`inputs`) & Default Variables (`vars`)**:
+  - Declare typed input parameters in the optional `inputs` array (`text`, `password`, `select` with `options`, `number`, `boolean`, `default`, `required`, `secret`) that are automatically prompted in the **Dashboard** before execution.
+  - Static `vars` can also be overridden at runtime, and custom ad-hoc key/value variables can be added on the fly.
+  - Variables of type `password` (or with `"secret": true`) are never persisted, cleared immediately after execution, and automatically redacted (`********`) in invocations and audit logs.
 - **Step Types (`steps`)**:
   - `run`: Executes a remote SSH command (`id`, `command`, `continueOnError`, `sleepAfterSec`, `silent`, optional `filter`).
   - `sleep`: Pauses execution for `seconds` (`0–600`).
   - `if`: Evaluates `when` conditions (`all` / `any` / `not` combinators and operators such as `equals`, `notEquals`, `contains`, `matches`, `isEmpty`, `gt`, `gte`, `lt`, `lte` against `stdout`, `stderr`, `exitCode`, `ok`, `linesCount`, or variables) and branches into nestable `then` / `else` blocks.
+  - `loop`: Repeats steps up to `maxIterations` (`1–120`) every `intervalSec` (`0–600`) seconds until an `until` condition matches (`onTimeout: "fail" | "continue"`).
   - `set` & `log`: Stores computed/filtered variables or appends custom log lines.
   - `stop` / `fail`: Exits the workflow early with a custom exit code and message.
 - **Output Filtering (`filter`)**: Clean and transform step or final output using `trim`, `dropEmpty`, `include`, `exclude`, `regex` / `regexGroup` / `regexAll`, `replace`, `columns` + `delimiter`, `sort`, `unique`, `head`, `tail`, `prefix`, `suffix`, and `joinWith`.
@@ -51,13 +56,21 @@ For branching automations with **if/then/else conditions**, **output filtering**
   - `table`: Aligned ASCII table built from `rows`, `fields`, or `source` + `columns`.
   - `json`: Structured JSON output (`fields` + `autoType`).
   - `lines`: Filtered line list.
-- **Placeholders & Editor Tooling**: Reference step outputs and metadata via {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}`, and `{{target.label}}`{% endraw %}. The UI includes **starter templates**, **live JSON validation**, **auto-formatting**, and a **structural execution preview**.
+- **Placeholders & Editor Tooling**: Reference step outputs, runtime variables, and target metadata via {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}`, and `{{target.label}}`{% endraw %}. The UI includes **starter templates** (including Dell iDRAC Reset with `loop` + `inputs`), **live JSON validation**, **auto-formatting**, and a **structural execution preview**.
 
 {% raw %}
 ```json
 {
   "stopOnError": true,
-  "vars": { "service": "nginx" },
+  "inputs": [
+    {
+      "name": "service",
+      "label": "Systemd Service",
+      "type": "text",
+      "default": "nginx",
+      "required": true
+    }
+  ],
   "steps": [
     {
       "type": "run",

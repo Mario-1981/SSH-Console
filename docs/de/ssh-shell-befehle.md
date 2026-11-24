@@ -37,12 +37,17 @@ Die Verwaltung erfolgt unter **SSH-Befehle**:
   - **Trotz Fehler fortfahren (`;`)**: Führt alle Schritte unabhängig von einzelnen Exit-Codes aus.
 
 ### Komplexe Befehlsketten (JSON-Workflows)
-Für verzweigte Abläufe mit **Wenn-Dann-Sonst-Logik**, **Ausgabefiltern** und **formatierter Ausgabe** steht der Befehlstyp **Komplexe Kette (JSON)** zur Verfügung:
+Für verzweigte Abläufe mit **Wenn-Dann-Sonst-Logik**, **Polling-Schleifen**, **Laufzeit-Variablen**, **Ausgabefiltern** und **formatierter Ausgabe** steht der Befehlstyp **Komplexe Kette (JSON)** zur Verfügung:
 
+- **Laufzeit-Variablen (`inputs`) & Standard-Variablen (`vars`)**:
+  - Definieren Sie im optionalen Array `inputs` typisierte Eingabefelder (`text`, `password`, `select` mit `options`, `number`, `boolean`, `default`, `required`, `secret`), die vor jeder Ausführung im **Dashboard** abgefragt werden.
+  - Zusätzlich können statische `vars` vor dem Start überschrieben oder freie Ad-hoc-Variablen hinzugefügt werden.
+  - Variablen vom Typ `password` (oder mit `"secret": true`) werden nicht gespeichert, nach dem Lauf sofort geleert und in Befehlsaufrufen sowie im Audit-Log automatisch durch `********` maskiert.
 - **Schritttypen (`steps`)**:
   - `run`: Führt einen SSH-Befehl aus (`id`, `command`, `continueOnError`, `sleepAfterSec`, `silent`, optionaler `filter`).
   - `sleep`: Pausiert die Ausführung um `seconds` (`0–600`).
   - `if`: Wertet Bedingungen (`when` mit `all` / `any` / `not` sowie Operatoren wie `equals`, `notEquals`, `contains`, `matches`, `isEmpty`, `gt`, `gte`, `lt`, `lte` auf `stdout`, `stderr`, `exitCode`, `ok`, `linesCount` oder Variablen) aus und verzweigt in `then` und optional `else` (verschachtelbar).
+  - `loop`: Wiederholt Schritte bis zu `maxIterations` (`1–120`) im Abstand `intervalSec` (`0–600`), bis eine `until`-Bedingung zutrifft (mit `onTimeout: "fail" | "continue"`).
   - `set` & `log`: Setzt Variablen (optional gefiltert) bzw. schreibt eigene Logzeilen.
   - `stop` / `fail`: Beendet den Workflow vorzeitig mit eigenem Exit-Code und Meldung.
 - **Ausgabe filtern (`filter`)**: Pro Schritt oder für die Gesamtausgabe lassen sich Ausgaben mit `trim`, `dropEmpty`, `include`, `exclude`, `regex` / `regexGroup` / `regexAll`, `replace`, `columns` + `delimiter`, `sort`, `unique`, `head`, `tail`, `prefix`, `suffix` und `joinWith` bereinigen.
@@ -51,13 +56,21 @@ Für verzweigte Abläufe mit **Wenn-Dann-Sonst-Logik**, **Ausgabefiltern** und *
   - `table`: Sauber ausgerichtete ASCII-Tabelle aus `rows`, `fields` oder `source` + `columns`.
   - `json`: Strukturierte JSON-Ausgabe (`fields` + `autoType`).
   - `lines`: Gefilterte Zeilenliste.
-- **Platzhalter & Vorlagen**: Über {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}` und `{{target.label}}`{% endraw %} stehen Ergebnisse aller Schritte in Befehlen, Variablen und Ausgabeformaten bereit. Im Editor sind direkte **Starter-Vorlagen**, **Live-Validierung**, **JSON-Formatierung** und eine **Ablaufvorschau** integriert.
+- **Platzhalter & Vorlagen**: Über {% raw %}`{{stepId.stdout}}`, `{{stepId.exitCode}}`, `{{last.stdout}}`, `{{vars.name}}`, `{{target.ip}}` und `{{target.label}}`{% endraw %} stehen Ergebnisse aller Schritte und Laufzeit-Variablen bereit. Im Editor sind direkte **Starter-Vorlagen** (inkl. Dell iDRAC Reset mit `loop` + `inputs`), **Live-Validierung**, **JSON-Formatierung** und eine **Ablaufvorschau** integriert.
 
 {% raw %}
 ```json
 {
   "stopOnError": true,
-  "vars": { "service": "nginx" },
+  "inputs": [
+    {
+      "name": "service",
+      "label": "Systemd-Dienst",
+      "type": "text",
+      "default": "nginx",
+      "required": true
+    }
+  ],
   "steps": [
     {
       "type": "run",

@@ -245,7 +245,22 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
   );
   const workflowOutline = useMemo(() => {
     if (!workflowValidation || !workflowValidation.ok) return '';
-    const lines = renderWorkflowOutline(workflowValidation.workflow.steps);
+    const lines: string[] = [];
+    const inputs = workflowValidation.workflow.inputs ?? [];
+    if (inputs.length > 0) {
+      lines.push(
+        `INPUTS (${inputs.length}): ${inputs
+          .map((inp) => {
+            const req = inp.required ? '*' : '';
+            const typeTag = inp.type && inp.type !== 'text' ? `:${inp.type}` : '';
+            const optTag = inp.options ? `[${inp.options.join('|')}]` : '';
+            const defTag = inp.default !== undefined && inp.type !== 'password' ? `=${String(inp.default)}` : '';
+            return `${inp.name}${req}${typeTag}${optTag}${defTag}`;
+          })
+          .join(', ')}`
+      );
+    }
+    lines.push(...renderWorkflowOutline(workflowValidation.workflow.steps));
     if (workflowValidation.workflow.output) {
       lines.push(`↳ OUTPUT format=${workflowValidation.workflow.output.format ?? 'text'}`);
     }
@@ -909,18 +924,27 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
                   <div className="space-y-1">
                     <p className="font-semibold text-slate-900">
-                      {tr('Ausgabe-Filter (filter)', 'Output Filter (filter)')}
+                      {tr('Laufzeit-Variablen (inputs[])', 'Runtime Variables (inputs[])')}
                     </p>
                     <p className="font-mono text-[11px]">
-                      trim, dropEmpty, include, exclude, caseInsensitive, regex, regexGroup, regexAll, replace:[&#123;pattern,with,flags&#125;], columns:[1,5], delimiter, columnJoin, sort, unique, head, tail, prefix, suffix, joinWith
+                      {'[ { "name": "nic", "label": "NIC", "type": "select", "options": ["LOM1","dedicated"], "default": "LOM1", "required": true }, { "name": "pw", "type": "password", "required": true } ]'}
+                    </p>
+                    <p className="text-[11px]">
+                      {tr(
+                        'Typen: text, password (im Audit-Log maskiert), select, number, boolean. Im Dashboard vor dem Start ausfüllbar; Zugriff über {{vars.name}}.',
+                        'Types: text, password (masked in audit log), select, number, boolean. Prompted in Dashboard before execution; accessed via {{vars.name}}.'
+                      )}
                     </p>
                   </div>
                   <div className="space-y-1">
                     <p className="font-semibold text-slate-900">
-                      {tr('Ausgabe-Formatierung (output)', 'Output Formatting (output)')}
+                      {tr('Ausgabe-Filter (filter) & Formatierung (output)', 'Output Filter (filter) & Formatting (output)')}
                     </p>
                     <p className="font-mono text-[11px]">
-                      format: &quot;template&quot; (template / lines[]) · &quot;table&quot; (headers + rows[] / fields / source+columns) · &quot;json&quot; (fields) · &quot;lines&quot; (source + filter)
+                      filter: trim, dropEmpty, include, exclude, regex, regexGroup, replace, columns, sort, unique, head, tail, joinWith
+                    </p>
+                    <p className="font-mono text-[11px]">
+                      output.format: &quot;template&quot; · &quot;table&quot; · &quot;json&quot; · &quot;lines&quot;
                     </p>
                   </div>
                 </div>
@@ -981,6 +1005,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                     {tr('Ablauf-Vorschau (validiert)', 'Execution Flow Preview (validated)')}
                   </span>
                   <span className="font-mono tabular-nums">
+                    {workflowValidation.summary.inputCount > 0 && (
+                      <>
+                        {workflowValidation.summary.inputCount} Var ·{' '}
+                      </>
+                    )}
                     {workflowValidation.summary.runCount} SSH · {workflowValidation.summary.conditionCount} if ·{' '}
                     {tr('Gesamt-Sleep', 'Total sleep')}: {workflowValidation.summary.totalSleepSec}s ·{' '}
                     {tr('Ausgabe', 'Output')}: {workflowValidation.summary.outputFormat}

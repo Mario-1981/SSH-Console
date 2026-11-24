@@ -1,33 +1,30 @@
 {
   "stopOnError": true,
-  "vars": {
-    "nicSelection": "LOM1",
-    "idracPassword": "CHANGE_ME_IDRAC_PASSWORD"
-  },
-  "steps": [
+  "inputs": [
     {
-      "type": "if",
-      "when": {
-        "any": [
-          {
-            "from": "vars.idracPassword",
-            "op": "isEmpty"
-          },
-          {
-            "from": "vars.idracPassword",
-            "op": "equals",
-            "value": "CHANGE_ME_IDRAC_PASSWORD"
-          }
-        ]
-      },
-      "then": [
-        {
-          "type": "fail",
-          "exitCode": 2,
-          "message": "Bitte vor dem Ausführen unter vars.idracPassword das gewünschte iDRAC-Passwort eintragen (und vars.nicSelection auf LOM1, LOM3 oder dedicated setzen)."
-        }
-      ]
+      "name": "nicSelection",
+      "label": "Netzwerkkartenoption (iDRAC NIC)",
+      "type": "select",
+      "options": [
+        "LOM1",
+        "LOM3",
+        "dedicated"
+      ],
+      "default": "LOM1",
+      "description": "Ziel-Netzwerkschnittstelle des iDRAC nach dem Werksreset",
+      "required": true
     },
+    {
+      "name": "idracPassword",
+      "label": "Neues iDRAC-Passwort (User 2)",
+      "type": "password",
+      "placeholder": "Passwort für diesen Lauf eingeben...",
+      "description": "Wird nicht gespeichert und im Audit-Log automatisch maskiert",
+      "required": true,
+      "secret": true
+    }
+  ],
+  "steps": [
     {
       "type": "run",
       "id": "reset_all",

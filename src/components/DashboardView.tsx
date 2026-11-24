@@ -22,9 +22,19 @@ import {
   Tag,
   X,
   Lock,
+  Braces,
+  Eye,
+  EyeOff,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { api } from '../api';
 import { translateCategory, useI18n } from '../i18n';
+import {
+  parseAndValidateWorkflow,
+  resolveWorkflowRuntimeVars,
+  type WorkflowInputDef,
+} from '../workflowEngine';
 import type {
   ActiveTab,
   AppSettings,
@@ -160,6 +170,9 @@ export function DashboardView({
   const [quickCommandId, setQuickCommandId] = useState<string>('');
   const [selectedCertId, setSelectedCertId] = useState<string>('');
   const [keyPassphrase, setKeyPassphrase] = useState<string>('');
+  const [workflowVarValues, setWorkflowVarValues] = useState<Record<string, string>>({});
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({});
+  const [customRuntimeVars, setCustomRuntimeVars] = useState<Array<{ key: string; value: string }>>([]);
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -251,6 +264,57 @@ export function DashboardView({
   useEffect(() => {
     setKeyPassphrase('');
   }, [selectedCertId]);
+
+  const selectedCommand = useMemo(
+    () => activeCommands.find((c) => c.id === quickCommandId) ?? null,
+    [activeCommands, quickCommandId]
+  );
+
+  const selectedWorkflow = useMemo(() => {
+    if (!selectedCommand || selectedCommand.kind !== 'workflow' || !selectedCommand.workflowJson) {
+      return null;
+    }
+    const parsed = parseAndValidateWorkflow(selectedCommand.workflowJson);
+    return parsed.ok ? parsed.workflow : null;
+  }, [selectedCommand]);
+
+  const workflowInputs: WorkflowInputDef[] = useMemo(
+    () => selectedWorkflow?.inputs ?? [],
+    [selectedWorkflow]
+  );
+
+  const workflowStaticVarEntries = useMemo(() => {
+    if (!selectedWorkflow?.vars) return [] as Array<[string, string]>;
+    const declaredNames = new Set(workflowInputs.map((i) => i.name));
+    return Object.entries(selectedWorkflow.vars)
+      .filter(([k]) => !declaredNames.has(k))
+      .map(([k, v]) => [k, String(v)] as [string, string]);
+  }, [selectedWorkflow, workflowInputs]);
+
+  useEffect(() => {
+    const initial: Record<string, string> = {};
+    if (selectedWorkflow?.vars) {
+      for (const [k, v] of Object.entries(selectedWorkflow.vars)) {
+        initial[k] = String(v);
+      }
+    }
+    for (const inp of selectedWorkflow?.inputs ?? []) {
+      if (initial[inp.name] === undefined) {
+        if (inp.default !== undefined) {
+          initial[inp.name] = String(inp.default);
+        } else if (inp.type === 'select' && inp.options && inp.options.length > 0) {
+          initial[inp.name] = inp.options[0];
+        } else if (inp.type === 'boolean') {
+          initial[inp.name] = 'false';
+        } else {
+          initial[inp.name] = '';
+        }
+      }
+    }
+    setWorkflowVarValues(initial);
+    setRevealedSecrets({});
+    setCustomRuntimeVars([]);
+  }, [selectedCommand?.id, selectedCommand?.workflowJson, selectedWorkflow]);
 
   const selectedCert = useMemo(
     () => certificates.find((c) => c.id === selectedCertId) ?? null,
@@ -644,6 +708,23 @@ export function DashboardView({
       return;
     }
 
+    let workflowVarsToSend: Record<string, string> | undefined;
+    if (selectedWorkflow) {
+      const combined: Record<string, string> = { ...workflowVarValues };
+      for (const row of customRuntimeVars) {
+        const k = row.key.trim();
+        if (k) {
+          combined[k] = row.value;
+        }
+      }
+      const checked = resolveWorkflowRuntimeVars(selectedWorkflow, combined);
+      if (!checked.ok) {
+        setError(checked.error);
+        return;
+      }
+      workflowVarsToSend = combined;
+    }
+
     const passToUse = needsRuntimePassphrase ? keyPassphrase : undefined;
     setRunningBatch(true);
     try {
@@ -651,6 +732,7 @@ export function DashboardView({
         certificateId: selectedCertId,
         jobs: preparedJobs,
         ...(passToUse ? { passphrase: passToUse } : {}),
+        ...(workflowVarsToSend ? { workflowVars: workflowVarsToSend } : {}),
       });
       setBatchResults(res.results);
       await onExecutionComplete();
@@ -662,6 +744,18 @@ export function DashboardView({
       );
     } finally {
       setKeyPassphrase('');
+      if (workflowInputs.some((i) => i.type === 'password' || i.secret)) {
+        setWorkflowVarValues((prev) => {
+          const next = { ...prev };
+          for (const inp of workflowInputs) {
+            if (inp.type === 'password' || inp.secret) {
+              next[inp.name] = '';
+            }
+          }
+          return next;
+        });
+        setRevealedSecrets({});
+      }
       setRunningBatch(false);
     }
   }
@@ -1067,6 +1161,213 @@ export function DashboardView({
             </button>
           </div>
         </div>
+
+        {selectedWorkflow && (
+          <div className="pt-3.5 border-t border-slate-100 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Braces className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                <span className="text-xs font-semibold text-slate-800">
+                  {tr('Workflow-Variablen (Laufzeit-Parameter)', 'Workflow Variables (Runtime Parameters)')}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {tr('Verfügbar als', 'Available as')}{' '}
+                  <code className="font-mono text-slate-700">{'{{vars.name}}'}</code>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setCustomRuntimeVars((prev) => [...prev, { key: '', value: '' }])
+                }
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                {tr('Variable hinzufügen', 'Add Variable')}
+              </button>
+            </div>
+
+            {(workflowInputs.length > 0 || workflowStaticVarEntries.length > 0) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {workflowInputs.map((inp) => {
+                  const fieldId = `wf-var-${inp.name}`;
+                  const isSecret = inp.type === 'password' || Boolean(inp.secret);
+                  const revealed = Boolean(revealedSecrets[inp.name]);
+                  const value = workflowVarValues[inp.name] ?? '';
+                  return (
+                    <div key={inp.name} className="space-y-1">
+                      <label
+                        htmlFor={fieldId}
+                        className="flex items-center justify-between gap-2 text-xs font-medium text-slate-700"
+                      >
+                        <span className="inline-flex items-center gap-1 truncate">
+                          {isSecret && <Lock className="w-3 h-3 text-amber-700 shrink-0" />}
+                          <span>{inp.label || inp.name}</span>
+                          {inp.required && <span className="text-red-600">*</span>}
+                        </span>
+                        <code className="text-[10px] font-mono text-slate-400 shrink-0">
+                          {inp.name}
+                        </code>
+                      </label>
+
+                      {inp.type === 'select' && inp.options ? (
+                        <select
+                          id={fieldId}
+                          value={value}
+                          onChange={(e) =>
+                            setWorkflowVarValues((prev) => ({ ...prev, [inp.name]: e.target.value }))
+                          }
+                          className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        >
+                          {inp.options.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : inp.type === 'boolean' ? (
+                        <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-md cursor-pointer w-full">
+                          <input
+                            id={fieldId}
+                            type="checkbox"
+                            checked={value.toLowerCase() === 'true' || value === '1'}
+                            onChange={(e) =>
+                              setWorkflowVarValues((prev) => ({
+                                ...prev,
+                                [inp.name]: e.target.checked ? 'true' : 'false',
+                              }))
+                            }
+                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                          />
+                          <span className="text-xs text-slate-700 font-mono">
+                            {value.toLowerCase() === 'true' || value === '1' ? 'true' : 'false'}
+                          </span>
+                        </label>
+                      ) : isSecret ? (
+                        <div className="relative">
+                          <input
+                            id={fieldId}
+                            type={revealed ? 'text' : 'password'}
+                            autoComplete="new-password"
+                            value={value}
+                            onChange={(e) =>
+                              setWorkflowVarValues((prev) => ({ ...prev, [inp.name]: e.target.value }))
+                            }
+                            placeholder={inp.placeholder || tr('Geheimen Wert eingeben...', 'Enter secret value...')}
+                            className="w-full pl-3 pr-9 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRevealedSecrets((prev) => ({ ...prev, [inp.name]: !prev[inp.name] }))
+                            }
+                            title={revealed ? tr('Verbergen', 'Hide') : tr('Anzeigen', 'Show')}
+                            aria-label={revealed ? tr('Verbergen', 'Hide') : tr('Anzeigen', 'Show')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                          >
+                            {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      ) : (
+                        <input
+                          id={fieldId}
+                          type={inp.type === 'number' ? 'number' : 'text'}
+                          value={value}
+                          onChange={(e) =>
+                            setWorkflowVarValues((prev) => ({ ...prev, [inp.name]: e.target.value }))
+                          }
+                          placeholder={inp.placeholder || ''}
+                          className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        />
+                      )}
+
+                      {inp.description && (
+                        <p className="text-[11px] text-slate-500">{inp.description}</p>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {workflowStaticVarEntries.map(([varName, defaultVal]) => {
+                  const fieldId = `wf-static-var-${varName}`;
+                  const value = workflowVarValues[varName] ?? defaultVal;
+                  return (
+                    <div key={varName} className="space-y-1">
+                      <label
+                        htmlFor={fieldId}
+                        className="flex items-center justify-between gap-2 text-xs font-medium text-slate-700"
+                      >
+                        <span className="truncate">{varName}</span>
+                        <code className="text-[10px] font-mono text-slate-400 shrink-0">vars</code>
+                      </label>
+                      <input
+                        id={fieldId}
+                        type="text"
+                        value={value}
+                        onChange={(e) =>
+                          setWorkflowVarValues((prev) => ({ ...prev, [varName]: e.target.value }))
+                        }
+                        placeholder={defaultVal}
+                        className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {customRuntimeVars.length > 0 && (
+              <div className="space-y-2">
+                {customRuntimeVars.map((row, idx) => (
+                  <div key={idx} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <input
+                      type="text"
+                      value={row.key}
+                      onChange={(e) =>
+                        setCustomRuntimeVars((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, key: e.target.value } : item))
+                        )
+                      }
+                      placeholder={tr('Variablenname (z. B. service)', 'Variable name (e.g. service)')}
+                      className="sm:w-52 px-3 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    />
+                    <input
+                      type="text"
+                      value={row.value}
+                      onChange={(e) =>
+                        setCustomRuntimeVars((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, value: e.target.value } : item))
+                        )
+                      }
+                      placeholder={tr('Wert für diesen Lauf', 'Value for this run')}
+                      className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCustomRuntimeVars((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      title={tr('Variable entfernen', 'Remove variable')}
+                      aria-label={tr('Variable entfernen', 'Remove variable')}
+                      className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md cursor-pointer self-end sm:self-center"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {workflowInputs.some((i) => i.type === 'password' || i.secret) && (
+              <p className="text-[11px] text-slate-500">
+                {tr(
+                  'Passwort-/Geheim-Variablen werden nicht gespeichert, nach dem Ausführen geleert und im Audit-Log automatisch maskiert (********).',
+                  'Password/secret variables are never stored, cleared after execution, and automatically masked (********) in the audit log.'
+                )}
+              </p>
+            )}
+          </div>
+        )}
 
         {needsRuntimePassphrase && (
           <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3">

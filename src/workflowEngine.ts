@@ -145,8 +145,23 @@ export interface WorkflowOutputConfig {
   joinWith?: string;
 }
 
+export type WorkflowInputType = 'text' | 'password' | 'select' | 'number' | 'boolean';
+
+export interface WorkflowInputDef {
+  name: string;
+  label?: string;
+  type?: WorkflowInputType;
+  options?: string[];
+  default?: string | number | boolean;
+  placeholder?: string;
+  description?: string;
+  required?: boolean;
+  secret?: boolean;
+}
+
 export interface WorkflowDefinition {
   stopOnError?: boolean;
+  inputs?: WorkflowInputDef[];
   vars?: Record<string, string | number | boolean>;
   steps: WorkflowStep[];
   output?: WorkflowOutputConfig;
@@ -157,6 +172,7 @@ export interface WorkflowSummary {
   runCount: number;
   conditionCount: number;
   totalSleepSec: number;
+  inputCount: number;
   outputFormat: string;
   previewLine: string;
 }
@@ -238,9 +254,14 @@ const VALID_OPS = new Set<string>([
 
 const VALID_FIELDS = new Set<string>(['stdout', 'rawStdout', 'stderr', 'exitCode', 'ok', 'linesCount']);
 const VALID_FORMATS = new Set<string>(['text', 'template', 'table', 'json', 'lines']);
+const VALID_INPUT_TYPES = new Set<string>(['text', 'password', 'select', 'number', 'boolean']);
+const VALID_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_-]{0,47}$/;
 const MAX_DEPTH = 10;
 const MAX_DEFINED_STEPS = 100;
 const MAX_EXECUTED_STEPS = 300;
+const MAX_INPUTS = 30;
+const MAX_RUNTIME_VARS = 50;
+const MAX_VAR_VALUE_LEN = 2000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -657,6 +678,100 @@ export function parseAndValidateWorkflow(rawJson: string): WorkflowValidationRes
     };
   }
 
+  let inputs: WorkflowInputDef[] | undefined;
+  if (rootObj.inputs !== undefined && rootObj.inputs !== null) {
+    if (!Array.isArray(rootObj.inputs)) {
+      return { ok: false, error: '"inputs" muss ein JSON-Array aus Variablen-Definitionen sein.' };
+    }
+    if (rootObj.inputs.length > MAX_INPUTS) {
+      return { ok: false, error: `"inputs" darf maximal ${MAX_INPUTS} Variablen enthalten.` };
+    }
+    const seenNames = new Set<string>();
+    const parsedInputs: WorkflowInputDef[] = [];
+    for (let i = 0; i < rootObj.inputs.length; i++) {
+      const rawItem = rootObj.inputs[i];
+      const p = `inputs[${i}]`;
+      if (!isRecord(rawItem)) {
+        return { ok: false, error: `${p}: Jede Eingabe-Variable muss ein JSON-Objekt sein.` };
+      }
+      const name = typeof rawItem.name === 'string' ? rawItem.name.trim() : '';
+      if (!VALID_IDENT_RE.test(name)) {
+        return {
+          ok: false,
+          error: `${p}.name: Ungültiger Variablenname "${name}" (erlaubt: Buchstaben, Ziffern, _, -).`,
+        };
+      }
+      if (seenNames.has(name)) {
+        return { ok: false, error: `${p}.name: Doppelter Variablenname "${name}".` };
+      }
+      seenNames.add(name);
+
+      const inputType = typeof rawItem.type === 'string' ? rawItem.type.trim() : 'text';
+      if (!VALID_INPUT_TYPES.has(inputType)) {
+        return {
+          ok: false,
+          error: `${p}.type: Ungültiger Typ "${inputType}". Erlaubt: text, password, select, number, boolean.`,
+        };
+      }
+
+      let options: string[] | undefined;
+      if (rawItem.options !== undefined && rawItem.options !== null) {
+        if (!Array.isArray(rawItem.options) || rawItem.options.length === 0 || rawItem.options.length > 100) {
+          return {
+            ok: false,
+            error: `${p}.options: Muss ein nicht-leeres Array aus maximal 100 Auswahlwerten sein.`,
+          };
+        }
+        options = rawItem.options.map((o) => String(o));
+      }
+      if (inputType === 'select' && (!options || options.length === 0)) {
+        return {
+          ok: false,
+          error: `${p}.options: Für Typ "select" muss ein nicht-leeres "options"-Array angegeben werden.`,
+        };
+      }
+
+      let defaultVal: string | number | boolean | undefined;
+      if (rawItem.default !== undefined && rawItem.default !== null) {
+        if (
+          typeof rawItem.default === 'string' ||
+          typeof rawItem.default === 'number' ||
+          typeof rawItem.default === 'boolean'
+        ) {
+          defaultVal = rawItem.default;
+        } else {
+          defaultVal = String(rawItem.default);
+        }
+      }
+
+      const secret = rawItem.secret !== undefined ? Boolean(rawItem.secret) : inputType === 'password';
+      const label = typeof rawItem.label === 'string' && rawItem.label.trim() ? rawItem.label.trim() : undefined;
+      const placeholder =
+        typeof rawItem.placeholder === 'string' && rawItem.placeholder.trim()
+          ? rawItem.placeholder.trim()
+          : undefined;
+      const description =
+        typeof rawItem.description === 'string' && rawItem.description.trim()
+          ? rawItem.description.trim()
+          : undefined;
+
+      parsedInputs.push({
+        name,
+        ...(label ? { label } : {}),
+        type: inputType as WorkflowInputType,
+        ...(options ? { options } : {}),
+        ...(defaultVal !== undefined ? { default: defaultVal } : {}),
+        ...(placeholder ? { placeholder } : {}),
+        ...(description ? { description } : {}),
+        ...(rawItem.required !== undefined ? { required: Boolean(rawItem.required) } : {}),
+        ...(secret ? { secret: true } : {}),
+      });
+    }
+    if (parsedInputs.length > 0) {
+      inputs = parsedInputs;
+    }
+  }
+
   let vars: Record<string, string | number | boolean> | undefined;
   if (rootObj.vars !== undefined && rootObj.vars !== null) {
     if (!isRecord(rootObj.vars)) {
@@ -733,13 +848,16 @@ export function parseAndValidateWorkflow(rawJson: string): WorkflowValidationRes
 
   const workflow: WorkflowDefinition = {
     stopOnError: rootObj.stopOnError !== undefined ? Boolean(rootObj.stopOnError) : true,
+    ...(inputs && inputs.length > 0 ? { inputs } : {}),
     ...(vars && Object.keys(vars).length > 0 ? { vars } : {}),
     steps: stepsRes.steps!,
     ...(output ? { output } : {}),
   };
 
+  const inputCount = inputs?.length ?? 0;
   const outputFormat = output?.format ?? 'default';
   const summaryParts = [
+    ...(inputCount > 0 ? [`${inputCount} Var`] : []),
     `${counters.runCount} SSH`,
     ...(counters.conditionCount > 0 ? [`${counters.conditionCount} if`] : []),
     ...(counters.totalSleepSec > 0 ? [`${counters.totalSleepSec}s sleep`] : []),
@@ -755,10 +873,129 @@ export function parseAndValidateWorkflow(rawJson: string): WorkflowValidationRes
       runCount: counters.runCount,
       conditionCount: counters.conditionCount,
       totalSleepSec: counters.totalSleepSec,
+      inputCount,
       outputFormat,
       previewLine: `JSON-Workflow (${summaryParts.join(' · ')})`,
     },
   };
+}
+
+export function redactWorkflowSecrets(text: string, secretValues: string[]): string {
+  if (!text || secretValues.length === 0) return text;
+  let out = text;
+  for (const secret of secretValues) {
+    if (secret.length > 0 && out.includes(secret)) {
+      out = out.split(secret).join('********');
+    }
+  }
+  return out;
+}
+
+export function sanitizeRuntimeVarsInput(
+  raw: unknown
+): { ok: true; vars: Record<string, string> } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) {
+    return { ok: true, vars: {} };
+  }
+  if (!isRecord(raw)) {
+    return { ok: false, error: 'workflowVars muss ein JSON-Objekt aus Schlüssel-Wert-Paaren sein.' };
+  }
+  const entries = Object.entries(raw);
+  if (entries.length > MAX_RUNTIME_VARS) {
+    return { ok: false, error: `Es sind maximal ${MAX_RUNTIME_VARS} Laufzeit-Variablen zulässig.` };
+  }
+  const clean: Record<string, string> = {};
+  for (const [k, v] of entries) {
+    const key = k.trim();
+    if (!VALID_IDENT_RE.test(key)) {
+      return {
+        ok: false,
+        error: `Ungültiger Variablenname "${k}" (erlaubt: Buchstaben, Ziffern, _, -).`,
+      };
+    }
+    if (v === undefined || v === null) continue;
+    const strVal = typeof v === 'string' ? v : String(v);
+    if (strVal.length > MAX_VAR_VALUE_LEN) {
+      return {
+        ok: false,
+        error: `Wert für Variable "${key}" überschreitet das Limit von ${MAX_VAR_VALUE_LEN} Zeichen.`,
+      };
+    }
+    clean[key] = strVal;
+  }
+  return { ok: true, vars: clean };
+}
+
+export function resolveWorkflowRuntimeVars(
+  workflow: WorkflowDefinition,
+  runtimeVars?: Record<string, string>
+):
+  | { ok: true; vars: Record<string, string>; secretValues: string[]; secretKeys: Set<string> }
+  | { ok: false; error: string } {
+  const sanitized = sanitizeRuntimeVarsInput(runtimeVars);
+  if (!sanitized.ok) return sanitized;
+
+  const merged: Record<string, string> = {};
+  for (const [k, v] of Object.entries(workflow.vars ?? {})) {
+    merged[k] = String(v);
+  }
+  for (const inp of workflow.inputs ?? []) {
+    if (inp.default !== undefined && merged[inp.name] === undefined) {
+      merged[inp.name] = String(inp.default);
+    }
+  }
+  for (const [k, v] of Object.entries(sanitized.vars)) {
+    merged[k] = v;
+  }
+
+  const secretKeys = new Set<string>();
+  const secretSet = new Set<string>();
+
+  for (const inp of workflow.inputs ?? []) {
+    const label = inp.label || inp.name;
+    const val = merged[inp.name] ?? '';
+    const trimmed = val.trim();
+
+    if (inp.required && trimmed.length === 0) {
+      return {
+        ok: false,
+        error: `Pflicht-Variable "${label}" (${inp.name}) muss vor der Ausführung angegeben werden.`,
+      };
+    }
+    if (inp.type === 'select' && inp.options && trimmed.length > 0 && !inp.options.includes(val)) {
+      return {
+        ok: false,
+        error: `Ungültiger Wert für Variable "${label}" (${inp.name}). Erlaubt: ${inp.options.join(', ')}.`,
+      };
+    }
+    if (inp.type === 'number' && trimmed.length > 0 && !Number.isFinite(Number(trimmed))) {
+      return {
+        ok: false,
+        error: `Variable "${label}" (${inp.name}) muss eine gültige Zahl sein.`,
+      };
+    }
+    if (
+      inp.type === 'boolean' &&
+      trimmed.length > 0 &&
+      !['true', 'false', '1', '0'].includes(trimmed.toLowerCase())
+    ) {
+      return {
+        ok: false,
+        error: `Variable "${label}" (${inp.name}) muss "true" oder "false" sein.`,
+      };
+    }
+
+    if (inp.type === 'password' || inp.secret) {
+      secretKeys.add(inp.name);
+      if (val.length > 0) {
+        secretSet.add(val);
+      }
+    }
+  }
+
+  // Sort longest first so shorter substrings do not partially mask longer secrets
+  const secretValues = Array.from(secretSet).sort((a, b) => b.length - a.length);
+  return { ok: true, vars: merged, secretValues, secretKeys };
 }
 
 export function applyOutputFilter(input: string, filter?: OutputFilter): string {
@@ -1104,8 +1341,15 @@ export function formatWorkflowOutput(workflow: WorkflowDefinition, ctx: Workflow
         }
       }
     } else {
+      const secretKeys = new Set(
+        (workflow.inputs ?? [])
+          .filter((i) => i.type === 'password' || i.secret)
+          .map((i) => i.name)
+      );
       obj.target = ctx.target;
-      obj.vars = ctx.vars;
+      obj.vars = Object.fromEntries(
+        Object.entries(ctx.vars).map(([k, v]) => [k, secretKeys.has(k) ? '********' : v])
+      );
       obj.steps = Object.fromEntries(
         Object.entries(ctx.steps).map(([id, rec]) => [
           id,
@@ -1176,6 +1420,7 @@ export async function executeWorkflowEngine(params: {
   workflow: WorkflowDefinition;
   target: WorkflowTargetInfo;
   timeoutSec: number;
+  runtimeVars?: Record<string, string>;
   runRemoteCommand: (
     commandText: string,
     remainingTimeoutMs: number
@@ -1186,11 +1431,20 @@ export async function executeWorkflowEngine(params: {
   const totalBudgetMs = Math.max(5000, params.timeoutSec * 1000);
   const sleep = params.sleepFn ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
 
+  const resolved = resolveWorkflowRuntimeVars(params.workflow, params.runtimeVars);
+  if (!resolved.ok) {
+    return {
+      exitCode: 2,
+      stdout: '',
+      stderr: resolved.error,
+      executedSteps: 0,
+      commandsRun: [],
+    };
+  }
+
   const ctx: WorkflowContext = {
     target: params.target,
-    vars: Object.fromEntries(
-      Object.entries(params.workflow.vars ?? {}).map(([k, v]) => [k, String(v)])
-    ),
+    vars: resolved.vars,
     steps: {},
     stepOrder: [],
     last: null,
@@ -1336,12 +1590,13 @@ export async function executeWorkflowEngine(params: {
   await runBlock(params.workflow.steps);
 
   const formattedStdout = formatWorkflowOutput(params.workflow, ctx);
+  const redact = (s: string) => redactWorkflowSecrets(s, resolved.secretValues);
   return {
     exitCode: ctx.finalExitCode,
-    stdout: formattedStdout,
-    stderr: ctx.stderrParts.join('\n'),
+    stdout: redact(formattedStdout),
+    stderr: redact(ctx.stderrParts.join('\n')),
     executedSteps: ctx.executedCount,
-    commandsRun,
+    commandsRun: commandsRun.map(redact),
   };
 }
 
@@ -1370,9 +1625,16 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplatePreset[] = [
     json: JSON.stringify(
       {
         stopOnError: true,
-        vars: {
-          service: 'nginx',
-        },
+        inputs: [
+          {
+            name: 'service',
+            label: 'Systemd-Dienst',
+            type: 'text',
+            default: 'nginx',
+            placeholder: 'z. B. nginx, postgresql, docker',
+            required: true,
+          },
+        ],
         steps: [
           {
             type: 'run',
@@ -1514,6 +1776,117 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplatePreset[] = [
             failedUnitsCount: '{{failed.linesCount}}',
             healthy: '{{vars.healthy}}',
           },
+        },
+      },
+      null,
+      2
+    ),
+  },
+  {
+    id: 'dell-idrac-reset',
+    labelDe: 'Dell iDRAC Werksreset (Loop + Variablen)',
+    labelEn: 'Dell iDRAC Factory Reset (Loop + Variables)',
+    descriptionDe:
+      'Setzt Dell iDRAC per racadm zurück, wartet per Schleife auf "dedicated", konfiguriert NIC & DHCP und setzt das Passwort per Eingabevariable.',
+    descriptionEn:
+      'Resets Dell iDRAC via racadm, polls in a loop until "dedicated", configures NIC & DHCP, and sets the user password via runtime variables.',
+    category: 'Wartung',
+    timeoutSec: 600,
+    json: JSON.stringify(
+      {
+        stopOnError: true,
+        inputs: [
+          {
+            name: 'nicSelection',
+            label: 'Netzwerkkartenoption (iDRAC NIC)',
+            type: 'select',
+            options: ['LOM1', 'LOM3', 'dedicated'],
+            default: 'LOM1',
+            required: true,
+          },
+          {
+            name: 'idracPassword',
+            label: 'Neues iDRAC-Passwort (User 2)',
+            type: 'password',
+            placeholder: 'Neues Passwort eingeben...',
+            required: true,
+            secret: true,
+          },
+        ],
+        steps: [
+          {
+            type: 'run',
+            id: 'reset_all',
+            command: 'racadm racresetcfg -all',
+            sleepAfterSec: 20,
+            filter: { trim: true },
+          },
+          {
+            type: 'loop',
+            id: 'wait_reset',
+            maxIterations: 30,
+            intervalSec: 10,
+            steps: [
+              {
+                type: 'run',
+                id: 'poll_nic',
+                command: 'racadm get idrac.nic.selection',
+                continueOnError: true,
+                silent: true,
+                filter: { trim: true },
+              },
+            ],
+            until: {
+              from: 'poll_nic',
+              field: 'stdout',
+              op: 'contains',
+              value: 'dedicated',
+              caseInsensitive: true,
+            },
+            onTimeout: 'fail',
+            timeoutMessage:
+              'Timeout: iDRAC auf {{target.ip}} hat nach 30 Versuchen (~5 Minuten) nicht "dedicated" zurückgemeldet.',
+          },
+          { type: 'sleep', seconds: 60 },
+          {
+            type: 'run',
+            id: 'set_nic',
+            command: 'racadm set idrac.nic.selection "{{vars.nicSelection}}"',
+            sleepAfterSec: 5,
+            filter: { trim: true },
+          },
+          {
+            type: 'run',
+            id: 'set_niccfg',
+            command: 'racadm setniccfg -d',
+            sleepAfterSec: 5,
+            filter: { trim: true },
+          },
+          {
+            type: 'run',
+            id: 'set_password',
+            command: 'racadm set idrac.users.2.password "{{vars.idracPassword}}"',
+            sleepAfterSec: 5,
+            silent: true,
+            filter: { trim: true },
+          },
+          {
+            type: 'set',
+            name: 'passwordResult',
+            value: 'Gesetzt (Exit {{set_password.exitCode}})',
+          },
+        ],
+        output: {
+          format: 'table',
+          headers: ['Schritt / Eigenschaft', 'Ergebnis'],
+          rows: [
+            { label: 'Ziel-iDRAC', value: '{{target.label}} ({{target.ip}})' },
+            { label: '1. Werksreset', value: 'Exit {{reset_all.exitCode}} · {{reset_all.stdout}}' },
+            { label: '2. Reset-Polling', value: 'Erfolgreich nach {{vars.wait_reset_attempts}} Versuch(en)' },
+            { label: '3. NIC-Option ({{vars.nicSelection}})', value: 'Exit {{set_nic.exitCode}} · {{set_nic.stdout}}' },
+            { label: '4. DHCP', value: 'Exit {{set_niccfg.exitCode}} · {{set_niccfg.stdout}}' },
+            { label: '5. Benutzerpasswort', value: '{{vars.passwordResult}}' },
+          ],
         },
       },
       null,

@@ -6,7 +6,12 @@ import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import { generateTestOpenSshCertBundle } from './server/certGen.ts';
 import { validateAndParseCertificateBundle } from './server/opensshCert.ts';
-import { WORKFLOW_TEMPLATES } from './src/workflowEngine.ts';
+import {
+  parseAndValidateWorkflow,
+  resolveWorkflowRuntimeVars,
+  sanitizeRuntimeVarsInput,
+  WORKFLOW_TEMPLATES,
+} from './src/workflowEngine.ts';
 import {
   clearGlobalHostKeys,
   getGlobalKnownHostsStats,
@@ -2398,12 +2403,30 @@ async function startServer() {
 
   // Execute SSH Command on One or Multiple Target IPs (own or admin-shared)
   app.post('/api/execute', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
-    const { commandId, certificateId, targets, dryRun, passphrase } = req.body ?? {};
+    const { commandId, certificateId, targets, dryRun, passphrase, workflowVars } = req.body ?? {};
 
     const command = store.getAccessibleCommand(String(commandId ?? ''), req.user!.id);
     if (!command) {
       res.status(404).json({ error: 'Ausgewählter SSH-Befehl ist nicht verfügbar oder deaktiviert.' });
       return;
+    }
+
+    const sanitizedVars = sanitizeRuntimeVarsInput(workflowVars);
+    if (!sanitizedVars.ok) {
+      res.status(400).json({ error: sanitizedVars.error });
+      return;
+    }
+    if (command.kind === 'workflow') {
+      const parsedWf = parseAndValidateWorkflow(command.workflowJson || '');
+      if (!parsedWf.ok) {
+        res.status(400).json({ error: `Ungültiger JSON-Workflow: ${parsedWf.error}` });
+        return;
+      }
+      const checkedVars = resolveWorkflowRuntimeVars(parsedWf.workflow, sanitizedVars.vars);
+      if (!checkedVars.ok) {
+        res.status(400).json({ error: checkedVars.error });
+        return;
+      }
     }
 
     const certificate = store.getAccessibleCertificate(String(certificateId ?? ''), req.user!.id);
@@ -2481,6 +2504,7 @@ async function startServer() {
           command,
           certificate,
           passphrase: suppliedPassphrase,
+          workflowVars: sanitizedVars.vars,
           ignoreHostKey: target.ignoreHostKey,
           forceDryRun: Boolean(dryRun),
         });
@@ -2572,7 +2596,7 @@ async function startServer() {
 
   // Dashboard Batch Execution: Execute assigned commands across multiple IPs in one go
   app.post('/api/execute/batch', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
-    const { certificateId, jobs, dryRun, passphrase } = req.body ?? {};
+    const { certificateId, jobs, dryRun, passphrase, workflowVars } = req.body ?? {};
 
     const certificate = store.getAccessibleCertificate(String(certificateId ?? ''), req.user!.id);
     if (!certificate) {
@@ -2589,6 +2613,12 @@ async function startServer() {
       return;
     }
 
+    const baseVarsRes = sanitizeRuntimeVarsInput(workflowVars);
+    if (!baseVarsRes.ok) {
+      res.status(400).json({ error: baseVarsRes.error });
+      return;
+    }
+
     if (!Array.isArray(jobs) || jobs.length === 0 || jobs.length > 50) {
       res.status(400).json({ error: 'Bitte wählen Sie zwischen 1 und 50 Aufträge für die Sammelausführung aus.' });
       return;
@@ -2598,6 +2628,7 @@ async function startServer() {
     const resolvedJobs: Array<{
       server: { ipAddress: string; port: number; sshUser: string; label: string; ignoreHostKey: boolean };
       command: NonNullable<ReturnType<typeof store.getCommand>>;
+      vars: Record<string, string>;
     }> = [];
 
     for (const item of jobs) {
@@ -2613,6 +2644,24 @@ async function startServer() {
         });
         return;
       }
+      const itemVarsRes = sanitizeRuntimeVarsInput(item?.workflowVars);
+      if (!itemVarsRes.ok) {
+        res.status(400).json({ error: itemVarsRes.error });
+        return;
+      }
+      const mergedVars = { ...baseVarsRes.vars, ...itemVarsRes.vars };
+      if (cmd.kind === 'workflow') {
+        const parsedWf = parseAndValidateWorkflow(cmd.workflowJson || '');
+        if (!parsedWf.ok) {
+          res.status(400).json({ error: `Ungültiger JSON-Workflow "${cmd.name}": ${parsedWf.error}` });
+          return;
+        }
+        const checkedVars = resolveWorkflowRuntimeVars(parsedWf.workflow, mergedVars);
+        if (!checkedVars.ok) {
+          res.status(400).json({ error: checkedVars.error });
+          return;
+        }
+      }
       resolvedJobs.push({
         server: {
           ipAddress: srv.ipAddress,
@@ -2622,11 +2671,12 @@ async function startServer() {
           ignoreHostKey: allowInsecureHostKey && Boolean(srv.ignoreHostKey),
         },
         command: cmd,
+        vars: mergedVars,
       });
     }
 
     const logs = await Promise.all(
-      resolvedJobs.map(async ({ server, command }) => {
+      resolvedJobs.map(async ({ server, command, vars }) => {
         const result = await executeSshCommand({
           userId: req.user!.id,
           ipAddress: server.ipAddress,
@@ -2636,6 +2686,7 @@ async function startServer() {
           command,
           certificate,
           passphrase: suppliedPassphrase,
+          workflowVars: vars,
           ignoreHostKey: server.ignoreHostKey,
           forceDryRun: Boolean(dryRun),
         });

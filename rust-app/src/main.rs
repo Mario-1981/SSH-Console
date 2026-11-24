@@ -3380,6 +3380,13 @@ async fn api_execute(
         return Err(err_resp(StatusCode::BAD_REQUEST, "1 bis 20 Ziel-IPs zulässig."));
     }
 
+    if cmd.kind == "workflow" {
+        let validated_wf = workflow::parse_and_validate_workflow(&cmd.workflow_json)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("Ungültiger JSON-Workflow: {e}")))?;
+        workflow::resolve_workflow_runtime_vars(&validated_wf, req.workflow_vars.as_ref())
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    }
+
     let resolved_passphrase = resolve_cert_passphrase(&state, &cert, req.passphrase.as_deref())?;
     if cert.private_key_encrypted && resolved_passphrase.is_none() {
         return Err(err_resp(
@@ -3433,6 +3440,7 @@ async fn api_execute(
             &cert,
             plain_key,
             resolved_passphrase.as_deref().map(|s| s.as_str()),
+            req.workflow_vars.as_ref(),
             ignore_host_key,
             &known_hosts_path,
         )
@@ -3832,7 +3840,9 @@ async fn api_execute_batch(
     let policy = state.db.get_auth_policy();
     let known_hosts_path = ssh::user_known_hosts_path(&state.data_dir, &user.id)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let mut logs = Vec::new();
+
+    let mut prepared: Vec<(UserServer, SshCommand, Option<std::collections::HashMap<String, String>>)> =
+        Vec::with_capacity(req.jobs.len());
     for job in req.jobs {
         let srv = state
             .db
@@ -3845,6 +3855,28 @@ async fn api_execute_batch(
             .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
             .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Befehl nicht verfügbar."))?;
 
+        let merged_vars = match (&req.workflow_vars, job.workflow_vars) {
+            (None, None) => None,
+            (Some(base), None) => Some(base.clone()),
+            (None, Some(override_map)) => Some(override_map),
+            (Some(base), Some(override_map)) => {
+                let mut combined = base.clone();
+                combined.extend(override_map);
+                Some(combined)
+            }
+        };
+
+        if cmd.kind == "workflow" {
+            let validated_wf = workflow::parse_and_validate_workflow(&cmd.workflow_json)
+                .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("Ungültiger JSON-Workflow: {e}")))?;
+            workflow::resolve_workflow_runtime_vars(&validated_wf, merged_vars.as_ref())
+                .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        }
+        prepared.push((srv, cmd, merged_vars));
+    }
+
+    let mut logs = Vec::new();
+    for (srv, cmd, merged_vars) in prepared {
         let plain_key = state
             .vault
             .decrypt(&cert.private_key_enc, &cert.private_key_nonce)
@@ -3860,6 +3892,7 @@ async fn api_execute_batch(
             &cert,
             plain_key,
             resolved_passphrase.as_deref().map(|s| s.as_str()),
+            merged_vars.as_ref(),
             ignore_host_key,
             &known_hosts_path,
         )
