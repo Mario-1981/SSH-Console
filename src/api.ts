@@ -388,6 +388,17 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  bulkUpdateCommands: (payload: {
+    commandIds: string[];
+    category?: string;
+    enabled?: boolean;
+    sharing?: { sharedWithAll: boolean; sharedWithUserIds: string[] };
+  }) =>
+    request<{ updatedCount: number; commands: SshCommand[] }>('/api/commands/bulk', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
   deleteCommand: (id: string) =>
     request<{ ok: boolean }>(`/api/commands/${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -458,6 +469,19 @@ export const api = {
 
   shareServer: (id: string, payload: { sharedWithAll: boolean; sharedWithUserIds: string[] }) =>
     request<{ server: UserServer }>(`/api/servers/${encodeURIComponent(id)}/share`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  bulkUpdateServers: (payload: {
+    serverIds: string[];
+    pingEnabled?: boolean;
+    ignoreHostKey?: boolean;
+    categoriesAction?: 'add' | 'remove' | 'replace';
+    categories?: string[];
+    sharing?: { sharedWithAll: boolean; sharedWithUserIds: string[] };
+  }) =>
+    request<{ updatedCount: number; servers: UserServer[] }>('/api/servers/bulk', {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),

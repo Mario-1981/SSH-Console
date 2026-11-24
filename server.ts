@@ -1443,11 +1443,60 @@ async function startServer() {
     res.json({ ok: true });
   };
 
+  const handleBulkUpdateCommands = (req: AuthedRequest, res: Response) => {
+    const { commandIds, category, enabled, sharing } = req.body ?? {};
+    if (!Array.isArray(commandIds) || commandIds.length === 0) {
+      res.status(400).json({ error: 'Bitte wählen Sie mindestens einen SSH-Befehl aus.' });
+      return;
+    }
+    if (commandIds.length > 500) {
+      res.status(400).json({ error: 'Maximal 500 Befehle pro Sammeleinstellung erlaubt.' });
+      return;
+    }
+    const isAdmin = req.user!.role === 'admin';
+    if (sharing !== undefined && !isAdmin) {
+      res.status(403).json({ error: 'Nur Administratoren dürfen Freigaben ändern.' });
+      return;
+    }
+    const hasCategory = typeof category === 'string' && category.trim().length > 0;
+    const hasEnabled = typeof enabled === 'boolean';
+    const hasSharing = sharing !== undefined && typeof sharing === 'object' && sharing !== null;
+    if (!hasCategory && !hasEnabled && !hasSharing) {
+      res.status(400).json({ error: 'Bitte wählen Sie mindestens eine zu ändernde Einstellung aus.' });
+      return;
+    }
+    try {
+      const updated = store.bulkUpdateCommands({
+        commandIds,
+        ownerUserId: req.user!.id,
+        isAdmin,
+        category: hasCategory ? category : undefined,
+        enabled: hasEnabled ? enabled : undefined,
+        sharing: hasSharing
+          ? {
+              sharedWithAll: Boolean(sharing.sharedWithAll),
+              sharedWithUserIds: Array.isArray(sharing.sharedWithUserIds)
+                ? sharing.sharedWithUserIds
+                : [],
+            }
+          : undefined,
+      });
+      res.json({ updatedCount: updated.length, commands: updated });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Sammeleinstellung konnte nicht gespeichert werden.';
+      const status = msg.includes('selbst angelegte') ? 403 : 400;
+      res.status(status).json({ error: msg });
+    }
+  };
+
   app.post('/api/commands', requireAuth, requireSecurityCompliant, handleCreateCommand);
   app.post('/api/admin/commands', requireAuth, requireSecurityCompliant, handleCreateCommand);
 
   app.post('/api/commands/presets', requireAuth, requireSecurityCompliant, handleLoadPresets);
   app.post('/api/admin/commands/presets', requireAuth, requireSecurityCompliant, handleLoadPresets);
+
+  app.patch('/api/commands/bulk', requireAuth, requireSecurityCompliant, handleBulkUpdateCommands);
+  app.patch('/api/admin/commands/bulk', requireAuth, requireSecurityCompliant, handleBulkUpdateCommands);
 
   app.patch('/api/commands/:id', requireAuth, requireSecurityCompliant, handleUpdateCommand);
   app.patch('/api/admin/commands/:id', requireAuth, requireSecurityCompliant, handleUpdateCommand);
@@ -1556,6 +1605,82 @@ async function startServer() {
       void pingMonitor.pingUserServers(req.user!.id, server.id);
     }
     res.status(201).json({ server });
+  });
+
+  app.patch('/api/servers/bulk', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+    const {
+      serverIds,
+      pingEnabled,
+      ignoreHostKey,
+      categoriesAction,
+      categories,
+      sharing,
+    } = req.body ?? {};
+
+    if (!Array.isArray(serverIds) || serverIds.length === 0) {
+      res.status(400).json({ error: 'Bitte wählen Sie mindestens einen Server (IP) aus.' });
+      return;
+    }
+    if (serverIds.length > 500) {
+      res.status(400).json({ error: 'Maximal 500 Server pro Sammeleinstellung erlaubt.' });
+      return;
+    }
+    const isAdmin = req.user!.role === 'admin';
+    if (sharing !== undefined && !isAdmin) {
+      res.status(403).json({ error: 'Nur Administratoren dürfen Freigaben ändern.' });
+      return;
+    }
+    const validCatAction =
+      categoriesAction === 'add' || categoriesAction === 'remove' || categoriesAction === 'replace'
+        ? categoriesAction
+        : undefined;
+    if (categoriesAction !== undefined && !validCatAction) {
+      res.status(400).json({ error: 'Ungültige Kategorie-Aktion (erlaubt: add, remove, replace).' });
+      return;
+    }
+    if (ignoreHostKey === true && !store.getSettings().allowInsecureHostKey) {
+      res.status(403).json({
+        error:
+          'Das Deaktivieren der SSH-Host-Key-Prüfung (StrictHostKeyChecking=no) ist vom Administrator global verboten.',
+      });
+      return;
+    }
+    const hasPing = typeof pingEnabled === 'boolean';
+    const hasHostKey = typeof ignoreHostKey === 'boolean';
+    const hasCategories = validCatAction !== undefined;
+    const hasSharing = sharing !== undefined && typeof sharing === 'object' && sharing !== null;
+    if (!hasPing && !hasHostKey && !hasCategories && !hasSharing) {
+      res.status(400).json({ error: 'Bitte wählen Sie mindestens eine zu ändernde Einstellung aus.' });
+      return;
+    }
+
+    try {
+      const updated = store.bulkUpdateServers({
+        serverIds,
+        ownerUserId: req.user!.id,
+        isAdmin,
+        pingEnabled: hasPing ? pingEnabled : undefined,
+        ignoreHostKey: hasHostKey ? ignoreHostKey : undefined,
+        categoriesAction: validCatAction,
+        categories: hasCategories && Array.isArray(categories) ? categories : [],
+        sharing: hasSharing
+          ? {
+              sharedWithAll: Boolean(sharing.sharedWithAll),
+              sharedWithUserIds: Array.isArray(sharing.sharedWithUserIds)
+                ? sharing.sharedWithUserIds
+                : [],
+            }
+          : undefined,
+      });
+      if (pingEnabled === true && store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
+        void pingMonitor.pingUserServers(req.user!.id);
+      }
+      res.json({ updatedCount: updated.length, servers: updated });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Sammeleinstellung konnte nicht gespeichert werden.';
+      const status = msg.includes('selbst angelegte') ? 403 : 400;
+      res.status(status).json({ error: msg });
+    }
   });
 
   app.patch('/api/servers/:id', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {

@@ -18,10 +18,12 @@ import {
   RotateCcw,
   Tag,
   Check,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
+import { BulkServersDialog, type BulkServersPayload } from './BulkSettingsDialogs';
 import type { AppSettings, BmcCheckResult, ServerCategory, User, UserServer } from '../types';
 
 interface ServersViewProps {
@@ -81,6 +83,9 @@ export function ServersView({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [checkingBmcKey, setCheckingBmcKey] = useState<string | null>(null);
   const [bmcResults, setBmcResults] = useState<Record<string, BmcCheckResult>>({});
+  const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
+  const [bulkDialogFocus, setBulkDialogFocus] = useState<'all' | 'categories' | 'sharing' | null>(null);
+  const [bulkQuickBusy, setBulkQuickBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -161,6 +166,78 @@ export function ServersView({
       );
     });
   }, [servers, search, categoryFilter]);
+
+  // Keep selection synced with existing own servers
+  useEffect(() => {
+    const ownIdSet = new Set(servers.filter((s) => s.userId === user.id).map((s) => s.id));
+    setSelectedServerIds((prev) => {
+      const next = prev.filter((id) => ownIdSet.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [servers, user.id]);
+
+  const filteredOwnServers = useMemo(
+    () => filtered.filter((s) => s.userId === user.id),
+    [filtered, user.id]
+  );
+
+  const selectedServers = useMemo(() => {
+    const selSet = new Set(selectedServerIds);
+    return servers.filter((s) => s.userId === user.id && selSet.has(s.id));
+  }, [servers, user.id, selectedServerIds]);
+
+  const allFilteredOwnSelected =
+    filteredOwnServers.length > 0 &&
+    filteredOwnServers.every((s) => selectedServerIds.includes(s.id));
+
+  function toggleServerSelection(serverId: string) {
+    setSelectedServerIds((prev) =>
+      prev.includes(serverId) ? prev.filter((id) => id !== serverId) : [...prev, serverId]
+    );
+  }
+
+  function toggleSelectAllFilteredOwn() {
+    const ownIds = filteredOwnServers.map((s) => s.id);
+    if (ownIds.length === 0) return;
+    if (allFilteredOwnSelected) {
+      const removeSet = new Set(ownIds);
+      setSelectedServerIds((prev) => prev.filter((id) => !removeSet.has(id)));
+    } else {
+      setSelectedServerIds((prev) => Array.from(new Set([...prev, ...ownIds])));
+    }
+  }
+
+  async function applyBulkServers(payload: BulkServersPayload) {
+    if (selectedServerIds.length === 0) return;
+    setError(null);
+    setNotice(null);
+    const res = await api.bulkUpdateServers({
+      serverIds: selectedServerIds,
+      ...payload,
+    });
+    await Promise.all([onRefresh(), loadCategories()]);
+    setNotice(
+      tr(
+        `Sammeleinstellungen für ${res.updatedCount} Server (IPs) gespeichert.`,
+        `Bulk settings saved for ${res.updatedCount} servers (IPs).`
+      )
+    );
+  }
+
+  async function handleQuickBulkServers(payload: BulkServersPayload) {
+    setBulkQuickBusy(true);
+    try {
+      await applyBulkServers(payload);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Sammeleinstellung konnte nicht angewendet werden.', 'Could not apply bulk setting.')
+      );
+    } finally {
+      setBulkQuickBusy(false);
+    }
+  }
 
   function toggleCategorySelection(categoryName: string) {
     const lower = categoryName.toLowerCase();
@@ -1024,6 +1101,75 @@ export function ServersView({
           </div>
         </div>
 
+        {selectedServers.length > 0 && (
+          <div className="px-6 py-3 bg-blue-50/80 border-b border-blue-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-xs">
+              <span className="font-semibold text-blue-950">
+                {tr(
+                  `${selectedServers.length} Server ausgewählt`,
+                  `${selectedServers.length} servers selected`
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedServerIds([])}
+                className="text-blue-700 hover:text-blue-950 underline cursor-pointer"
+              >
+                {tr('Auswahl aufheben', 'Clear selection')}
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={bulkQuickBusy}
+                onClick={() => handleQuickBulkServers({ pingEnabled: true })}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+              >
+                <Activity className="w-3.5 h-3.5 text-emerald-700" />
+                {tr('Ping an', 'Ping On')}
+              </button>
+              <button
+                type="button"
+                disabled={bulkQuickBusy}
+                onClick={() => handleQuickBulkServers({ pingEnabled: false })}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+              >
+                <Ban className="w-3.5 h-3.5 text-slate-500" />
+                {tr('Ping aus', 'Ping Off')}
+              </button>
+              <button
+                type="button"
+                disabled={bulkQuickBusy}
+                onClick={() => setBulkDialogFocus('categories')}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+              >
+                <Tag className="w-3.5 h-3.5 text-slate-500" />
+                {tr('Kategorien', 'Categories')}
+              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  disabled={bulkQuickBusy}
+                  onClick={() => setBulkDialogFocus('sharing')}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-800 bg-white border border-blue-300 hover:bg-blue-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-blue-700" />
+                  {tr('Teilen', 'Share')}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={bulkQuickBusy}
+                onClick={() => setBulkDialogFocus('all')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                {tr('Sammeleinstellungen...', 'Bulk Settings...')}
+              </button>
+            </div>
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <Server className="w-7 h-7 text-slate-400 mx-auto mb-3" />
@@ -1046,7 +1192,21 @@ export function ServersView({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 px-6">{tr('Bezeichnung', 'Label')}</th>
+                  <th className="py-2.5 pl-6 pr-2 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredOwnSelected}
+                      disabled={filteredOwnServers.length === 0}
+                      onChange={toggleSelectAllFilteredOwn}
+                      aria-label={tr('Alle eigenen Server auswählen', 'Select all own servers')}
+                      title={tr(
+                        'Alle eigenen gefilterten Server auswählen / abwählen',
+                        'Select / deselect all own filtered servers'
+                      )}
+                      className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
+                    />
+                  </th>
+                  <th className="py-2.5 px-4">{tr('Bezeichnung', 'Label')}</th>
                   <th className="py-2.5 px-4">{tr('Server-IP · SSH', 'Server IP · SSH')}</th>
                   <th className="py-2.5 px-4">BMC (HTTPS :443)</th>
                   <th className="py-2.5 px-4">Ping</th>
@@ -1059,6 +1219,7 @@ export function ServersView({
               <tbody className="divide-y divide-slate-200 text-sm">
                 {filtered.map((srv) => {
                   const isOwner = srv.userId === user.id;
+                  const isSelected = selectedServerIds.includes(srv.id);
                   const shareLabel = isOwner
                     ? formatShareSummary(srv.sharedWithAll, srv.sharedWithUserIds, locale)
                     : tr(
@@ -1070,8 +1231,35 @@ export function ServersView({
                   if (srv.bmcIpAddress2) bmcEntries.push({ slot: 2, ip: srv.bmcIpAddress2 });
 
                   return (
-                    <tr key={srv.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-6 font-medium text-slate-900">
+                    <tr
+                      key={srv.id}
+                      className={`transition-colors ${
+                        isSelected ? 'bg-blue-50/40 hover:bg-blue-50/70' : 'hover:bg-slate-50/80'
+                      }`}
+                    >
+                      <td className="py-3 pl-6 pr-2 w-10">
+                        {isOwner ? (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleServerSelection(srv.id)}
+                            aria-label={tr(`${srv.label} auswählen`, `Select ${srv.label}`)}
+                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                          />
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            disabled
+                            title={tr(
+                              'Geteilte Server anderer Benutzer können nicht bearbeitet werden',
+                              'Shared servers owned by other users cannot be modified'
+                            )}
+                            className="rounded border-slate-200 opacity-35 cursor-not-allowed"
+                          />
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-medium text-slate-900">
                         <p className="whitespace-nowrap">{srv.label}</p>
                         {(srv.categories?.length ?? 0) > 0 && (
                           <div className="flex flex-wrap items-center gap-1 mt-1">
@@ -1395,6 +1583,25 @@ export function ServersView({
             await api.shareServer(sharingServer.id, payload);
             await onRefresh();
           }}
+        />
+      )}
+
+      {bulkDialogFocus && selectedServers.length > 0 && (
+        <BulkServersDialog
+          selectedServers={selectedServers}
+          isAdmin={isAdmin}
+          currentUserId={user.id}
+          users={users}
+          allowInsecureHostKey={allowInsecureHostKey}
+          selectableCategories={selectableCategories}
+          initialFocus={bulkDialogFocus}
+          onCreateCategory={async (name) => {
+            const res = await api.createServerCategory(name);
+            await loadCategories();
+            return res.category.name;
+          }}
+          onClose={() => setBulkDialogFocus(null)}
+          onSave={applyBulkServers}
         />
       )}
     </div>

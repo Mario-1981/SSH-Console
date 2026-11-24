@@ -1415,6 +1415,64 @@ class Store {
     return cmd;
   }
 
+  bulkUpdateCommands(params: {
+    commandIds: string[];
+    ownerUserId: string;
+    isAdmin: boolean;
+    category?: string;
+    enabled?: boolean;
+    sharing?: { sharedWithAll: boolean; sharedWithUserIds: string[] };
+  }): SshCommand[] {
+    const uniqueIds = Array.from(
+      new Set(
+        params.commandIds
+          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+          .map((id) => id.trim())
+      )
+    ).slice(0, 500);
+    if (uniqueIds.length === 0) {
+      throw new Error('Bitte wählen Sie mindestens einen SSH-Befehl aus.');
+    }
+
+    const targets: SshCommand[] = [];
+    for (const id of uniqueIds) {
+      const cmd = this.db.commands.find((c) => c.id === id);
+      if (!cmd) continue;
+      if (cmd.userId !== params.ownerUserId) {
+        throw new Error('Sie können nur selbst angelegte SSH-Befehle bearbeiten.');
+      }
+      targets.push(cmd);
+    }
+    if (targets.length === 0) {
+      throw new Error('Keine passenden eigenen SSH-Befehle gefunden.');
+    }
+
+    const normalizedCategory =
+      params.category !== undefined ? params.category.trim().slice(0, 48) || 'Allgemein' : undefined;
+    const normalizedSharedIds =
+      params.sharing && params.isAdmin && !params.sharing.sharedWithAll
+        ? this.normalizeSharedUserIds(params.ownerUserId, params.sharing.sharedWithUserIds ?? [])
+        : [];
+    const now = new Date().toISOString();
+
+    for (const cmd of targets) {
+      if (normalizedCategory !== undefined) {
+        cmd.category = normalizedCategory;
+      }
+      if (params.enabled !== undefined) {
+        cmd.enabled = Boolean(params.enabled);
+      }
+      if (params.sharing && params.isAdmin) {
+        cmd.sharedWithAll = Boolean(params.sharing.sharedWithAll);
+        cmd.sharedWithUserIds = cmd.sharedWithAll ? [] : [...normalizedSharedIds];
+      }
+      cmd.updatedAt = now;
+    }
+
+    this.save();
+    return targets;
+  }
+
   deleteCommand(id: string): void {
     this.db.commands = this.db.commands.filter((c) => c.id !== id);
     this.save();
@@ -1625,6 +1683,81 @@ class Store {
       : this.normalizeSharedUserIds(ownerUserId, sharedWithUserIds);
     this.save();
     return srv;
+  }
+
+  bulkUpdateServers(params: {
+    serverIds: string[];
+    ownerUserId: string;
+    isAdmin: boolean;
+    pingEnabled?: boolean;
+    ignoreHostKey?: boolean;
+    categoriesAction?: 'add' | 'remove' | 'replace';
+    categories?: string[];
+    sharing?: { sharedWithAll: boolean; sharedWithUserIds: string[] };
+  }): UserServer[] {
+    const uniqueIds = Array.from(
+      new Set(
+        params.serverIds
+          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+          .map((id) => id.trim())
+      )
+    ).slice(0, 500);
+    if (uniqueIds.length === 0) {
+      throw new Error('Bitte wählen Sie mindestens einen Server (IP) aus.');
+    }
+
+    const targets: UserServer[] = [];
+    for (const id of uniqueIds) {
+      const srv = this.db.servers.find((s) => s.id === id);
+      if (!srv) continue;
+      if (srv.userId !== params.ownerUserId) {
+        throw new Error('Sie können nur selbst angelegte Server (IPs) bearbeiten.');
+      }
+      targets.push(srv);
+    }
+    if (targets.length === 0) {
+      throw new Error('Keine passenden eigenen Server gefunden.');
+    }
+
+    const normalizedCats =
+      params.categoriesAction !== undefined
+        ? normalizeServerCategories(params.categories ?? [])
+        : [];
+    const removeSet = new Set(normalizedCats.map((c) => c.toLowerCase()));
+    const normalizedSharedIds =
+      params.sharing && params.isAdmin && !params.sharing.sharedWithAll
+        ? this.normalizeSharedUserIds(params.ownerUserId, params.sharing.sharedWithUserIds ?? [])
+        : [];
+
+    if (
+      (params.categoriesAction === 'add' || params.categoriesAction === 'replace') &&
+      normalizedCats.length > 0
+    ) {
+      this.ensureUserCategoriesExist(params.ownerUserId, normalizedCats);
+    }
+
+    for (const srv of targets) {
+      if (params.pingEnabled !== undefined) {
+        srv.pingEnabled = Boolean(params.pingEnabled);
+      }
+      if (params.ignoreHostKey !== undefined) {
+        srv.ignoreHostKey = Boolean(params.ignoreHostKey);
+      }
+      if (params.categoriesAction === 'replace') {
+        srv.categories = [...normalizedCats];
+      } else if (params.categoriesAction === 'add' && normalizedCats.length > 0) {
+        srv.categories = normalizeServerCategories([...(srv.categories ?? []), ...normalizedCats]);
+      } else if (params.categoriesAction === 'remove' && removeSet.size > 0) {
+        srv.categories = (srv.categories ?? []).filter((c) => !removeSet.has(c.toLowerCase()));
+      }
+      if (params.sharing && params.isAdmin) {
+        srv.sharedWithAll = Boolean(params.sharing.sharedWithAll);
+        srv.sharedWithUserIds = srv.sharedWithAll ? [] : [...normalizedSharedIds];
+      }
+    }
+
+    this.save();
+    return targets;
   }
 
   deleteServer(id: string, userId: string): void {

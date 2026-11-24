@@ -370,6 +370,31 @@ pub struct ShareUpdateRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BulkUpdateCommandsRequest {
+    #[serde(default, alias = "command_ids")]
+    pub command_ids: Vec<String>,
+    pub category: Option<String>,
+    pub enabled: Option<bool>,
+    pub sharing: Option<ShareUpdateRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkUpdateServersRequest {
+    #[serde(default, alias = "server_ids")]
+    pub server_ids: Vec<String>,
+    #[serde(alias = "ping_enabled")]
+    pub ping_enabled: Option<bool>,
+    #[serde(alias = "ignore_host_key")]
+    pub ignore_host_key: Option<bool>,
+    #[serde(alias = "categories_action")]
+    pub categories_action: Option<String>,
+    pub categories: Option<Vec<String>>,
+    pub sharing: Option<ShareUpdateRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateCommandRequest {
     pub name: String,
     pub category: Option<String>,

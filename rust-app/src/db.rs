@@ -1248,6 +1248,114 @@ impl Database {
         self.get_command(id)
     }
 
+    pub fn bulk_update_commands(
+        &self,
+        command_ids: &[String],
+        owner_user_id: &str,
+        is_admin: bool,
+        category: Option<&str>,
+        enabled: Option<bool>,
+        sharing: Option<(bool, &[String])>,
+    ) -> Result<Vec<SshCommand>, String> {
+        let mut unique_ids: Vec<String> = Vec::new();
+        for raw in command_ids {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() && !unique_ids.iter().any(|x| x == trimmed) {
+                unique_ids.push(trimmed.to_string());
+                if unique_ids.len() >= 500 {
+                    break;
+                }
+            }
+        }
+        if unique_ids.is_empty() {
+            return Err("Bitte wählen Sie mindestens einen SSH-Befehl aus.".into());
+        }
+
+        let clean_cat = category.map(|c| {
+            let t = c.trim();
+            if t.is_empty() {
+                "Allgemein".to_string()
+            } else {
+                t.chars().take(48).collect()
+            }
+        });
+        let sharing_prepared: Option<(i64, String)> = if is_admin {
+            if let Some((all, user_ids)) = sharing {
+                let clean_shared: Vec<String> = if all {
+                    vec![]
+                } else {
+                    user_ids
+                        .iter()
+                        .filter(|u| u.as_str() != owner_user_id)
+                        .cloned()
+                        .collect()
+                };
+                let json_str = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
+                Some((if all { 1 } else { 0 }, json_str))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let now = Utc::now().to_rfc3339();
+        let mut verified_ids: Vec<String> = Vec::new();
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            for id in &unique_ids {
+                let owner_opt: Option<String> = conn
+                    .query_row(
+                        "SELECT user_id FROM ssh_commands WHERE id = ?1",
+                        params![id],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| e.to_string())?;
+                let Some(found_owner) = owner_opt else {
+                    continue;
+                };
+                if found_owner != owner_user_id {
+                    return Err("Sie können nur selbst angelegte SSH-Befehle bearbeiten.".into());
+                }
+                verified_ids.push(id.clone());
+            }
+            if verified_ids.is_empty() {
+                return Err("Keine passenden eigenen SSH-Befehle gefunden.".into());
+            }
+            for id in &verified_ids {
+                if let Some(ref cat) = clean_cat {
+                    conn.execute(
+                        "UPDATE ssh_commands SET category = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4",
+                        params![cat, now, id, owner_user_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                if let Some(en) = enabled {
+                    conn.execute(
+                        "UPDATE ssh_commands SET enabled = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4",
+                        params![if en { 1i64 } else { 0i64 }, now, id, owner_user_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                if let Some((all_flag, ref shared_json)) = sharing_prepared {
+                    conn.execute(
+                        "UPDATE ssh_commands SET shared_with_all = ?1, shared_with_user_ids = ?2, updated_at = ?3 WHERE id = ?4 AND user_id = ?5",
+                        params![all_flag, shared_json, now, id, owner_user_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(verified_ids.len());
+        for id in verified_ids {
+            if let Some(cmd) = self.get_command(&id)? {
+                out.push(cmd);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn delete_command(&self, id: &str, owner_user_id: &str) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         conn.execute(
@@ -1681,6 +1789,137 @@ impl Database {
             }
         }
         self.get_accessible_server(id, owner_user_id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn bulk_update_servers(
+        &self,
+        server_ids: &[String],
+        owner_user_id: &str,
+        is_admin: bool,
+        ping_enabled: Option<bool>,
+        ignore_host_key: Option<bool>,
+        categories_action: Option<&str>,
+        categories: &[String],
+        sharing: Option<(bool, &[String])>,
+    ) -> Result<Vec<UserServer>, String> {
+        let mut unique_ids: Vec<String> = Vec::new();
+        for raw in server_ids {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() && !unique_ids.iter().any(|x| x == trimmed) {
+                unique_ids.push(trimmed.to_string());
+                if unique_ids.len() >= 500 {
+                    break;
+                }
+            }
+        }
+        if unique_ids.is_empty() {
+            return Err("Bitte wählen Sie mindestens einen Server (IP) aus.".into());
+        }
+
+        let norm_cats = Self::normalize_server_categories(categories);
+        let remove_set: std::collections::HashSet<String> =
+            norm_cats.iter().map(|c| c.to_lowercase()).collect();
+        let sharing_prepared: Option<(i64, String)> = if is_admin {
+            if let Some((all, user_ids)) = sharing {
+                let clean_shared: Vec<String> = if all {
+                    vec![]
+                } else {
+                    user_ids
+                        .iter()
+                        .filter(|u| u.as_str() != owner_user_id)
+                        .cloned()
+                        .collect()
+                };
+                let json_str = serde_json::to_string(&clean_shared).map_err(|e| e.to_string())?;
+                Some((if all { 1 } else { 0 }, json_str))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut verified_targets: Vec<(String, String)> = Vec::new();
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            for id in &unique_ids {
+                let row_opt: Option<(String, String)> = conn
+                    .query_row(
+                        "SELECT user_id, categories_json FROM user_servers WHERE id = ?1",
+                        params![id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .optional()
+                    .map_err(|e| e.to_string())?;
+                let Some((found_owner, existing_cats_json)) = row_opt else {
+                    continue;
+                };
+                if found_owner != owner_user_id {
+                    return Err("Sie können nur selbst angelegte Server (IPs) bearbeiten.".into());
+                }
+                verified_targets.push((id.clone(), existing_cats_json));
+            }
+            if verified_targets.is_empty() {
+                return Err("Keine passenden eigenen Server gefunden.".into());
+            }
+            if matches!(categories_action, Some("add") | Some("replace")) && !norm_cats.is_empty() {
+                Self::ensure_user_categories_locked(&conn, owner_user_id, &norm_cats)?;
+            }
+            for (id, existing_cats_json) in &verified_targets {
+                if let Some(ping) = ping_enabled {
+                    conn.execute(
+                        "UPDATE user_servers SET ping_enabled = ?1 WHERE id = ?2 AND user_id = ?3",
+                        params![if ping { 1i64 } else { 0i64 }, id, owner_user_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                if let Some(ignore_hk) = ignore_host_key {
+                    conn.execute(
+                        "UPDATE user_servers SET ignore_host_key = ?1 WHERE id = ?2 AND user_id = ?3",
+                        params![if ignore_hk { 1i64 } else { 0i64 }, id, owner_user_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                if let Some(action) = categories_action {
+                    let current_cats: Vec<String> =
+                        serde_json::from_str(existing_cats_json).unwrap_or_default();
+                    let next_cats = match action {
+                        "replace" => norm_cats.clone(),
+                        "add" => {
+                            let mut merged = current_cats;
+                            merged.extend(norm_cats.iter().cloned());
+                            Self::normalize_server_categories(&merged)
+                        }
+                        "remove" => current_cats
+                            .into_iter()
+                            .filter(|c| !remove_set.contains(&c.to_lowercase()))
+                            .collect(),
+                        _ => current_cats,
+                    };
+                    let next_json = serde_json::to_string(&next_cats).map_err(|e| e.to_string())?;
+                    conn.execute(
+                        "UPDATE user_servers SET categories_json = ?1 WHERE id = ?2 AND user_id = ?3",
+                        params![next_json, id, owner_user_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                if let Some((all_flag, ref shared_json)) = sharing_prepared {
+                    conn.execute(
+                        "UPDATE user_servers SET shared_with_all = ?1, shared_with_user_ids = ?2 WHERE id = ?3 AND user_id = ?4",
+                        params![all_flag, shared_json, id, owner_user_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(verified_targets.len());
+        for (id, _) in verified_targets {
+            if let Some(srv) = self.get_accessible_server(&id, owner_user_id)? {
+                out.push(srv);
+            }
+        }
+        Ok(out)
     }
 
     pub fn delete_server(&self, id: &str, user_id: &str) -> Result<(), String> {

@@ -2006,6 +2006,71 @@ async fn api_share_command(
     Ok(Json(json!({ "command": updated })))
 }
 
+async fn api_bulk_update_commands(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<BulkUpdateCommandsRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if req.command_ids.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte wählen Sie mindestens einen SSH-Befehl aus.",
+        ));
+    }
+    if req.command_ids.len() > 500 {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Maximal 500 Befehle pro Sammeleinstellung erlaubt.",
+        ));
+    }
+    let is_admin = user.role == "admin";
+    if req.sharing.is_some() && !is_admin {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Nur Administratoren dürfen Freigaben ändern.",
+        ));
+    }
+    let cat_opt = req
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if cat_opt.is_none() && req.enabled.is_none() && req.sharing.is_none() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte wählen Sie mindestens eine zu ändernde Einstellung aus.",
+        ));
+    }
+    let sharing_tuple = req
+        .sharing
+        .as_ref()
+        .map(|s| (s.shared_with_all, s.shared_with_user_ids.as_slice()));
+    let updated = state
+        .db
+        .bulk_update_commands(
+            &req.command_ids,
+            &user.id,
+            is_admin,
+            cat_opt,
+            req.enabled,
+            sharing_tuple,
+        )
+        .map_err(|e| {
+            let status = if e.contains("selbst angelegte") {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            err_resp(status, e)
+        })?;
+    Ok(Json(json!({
+        "updatedCount": updated.len(),
+        "commands": updated
+    })))
+}
+
 async fn api_delete_command(
     State(state): State<SharedState>,
     jar: CookieJar,
@@ -2328,6 +2393,110 @@ async fn api_share_server(
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
         .ok_or_else(|| err_resp(StatusCode::FORBIDDEN, "Sie können nur eigene Server (IPs) teilen."))?;
     Ok(Json(json!({ "server": updated })))
+}
+
+async fn api_bulk_update_servers(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<BulkUpdateServersRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if req.server_ids.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte wählen Sie mindestens einen Server (IP) aus.",
+        ));
+    }
+    if req.server_ids.len() > 500 {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Maximal 500 Server pro Sammeleinstellung erlaubt.",
+        ));
+    }
+    let is_admin = user.role == "admin";
+    if req.sharing.is_some() && !is_admin {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Nur Administratoren dürfen Freigaben ändern.",
+        ));
+    }
+    let cat_action = match req.categories_action.as_deref() {
+        Some("add") => Some("add"),
+        Some("remove") => Some("remove"),
+        Some("replace") => Some("replace"),
+        Some(_) => {
+            return Err(err_resp(
+                StatusCode::BAD_REQUEST,
+                "Ungültige Kategorie-Aktion (erlaubt: add, remove, replace).",
+            ));
+        }
+        None => None,
+    };
+    let policy = state.db.get_auth_policy();
+    if req.ignore_host_key == Some(true) && !policy.allow_insecure_host_key {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Das Deaktivieren der Host-Key-Prüfung (StrictHostKeyChecking=no) ist global vom Administrator verboten.",
+        ));
+    }
+    if req.ping_enabled.is_none()
+        && req.ignore_host_key.is_none()
+        && cat_action.is_none()
+        && req.sharing.is_none()
+    {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte wählen Sie mindestens eine zu ändernde Einstellung aus.",
+        ));
+    }
+
+    let cats = req.categories.unwrap_or_default();
+    let sharing_tuple = req
+        .sharing
+        .as_ref()
+        .map(|s| (s.shared_with_all, s.shared_with_user_ids.as_slice()));
+
+    let updated = state
+        .db
+        .bulk_update_servers(
+            &req.server_ids,
+            &user.id,
+            is_admin,
+            req.ping_enabled,
+            req.ignore_host_key,
+            cat_action,
+            &cats,
+            sharing_tuple,
+        )
+        .map_err(|e| {
+            let status = if e.contains("selbst angelegte") {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            err_resp(status, e)
+        })?;
+
+    if req.ping_enabled == Some(true) && state.db.get_ping_allowed() && user.ping_enabled {
+        let bg_state = Arc::clone(&state);
+        let bg_servers = updated.clone();
+        tokio::spawn(async move {
+            for srv in bg_servers {
+                if !bg_state.db.get_ping_allowed() || !srv.ping_enabled {
+                    break;
+                }
+                let prev_ok = known_last_online_at(&bg_state, &srv).await;
+                let st = ping::check_server_reachability(&srv, prev_ok).await;
+                record_ping_result(&bg_state, &srv, st).await;
+            }
+        });
+    }
+
+    Ok(Json(json!({
+        "updatedCount": updated.len(),
+        "servers": updated
+    })))
 }
 
 async fn api_delete_server(
@@ -4121,6 +4290,7 @@ async fn main() {
         .route("/api/admin/ping-settings", patch(api_admin_ping_settings))
         .route("/api/commands", get(api_list_commands).post(api_create_command))
         .route("/api/commands/presets", post(api_load_presets))
+        .route("/api/commands/bulk", patch(api_bulk_update_commands))
         .route(
             "/api/commands/:id",
             patch(api_update_command).delete(api_delete_command),
@@ -4128,11 +4298,13 @@ async fn main() {
         .route("/api/commands/:id/share", patch(api_share_command))
         .route("/api/admin/commands", post(api_create_command))
         .route("/api/admin/commands/presets", post(api_load_presets))
+        .route("/api/admin/commands/bulk", patch(api_bulk_update_commands))
         .route(
             "/api/admin/commands/:id",
             patch(api_update_command).delete(api_delete_command),
         )
         .route("/api/servers", get(api_list_servers).post(api_create_server))
+        .route("/api/servers/bulk", patch(api_bulk_update_servers))
         .route("/api/servers/:id", patch(api_update_server).delete(api_delete_server))
         .route("/api/servers/:id/check-bmc", post(api_check_bmc))
         .route("/api/servers/:id/share", patch(api_share_server))

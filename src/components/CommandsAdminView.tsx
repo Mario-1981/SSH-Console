@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -21,6 +21,7 @@ import {
 import { api } from '../api';
 import { translateCategory, useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
+import { BulkCommandsDialog, type BulkCommandsPayload } from './BulkSettingsDialogs';
 import {
   parseAndValidateWorkflow,
   WORKFLOW_TEMPLATES,
@@ -128,7 +129,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
   const [filterKind, setFilterKind] = useState<'all' | 'single' | 'chain' | 'workflow'>('all');
   const [saving, setSaving] = useState(false);
   const [loadingPresets, setLoadingPresets] = useState(false);
+  const [selectedCommandIds, setSelectedCommandIds] = useState<string[]>([]);
+  const [bulkDialogFocus, setBulkDialogFocus] = useState<'all' | 'sharing' | null>(null);
+  const [bulkQuickBusy, setBulkQuickBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -145,6 +150,87 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       );
     });
   }, [commands, search, filterKind, locale]);
+
+  useEffect(() => {
+    const ownIdSet = new Set(commands.filter((c) => c.userId === currentUser.id).map((c) => c.id));
+    setSelectedCommandIds((prev) => {
+      const next = prev.filter((id) => ownIdSet.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [commands, currentUser.id]);
+
+  const filteredOwnCommands = useMemo(
+    () => filtered.filter((c) => c.userId === currentUser.id),
+    [filtered, currentUser.id]
+  );
+
+  const selectedCommands = useMemo(() => {
+    const selSet = new Set(selectedCommandIds);
+    return commands.filter((c) => c.userId === currentUser.id && selSet.has(c.id));
+  }, [commands, currentUser.id, selectedCommandIds]);
+
+  const allFilteredOwnSelected =
+    filteredOwnCommands.length > 0 &&
+    filteredOwnCommands.every((c) => selectedCommandIds.includes(c.id));
+
+  const availableCategories = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of CATEGORIES) map.set(c.toLowerCase(), c);
+    for (const cmd of commands) {
+      const trimmed = cmd.category.trim();
+      if (trimmed && !map.has(trimmed.toLowerCase())) map.set(trimmed.toLowerCase(), trimmed);
+    }
+    return Array.from(map.values());
+  }, [commands]);
+
+  function toggleCommandSelection(cmdId: string) {
+    setSelectedCommandIds((prev) =>
+      prev.includes(cmdId) ? prev.filter((id) => id !== cmdId) : [...prev, cmdId]
+    );
+  }
+
+  function toggleSelectAllFilteredOwn() {
+    const ownIds = filteredOwnCommands.map((c) => c.id);
+    if (ownIds.length === 0) return;
+    if (allFilteredOwnSelected) {
+      const removeSet = new Set(ownIds);
+      setSelectedCommandIds((prev) => prev.filter((id) => !removeSet.has(id)));
+    } else {
+      setSelectedCommandIds((prev) => Array.from(new Set([...prev, ...ownIds])));
+    }
+  }
+
+  async function applyBulkCommands(payload: BulkCommandsPayload) {
+    if (selectedCommandIds.length === 0) return;
+    setError(null);
+    setNotice(null);
+    const res = await api.bulkUpdateCommands({
+      commandIds: selectedCommandIds,
+      ...payload,
+    });
+    await onRefresh();
+    setNotice(
+      tr(
+        `Sammeleinstellungen für ${res.updatedCount} SSH-Befehle gespeichert.`,
+        `Bulk settings saved for ${res.updatedCount} SSH commands.`
+      )
+    );
+  }
+
+  async function handleQuickBulkCommands(payload: BulkCommandsPayload) {
+    setBulkQuickBusy(true);
+    try {
+      await applyBulkCommands(payload);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr('Sammeleinstellung konnte nicht angewendet werden.', 'Could not apply bulk setting.')
+      );
+    } finally {
+      setBulkQuickBusy(false);
+    }
+  }
 
   const chainPreview = useMemo(() => buildPreviewCommand(steps, stopOnError), [steps, stopOnError]);
   const totalChainSleep = useMemo(() => getTotalSleepSec(steps), [steps]);
@@ -999,6 +1085,83 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           </div>
         </div>
 
+        {notice && (
+          <div
+            role="status"
+            className="px-6 py-2.5 bg-emerald-50 border-b border-emerald-200 text-xs text-emerald-800 flex items-center justify-between gap-3"
+          >
+            <span>{notice}</span>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              aria-label={tr('Meldung schließen', 'Dismiss notice')}
+              className="text-emerald-700 hover:text-emerald-950 cursor-pointer shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {selectedCommands.length > 0 && (
+          <div className="px-6 py-3 bg-blue-50/80 border-b border-blue-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-xs">
+              <span className="font-semibold text-blue-950">
+                {tr(
+                  `${selectedCommands.length} Befehle ausgewählt`,
+                  `${selectedCommands.length} commands selected`
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedCommandIds([])}
+                className="text-blue-700 hover:text-blue-950 underline cursor-pointer"
+              >
+                {tr('Auswahl aufheben', 'Clear selection')}
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={bulkQuickBusy}
+                onClick={() => handleQuickBulkCommands({ enabled: true })}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5 text-emerald-700" />
+                {tr('Aktivieren', 'Enable')}
+              </button>
+              <button
+                type="button"
+                disabled={bulkQuickBusy}
+                onClick={() => handleQuickBulkCommands({ enabled: false })}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5 text-slate-500" />
+                {tr('Deaktivieren', 'Disable')}
+              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  disabled={bulkQuickBusy}
+                  onClick={() => setBulkDialogFocus('sharing')}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-800 bg-white border border-blue-300 hover:bg-blue-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-blue-700" />
+                  {tr('Teilen', 'Share')}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={bulkQuickBusy}
+                onClick={() => setBulkDialogFocus('all')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                {tr('Sammeleinstellungen...', 'Bulk Settings...')}
+              </button>
+            </div>
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <SlidersHorizontal className="w-7 h-7 text-slate-400 mx-auto mb-3" />
@@ -1017,7 +1180,21 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 px-6">{tr('Bezeichnung', 'Name')}</th>
+                  <th className="py-2.5 pl-6 pr-2 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredOwnSelected}
+                      disabled={filteredOwnCommands.length === 0}
+                      onChange={toggleSelectAllFilteredOwn}
+                      aria-label={tr('Alle eigenen Befehle auswählen', 'Select all own commands')}
+                      title={tr(
+                        'Alle eigenen gefilterten Befehle auswählen / abwählen',
+                        'Select / deselect all own filtered commands'
+                      )}
+                      className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
+                    />
+                  </th>
+                  <th className="py-2.5 px-4">{tr('Bezeichnung', 'Name')}</th>
                   <th className="py-2.5 px-4">{tr('Typ · Kategorie', 'Type · Category')}</th>
                   <th className="py-2.5 px-4">{tr('SSH-Befehl', 'SSH Command')}</th>
                   <th className="py-2.5 px-4">{tr('Sichtbarkeit', 'Visibility')}</th>
@@ -1032,13 +1209,41 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   const isWorkflow = cmd.kind === 'workflow';
                   const sleepSum = isChain ? getTotalSleepSec(cmd.steps) : 0;
                   const isOwner = cmd.userId === currentUser.id;
+                  const isSelected = selectedCommandIds.includes(cmd.id);
                   const catLabel = translateCategory(cmd.category, locale);
                   const shareLabel = isOwner
                     ? formatShareSummary(cmd.sharedWithAll, cmd.sharedWithUserIds, locale)
                     : tr(`Geteilt von ${cmd.createdBy}`, `Shared by ${cmd.createdBy}`);
                   return (
-                    <tr key={cmd.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-6">
+                    <tr
+                      key={cmd.id}
+                      className={`transition-colors ${
+                        isSelected ? 'bg-blue-50/40 hover:bg-blue-50/70' : 'hover:bg-slate-50/80'
+                      }`}
+                    >
+                      <td className="py-3 pl-6 pr-2 w-10">
+                        {isOwner ? (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleCommandSelection(cmd.id)}
+                            aria-label={tr(`${cmd.name} auswählen`, `Select ${cmd.name}`)}
+                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                          />
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            disabled
+                            title={tr(
+                              'Geteilte Befehle anderer Benutzer können nicht bearbeitet werden',
+                              'Shared commands owned by other users cannot be modified'
+                            )}
+                            className="rounded border-slate-200 opacity-35 cursor-not-allowed"
+                          />
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
                         <p className="font-medium text-slate-900">{cmd.name}</p>
                         {cmd.description && (
                           <p className="text-xs text-slate-500 mt-0.5 max-w-sm truncate">
@@ -1169,6 +1374,19 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             await api.shareCommand(sharingCmd.id, payload);
             await onRefresh();
           }}
+        />
+      )}
+
+      {bulkDialogFocus && selectedCommands.length > 0 && (
+        <BulkCommandsDialog
+          selectedCommands={selectedCommands}
+          isAdmin={isAdmin}
+          currentUserId={currentUser.id}
+          users={users}
+          categories={availableCategories}
+          initialFocus={bulkDialogFocus}
+          onClose={() => setBulkDialogFocus(null)}
+          onSave={applyBulkCommands}
         />
       )}
     </div>
