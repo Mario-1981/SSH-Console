@@ -209,25 +209,25 @@ export function BulkServersDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4 py-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 dark:bg-black/70 px-4 py-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="bulk-servers-title"
     >
-      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white border border-slate-200 rounded-lg overflow-hidden shadow-lg">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0">
+      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-lg">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 shrink-0">
           <div className="min-w-0">
             <h2
               id="bulk-servers-title"
-              className="font-display text-base font-semibold text-slate-900 flex items-center gap-2"
+              className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2"
             >
-              <SlidersHorizontal className="w-4 h-4 text-blue-700 shrink-0" />
+              <SlidersHorizontal className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
               {tr(
                 `Sammeleinstellungen für ${selectedServers.length} Server (IPs)`,
                 `Bulk Settings for ${selectedServers.length} Servers (IPs)`
               )}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5 truncate">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
               {previewNames}
               {extraCount > 0 ? tr(` + ${extraCount} weitere`, ` + ${extraCount} more`) : ''}
             </p>
@@ -236,7 +236,7 @@ export function BulkServersDialog({
             type="button"
             onClick={onClose}
             aria-label={tr('Schließen', 'Close')}
-            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md cursor-pointer shrink-0"
+            className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -246,13 +246,13 @@ export function BulkServersDialog({
           {error && (
             <div
               role="alert"
-              className="px-3.5 py-2.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-800"
+              className="px-3.5 py-2.5 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300"
             >
               {error}
             </div>
           )}
 
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {tr(
               'Wählen Sie genau die Optionen aus, die auf alle markierten IPs angewendet werden sollen. Felder auf „Unverändert“ bleiben je Server erhalten.',
               'Choose only the options you want to apply to all selected IPs. Settings left on "Unchanged" keep each server’s existing value.'
@@ -261,9 +261,9 @@ export function BulkServersDialog({
 
           {/* 1. Ping On/Off */}
           {canManageServers && (
-          <div className="border border-slate-200 rounded-md p-4 space-y-2.5">
-            <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-slate-500" />
+          <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 space-y-2.5">
+            <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               {tr('Ping-Erreichbarkeitsprüfung', 'Ping Reachability Check')}
             </p>
             <div className="grid grid-cols-3 gap-2">
@@ -281,11 +281,11 @@ export function BulkServersDialog({
                   className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                     pingMode === opt.id
                       ? opt.id === 'on'
-                        ? 'bg-emerald-50 text-emerald-900 border-emerald-400'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 border-emerald-400'
                         : opt.id === 'off'
-                        ? 'bg-slate-800 text-white border-slate-800'
-                        : 'bg-blue-50 text-blue-900 border-blue-400'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        ? 'bg-slate-800 dark:bg-slate-700 text-white border-slate-800 dark:border-slate-500'
+                        : 'bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border-blue-400'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                   }`}
                 >
                   {'icon' in opt && <opt.icon className="w-3.5 h-3.5 shrink-0" />}
@@ -298,14 +298,14 @@ export function BulkServersDialog({
 
           {/* 2. Host-Key Checking */}
           {canManageServers && (
-          <div className="border border-slate-200 rounded-md p-4 space-y-2.5">
+          <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                 {tr('SSH-Host-Key-Überprüfung', 'SSH Host Key Verification')}
               </p>
               {!allowInsecureHostKey && (
-                <span className="text-[11px] text-amber-700 font-medium">
+                <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
                   {tr('Ignorieren vom Admin global verboten', 'Bypass globally prohibited by admin')}
                 </span>
               )}
@@ -316,8 +316,8 @@ export function BulkServersDialog({
                 onClick={() => setHostKeyMode('unchanged')}
                 className={`px-3 py-2 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                   hostKeyMode === 'unchanged'
-                    ? 'bg-blue-50 text-blue-900 border-blue-400'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border-blue-400'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                 }`}
               >
                 {tr('Unverändert', 'Unchanged')}
@@ -327,11 +327,11 @@ export function BulkServersDialog({
                 onClick={() => setHostKeyMode('on')}
                 className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                   hostKeyMode === 'on'
-                    ? 'bg-emerald-50 text-emerald-900 border-emerald-400'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 border-emerald-400'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                 }`}
               >
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                 <span>{tr('Ja · Prüfen', 'Yes · Verify')}</span>
               </button>
               <button
@@ -340,11 +340,11 @@ export function BulkServersDialog({
                 onClick={() => setHostKeyMode('off')}
                 className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   hostKeyMode === 'off'
-                    ? 'bg-amber-50 text-amber-900 border-amber-400'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border-amber-400 dark:border-amber-700/80'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                 }`}
               >
-                <ShieldAlert className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                <ShieldAlert className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
                 <span>{tr('Nein · Ignorieren', 'No · Bypass')}</span>
               </button>
             </div>
@@ -353,9 +353,9 @@ export function BulkServersDialog({
 
           {/* 3. IP Categories */}
           {canManageServers && (
-          <div className="border border-slate-200 rounded-md p-4 space-y-3">
-            <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
-              <Tag className="w-3.5 h-3.5 text-slate-500" />
+          <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 space-y-3">
+            <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <Tag className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               {tr('IP-Kategorien', 'IP Categories')}
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -373,8 +373,8 @@ export function BulkServersDialog({
                   onClick={() => setCatAction(opt.id)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                     catAction === opt.id
-                      ? 'bg-blue-50 text-blue-900 border-blue-400'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border-blue-400'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                   }`}
                 >
                   {opt.label}
@@ -398,13 +398,13 @@ export function BulkServersDialog({
                       }}
                       maxLength={48}
                       placeholder={tr('Neue Kategorie anlegen & auswählen...', 'Create & select new category...')}
-                      className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                     />
                     <button
                       type="button"
                       onClick={handleQuickAddCategory}
                       disabled={creatingCat || !newCatInput.trim()}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-md cursor-pointer whitespace-nowrap"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 rounded-md cursor-pointer whitespace-nowrap"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       {tr('Anlegen', 'Add')}
@@ -426,9 +426,9 @@ export function BulkServersDialog({
                           className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                             active
                               ? catAction === 'remove'
-                                ? 'bg-red-50 text-red-800 border-red-300'
-                                : 'bg-blue-50 text-blue-800 border-blue-300'
-                              : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                                ? 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-300 dark:border-red-700/80'
+                                : 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-700/80'
+                              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-900 dark:hover:text-slate-100'
                           }`}
                         >
                           {active && <Check className="w-3 h-3 shrink-0" />}
@@ -438,7 +438,7 @@ export function BulkServersDialog({
                     })}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {tr(
                       'Noch keine Kategorien vorhanden. Legen Sie oben eine Kategorie an.',
                       'No categories available yet. Create one above.'
@@ -447,7 +447,7 @@ export function BulkServersDialog({
                 )}
 
                 {catAction === 'replace' && chosenCategories.length === 0 && (
-                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 rounded px-2.5 py-1.5">
                     {tr(
                       'Hinweis: Ohne ausgewählte Kategorie werden bei „Ersetzen“ alle bestehenden Kategorien der gewählten Server entfernt.',
                       'Note: With no categories selected, "Replace" clears all existing categories on the selected servers.'
@@ -461,9 +461,9 @@ export function BulkServersDialog({
 
           {/* 4. Sharing */}
           {canShare && (
-            <div className="border border-slate-200 rounded-md p-4 space-y-3">
-              <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
-                <Share2 className="w-3.5 h-3.5 text-slate-500" />
+            <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 space-y-3">
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <Share2 className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                 {tr('Teilen & Sichtbarkeit', 'Sharing & Visibility')}
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -481,8 +481,8 @@ export function BulkServersDialog({
                     onClick={() => setShareMode(opt.id)}
                     className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                       shareMode === opt.id
-                        ? 'bg-blue-50 text-blue-900 border-blue-400'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border-blue-400'
+                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                     }`}
                   >
                     {'icon' in opt && <opt.icon className="w-3.5 h-3.5 shrink-0" />}
@@ -493,36 +493,36 @@ export function BulkServersDialog({
 
               {shareMode === 'selected' && (
                 <div className="space-y-1.5 pt-1">
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     {tr(
                       `Berechtigte Benutzer (${shareUserIds.length} ausgewählt)`,
                       `Authorized users (${shareUserIds.length} selected)`
                     )}
                   </p>
                   {otherUsers.length === 0 ? (
-                    <p className="text-xs text-slate-500 px-3 py-2.5 rounded-md bg-slate-50 border border-slate-200">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 px-3 py-2.5 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                       {tr(
                         'Es wurden noch keine weiteren Benutzerkonten angelegt.',
                         'No other user accounts exist yet.'
                       )}
                     </p>
                   ) : (
-                    <div className="border border-slate-200 rounded-md divide-y divide-slate-200 max-h-40 overflow-y-auto">
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-md divide-y divide-slate-200 dark:divide-slate-800 max-h-40 overflow-y-auto">
                       {otherUsers.map((u) => (
                         <label
                           key={u.id}
-                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer"
+                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer"
                         >
                           <input
                             type="checkbox"
                             checked={shareUserIds.includes(u.id)}
                             onChange={() => toggleUser(u.id)}
-                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                            className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
                           />
                           <div className="min-w-0">
-                            <p className="text-xs font-medium text-slate-900 truncate">
+                            <p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">
                               {u.displayName}{' '}
-                              <span className="font-mono text-slate-500">({u.username})</span>
+                              <span className="font-mono text-slate-500 dark:text-slate-400">({u.username})</span>
                             </p>
                           </div>
                         </label>
@@ -534,11 +534,11 @@ export function BulkServersDialog({
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+              className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer"
             >
               {tr('Abbrechen', 'Cancel')}
             </button>
@@ -673,25 +673,25 @@ export function BulkCommandsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4 py-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 dark:bg-black/70 px-4 py-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="bulk-commands-title"
     >
-      <div className="w-full max-w-xl max-h-[90vh] flex flex-col bg-white border border-slate-200 rounded-lg overflow-hidden shadow-lg">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0">
+      <div className="w-full max-w-xl max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-lg">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 shrink-0">
           <div className="min-w-0">
             <h2
               id="bulk-commands-title"
-              className="font-display text-base font-semibold text-slate-900 flex items-center gap-2"
+              className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2"
             >
-              <SlidersHorizontal className="w-4 h-4 text-blue-700 shrink-0" />
+              <SlidersHorizontal className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
               {tr(
                 `Sammeleinstellungen für ${selectedCommands.length} SSH-Befehle`,
                 `Bulk Settings for ${selectedCommands.length} SSH Commands`
               )}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5 truncate">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
               {previewNames}
               {extraCount > 0 ? tr(` + ${extraCount} weitere`, ` + ${extraCount} more`) : ''}
             </p>
@@ -700,7 +700,7 @@ export function BulkCommandsDialog({
             type="button"
             onClick={onClose}
             aria-label={tr('Schließen', 'Close')}
-            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md cursor-pointer shrink-0"
+            className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -710,13 +710,13 @@ export function BulkCommandsDialog({
           {error && (
             <div
               role="alert"
-              className="px-3.5 py-2.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-800"
+              className="px-3.5 py-2.5 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300"
             >
               {error}
             </div>
           )}
 
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {tr(
               'Ändern Sie Freigabe, Status oder Kategorie gebündelt für alle markierten Befehle. Einstellungen auf „Unverändert“ bleiben erhalten.',
               'Update sharing, status, or category across all selected commands at once. Settings left on "Unchanged" stay as-is.'
@@ -725,9 +725,9 @@ export function BulkCommandsDialog({
 
           {/* 1. Sharing */}
           {canShare && (
-            <div className="border border-slate-200 rounded-md p-4 space-y-3">
-              <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
-                <Share2 className="w-3.5 h-3.5 text-slate-500" />
+            <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 space-y-3">
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <Share2 className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                 {tr('Teilen & Sichtbarkeit', 'Sharing & Visibility')}
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -745,8 +745,8 @@ export function BulkCommandsDialog({
                     onClick={() => setShareMode(opt.id)}
                     className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                       shareMode === opt.id
-                        ? 'bg-blue-50 text-blue-900 border-blue-400'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border-blue-400'
+                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                     }`}
                   >
                     {'icon' in opt && <opt.icon className="w-3.5 h-3.5 shrink-0" />}
@@ -757,36 +757,36 @@ export function BulkCommandsDialog({
 
               {shareMode === 'selected' && (
                 <div className="space-y-1.5 pt-1">
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
                     {tr(
                       `Berechtigte Benutzer (${shareUserIds.length} ausgewählt)`,
                       `Authorized users (${shareUserIds.length} selected)`
                     )}
                   </p>
                   {otherUsers.length === 0 ? (
-                    <p className="text-xs text-slate-500 px-3 py-2.5 rounded-md bg-slate-50 border border-slate-200">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 px-3 py-2.5 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                       {tr(
                         'Es wurden noch keine weiteren Benutzerkonten angelegt.',
                         'No other user accounts exist yet.'
                       )}
                     </p>
                   ) : (
-                    <div className="border border-slate-200 rounded-md divide-y divide-slate-200 max-h-40 overflow-y-auto">
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-md divide-y divide-slate-200 dark:divide-slate-800 max-h-40 overflow-y-auto">
                       {otherUsers.map((u) => (
                         <label
                           key={u.id}
-                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer"
+                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer"
                         >
                           <input
                             type="checkbox"
                             checked={shareUserIds.includes(u.id)}
                             onChange={() => toggleUser(u.id)}
-                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                            className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
                           />
                           <div className="min-w-0">
-                            <p className="text-xs font-medium text-slate-900 truncate">
+                            <p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">
                               {u.displayName}{' '}
-                              <span className="font-mono text-slate-500">({u.username})</span>
+                              <span className="font-mono text-slate-500 dark:text-slate-400">({u.username})</span>
                             </p>
                           </div>
                         </label>
@@ -800,8 +800,8 @@ export function BulkCommandsDialog({
 
           {/* 2. Status */}
           {canEditCommands && (
-            <div className="border border-slate-200 rounded-md p-4 space-y-2.5">
-              <p className="text-xs font-semibold text-slate-900">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 space-y-2.5">
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">
                 {tr('Befehlsstatus', 'Command Status')}
               </p>
               <div className="grid grid-cols-3 gap-2">
@@ -819,11 +819,11 @@ export function BulkCommandsDialog({
                     className={`px-3 py-2 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                       enabledMode === opt.id
                         ? opt.id === 'on'
-                          ? 'bg-emerald-50 text-emerald-900 border-emerald-400'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 border-emerald-400'
                           : opt.id === 'off'
-                          ? 'bg-slate-800 text-white border-slate-800'
-                          : 'bg-blue-50 text-blue-900 border-blue-400'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                          ? 'bg-slate-800 dark:bg-slate-700 text-white border-slate-800 dark:border-slate-500'
+                          : 'bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border-blue-400'
+                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                     }`}
                   >
                     {opt.label}
@@ -835,15 +835,15 @@ export function BulkCommandsDialog({
 
           {/* 3. Category */}
           {canEditCommands && (
-            <div className="border border-slate-200 rounded-md p-4 space-y-2">
-              <label htmlFor="bulk-cmd-category" className="block text-xs font-semibold text-slate-900">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 space-y-2">
+              <label htmlFor="bulk-cmd-category" className="block text-xs font-semibold text-slate-900 dark:text-slate-100">
                 {tr('Befehlskategorie', 'Command Category')}
               </label>
               <select
                 id="bulk-cmd-category"
                 value={categoryValue}
                 onChange={(e) => setCategoryValue(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
                 <option value="__unchanged__">{tr('— Unverändert lassen —', '— Keep unchanged —')}</option>
                 {categories.map((cat) => (
@@ -855,11 +855,11 @@ export function BulkCommandsDialog({
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+              className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer"
             >
               {tr('Abbrechen', 'Cancel')}
             </button>

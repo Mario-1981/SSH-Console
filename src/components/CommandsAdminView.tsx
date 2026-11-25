@@ -517,10 +517,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {tr('SSH-Befehle & Befehlsketten', 'SSH Commands & Command Chains')}
           </h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             {canShare
               ? tr(
                   'Ihre Befehle und Befehlsketten sind standardmäßig privat und können gezielt oder für alle Benutzer geteilt werden.',
@@ -543,7 +543,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             type="button"
             onClick={handleLoadPresets}
             disabled={loadingPresets}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Sparkles className="w-3.5 h-3.5" />
             {loadingPresets
@@ -554,17 +554,17 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       </div>
 
       {error && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {/* Command Create / Edit Form */}
       {canCreateAny && (
-      <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {editingId
                 ? tr('Eintrag bearbeiten', 'Edit Entry')
                 : tr('Neuen SSH-Befehl anlegen', 'Create New SSH Command')}
@@ -573,7 +573,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               <button
                 type="button"
                 onClick={resetForm}
-                className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
                 {tr('Abbrechen', 'Cancel')}
@@ -581,15 +581,15 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             )}
           </div>
 
-          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md self-start flex-wrap">
+          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-md self-start flex-wrap">
             {canSingle && (
               <button
                 type="button"
                 onClick={() => setKind('single')}
                 className={`px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                   kind === 'single'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 {tr('Einzelbefehl', 'Single Command')}
@@ -609,8 +609,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 }}
                 className={`px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                   kind === 'chain'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 {tr('Befehlskette (Sleep)', 'Simple Chain (sleep)')}
@@ -622,8 +622,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 onClick={() => setKind('workflow')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                   kind === 'workflow'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 <Braces className="w-3.5 h-3.5" />
@@ -635,7 +635,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-5">
-            <label htmlFor="cmd-name" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="cmd-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Bezeichnung', 'Name')}
             </label>
             <input
@@ -650,20 +650,20 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                     ? tr('z. B. Dienst stoppen, warten & neu starten', 'e.g. Stop service, wait & restart')
                     : tr('z. B. Nginx-Konfiguration prüfen', 'e.g. Validate Nginx configuration')
               }
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
           </div>
 
           <div className="lg:col-span-4">
-            <label htmlFor="cmd-cat" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="cmd-cat" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Kategorie', 'Category')}
             </label>
             <select
               id="cmd-cat"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             >
               {CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
@@ -674,7 +674,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           </div>
 
           <div className="lg:col-span-3">
-            <label htmlFor="cmd-timeout" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="cmd-timeout" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr(
                 `Timeout (Sekunden${kind !== 'single' ? `, min. ${recommendedMinTimeout}s` : ''})`,
                 `Timeout (seconds${kind !== 'single' ? `, min. ${recommendedMinTimeout}s` : ''})`
@@ -687,7 +687,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               max={3600}
               value={timeoutSec}
               onChange={(e) => setTimeoutSec(e.target.value)}
-              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
           </div>
@@ -695,7 +695,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
         {kind === 'single' ? (
           <div>
-            <label htmlFor="cmd-shell" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="cmd-shell" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr(
                 'Exakter SSH-Befehl (wird per OpenSSH an den Zielserver gesendet)',
                 'Exact SSH Command (sent to the target server via OpenSSH)'
@@ -707,22 +707,22 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               placeholder="nginx -t && systemctl reload nginx"
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
           </div>
         ) : kind === 'chain' ? (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <p className="text-xs font-medium text-slate-700">
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
                 {tr('Schritte der Befehlskette & Pausen dazwischen', 'Chain Steps & Wait Intervals')}
               </p>
-              <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={stopOnError}
                   onChange={(e) => setStopOnError(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                  className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
                 />
                 <span>
                   {tr('Bei Fehler sofort abbrechen (verknüpft mit ', 'Abort immediately on error (joined with ')}
@@ -737,7 +737,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 return (
                   <div key={idx} className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <span className="w-7 text-xs font-mono text-slate-500 tabular-nums shrink-0 text-right">
+                      <span className="w-7 text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums shrink-0 text-right">
                         {idx + 1}.
                       </span>
                       <input
@@ -751,7 +751,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                             ? tr('z. B. systemctl start myapp', 'e.g. systemctl start myapp')
                             : tr('z. B. systemctl is-active myapp', 'e.g. systemctl is-active myapp')
                         }
-                        className="flex-1 px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        className="flex-1 px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                         required
                       />
                       <div className="flex items-center gap-1 shrink-0">
@@ -761,7 +761,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                           disabled={idx === 0}
                           title={tr('Nach oben', 'Move up')}
                           aria-label={tr('Schritt nach oben', 'Move step up')}
-                          className="p-2 text-slate-500 hover:text-slate-900 disabled:opacity-30 rounded-md hover:bg-slate-100 cursor-pointer"
+                          className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                         >
                           <ArrowUp className="w-3.5 h-3.5" />
                         </button>
@@ -771,7 +771,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                           disabled={isLast}
                           title={tr('Nach unten', 'Move down')}
                           aria-label={tr('Schritt nach unten', 'Move step down')}
-                          className="p-2 text-slate-500 hover:text-slate-900 disabled:opacity-30 rounded-md hover:bg-slate-100 cursor-pointer"
+                          className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                         >
                           <ArrowDown className="w-3.5 h-3.5" />
                         </button>
@@ -781,7 +781,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                           disabled={steps.length <= 1}
                           title={tr('Schritt entfernen', 'Remove step')}
                           aria-label={tr('Schritt entfernen', 'Remove step')}
-                          className="p-2 text-red-600 hover:text-red-800 disabled:opacity-30 rounded-md hover:bg-red-50 cursor-pointer"
+                          className="p-2 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 disabled:opacity-30 rounded-md hover:bg-red-50 dark:hover:bg-red-950/50 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -789,7 +789,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                     </div>
 
                     {!isLast && (
-                      <div className="pl-9 flex items-center gap-2.5 text-xs text-slate-600">
+                      <div className="pl-9 flex items-center gap-2.5 text-xs text-slate-600 dark:text-slate-400">
                         <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span>
                           {tr(`Pause vor Schritt ${idx + 2} (`, `Wait before step ${idx + 2} (`)}
@@ -805,9 +805,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                               sleepAfterSec: Math.min(600, Math.max(0, Math.floor(Number(e.target.value) || 0))),
                             })
                           }
-                          className="w-20 px-2.5 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="w-20 px-2.5 py-1 text-xs font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                         />
-                        <span className="text-slate-500">
+                        <span className="text-slate-500 dark:text-slate-400">
                           {tr('Sekunden (0 = ohne Pause)', 'seconds (0 = no pause)')}
                         </span>
                       </div>
@@ -821,7 +821,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               <button
                 type="button"
                 onClick={addStep}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
                 {tr('Weiteren Schritt hinzufügen', 'Add Another Step')}
@@ -829,9 +829,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             </div>
 
             {/* Live compiled single SSH command preview */}
-            <div className="rounded-md bg-slate-50 border border-slate-200 p-3.5 space-y-1.5">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                <span className="font-medium text-slate-700">
+            <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 p-3.5 space-y-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span className="font-medium text-slate-700 dark:text-slate-300">
                   {tr(
                     'Resultierender einzelner SSH-Befehl (eine SSH-Sitzung)',
                     'Compiled Single SSH Command (one SSH session)'
@@ -842,7 +842,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   {tr('Gesamt-Sleep', 'Total sleep')}: {totalChainSleep}s
                 </span>
               </div>
-              <code className="block font-mono text-xs text-slate-900 break-all">
+              <code className="block font-mono text-xs text-slate-900 dark:text-slate-100 break-all">
                 {chainPreview ||
                   tr(
                     '— Bitte mindestens einen Befehlsschritt eingeben —',
@@ -859,7 +859,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 type="button"
                 onClick={handlePrettifyJson}
                 disabled={!workflowJson.trim()}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
               >
                 <Wand2 className="w-3.5 h-3.5" />
                 {tr('JSON formatieren', 'Prettify JSON')}
@@ -867,7 +867,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               <button
                 type="button"
                 onClick={() => setShowWorkflowHelp((v) => !v)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer"
               >
                 <BookOpen className="w-3.5 h-3.5" />
                 {showWorkflowHelp
@@ -877,36 +877,36 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             </div>
 
             {showWorkflowHelp && (
-              <div className="rounded-md bg-slate-50 border border-slate-200 p-4 text-xs text-slate-700 space-y-3">
+              <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 p-4 text-xs text-slate-700 dark:text-slate-300 space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <p className="font-semibold text-slate-900">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">
                       {tr('Schritt-Typen (steps[])', 'Step Types (steps[])')}
                     </p>
                     <ul className="space-y-1 font-mono text-[11px]">
                       <li>
-                        <span className="text-blue-800 font-semibold">run</span>: {'{ "type": "run", "id": "s1", "command": "...", "continueOnError": true, "sleepAfterSec": 2, "silent": false, "filter": {...} }'}
+                        <span className="text-blue-800 dark:text-blue-300 font-semibold">run</span>: {'{ "type": "run", "id": "s1", "command": "...", "continueOnError": true, "sleepAfterSec": 2, "silent": false, "filter": {...} }'}
                       </li>
                       <li>
-                        <span className="text-blue-800 font-semibold">sleep</span>: {'{ "type": "sleep", "seconds": 3 }'}
+                        <span className="text-blue-800 dark:text-blue-300 font-semibold">sleep</span>: {'{ "type": "sleep", "seconds": 3 }'}
                       </li>
                       <li>
-                        <span className="text-blue-800 font-semibold">if</span>: {'{ "type": "if", "when": {...}, "then": [...], "else": [...] }'}
+                        <span className="text-blue-800 dark:text-blue-300 font-semibold">if</span>: {'{ "type": "if", "when": {...}, "then": [...], "else": [...] }'}
                       </li>
                       <li>
-                        <span className="text-blue-800 font-semibold">loop</span>: {'{ "type": "loop", "maxIterations": 30, "intervalSec": 10, "steps": [...], "until": {...}, "onTimeout": "fail" }'}
+                        <span className="text-blue-800 dark:text-blue-300 font-semibold">loop</span>: {'{ "type": "loop", "maxIterations": 30, "intervalSec": 10, "steps": [...], "until": {...}, "onTimeout": "fail" }'}
                       </li>
                       <li>
-                        <span className="text-blue-800 font-semibold">set</span>: {'{ "type": "set", "name": "var", "value": "{{s1.stdout}}", "filter": {...} }'}
+                        <span className="text-blue-800 dark:text-blue-300 font-semibold">set</span>: {'{ "type": "set", "name": "var", "value": "{{s1.stdout}}", "filter": {...} }'}
                       </li>
                       <li>
-                        <span className="text-blue-800 font-semibold">log / stop / fail</span>: {'{ "type": "fail", "exitCode": 2, "message": "Fehler: {{s1.stdout}}" }'}
+                        <span className="text-blue-800 dark:text-blue-300 font-semibold">log / stop / fail</span>: {'{ "type": "fail", "exitCode": 2, "message": "Fehler: {{s1.stdout}}" }'}
                       </li>
                     </ul>
                   </div>
 
                   <div className="space-y-1.5">
-                    <p className="font-semibold text-slate-900">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">
                       {tr('Bedingungen (when) & Platzhalter', 'Conditions (when) & Placeholders')}
                     </p>
                     <p className="font-mono text-[11px]">
@@ -925,9 +925,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200 dark:border-slate-800">
                   <div className="space-y-1">
-                    <p className="font-semibold text-slate-900">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">
                       {tr('Laufzeit-Variablen (inputs[])', 'Runtime Variables (inputs[])')}
                     </p>
                     <p className="font-mono text-[11px]">
@@ -941,7 +941,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <p className="font-semibold text-slate-900">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">
                       {tr('Ausgabe-Filter (filter) & Formatierung (output)', 'Output Filter (filter) & Formatting (output)')}
                     </p>
                     <p className="font-mono text-[11px]">
@@ -957,7 +957,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                <label htmlFor="cmd-workflow-json" className="text-xs font-medium text-slate-700">
+                <label htmlFor="cmd-workflow-json" className="text-xs font-medium text-slate-700 dark:text-slate-300">
                   {tr(
                     'JSON-Workflow-Definition (SSH-Befehle, Sleep, Wenn/Dann-Bedingungen, Filter & Formatierung)',
                     'JSON Workflow Definition (SSH commands, sleep, if/then conditions, filtering & formatting)'
@@ -966,7 +966,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 {workflowValidation && (
                   <span
                     className={`inline-flex items-center gap-1 text-xs font-medium ${
-                      workflowValidation.ok ? 'text-emerald-700' : 'text-red-700'
+                      workflowValidation.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'
                     }`}
                   >
                     {workflowValidation.ok ? (
@@ -995,21 +995,21 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                 )}
                 className={`w-full px-3 py-2.5 text-xs font-mono leading-relaxed border rounded-md focus:outline-none focus:ring-2 ${
                   workflowValidation && !workflowValidation.ok
-                    ? 'border-red-400 bg-red-50/30 focus:ring-red-500'
-                    : 'border-slate-300 bg-slate-950 text-slate-100 placeholder:text-slate-500 focus:ring-blue-600'
+                    ? 'border-red-400 dark:border-red-700/80 bg-red-50/30 dark:bg-red-950/30 focus:ring-red-500'
+                    : 'border-slate-300 dark:border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500 focus:ring-blue-600'
                 }`}
                 required
               />
               {workflowValidation && !workflowValidation.ok && (
-                <p className="mt-1.5 text-xs text-red-700 font-medium">{workflowValidation.error}</p>
+                <p className="mt-1.5 text-xs text-red-700 dark:text-red-400 font-medium">{workflowValidation.error}</p>
               )}
             </div>
 
             {/* Live structural preview of the workflow */}
             {workflowValidation && workflowValidation.ok && (
-              <div className="rounded-md bg-slate-50 border border-slate-200 p-3.5 space-y-1.5">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                  <span className="font-medium text-slate-700">
+              <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 p-3.5 space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-medium text-slate-700 dark:text-slate-300">
                     {tr('Ablauf-Vorschau (validiert)', 'Execution Flow Preview (validated)')}
                   </span>
                   <span className="font-mono tabular-nums">
@@ -1023,7 +1023,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                     {tr('Ausgabe', 'Output')}: {workflowValidation.summary.outputFormat}
                   </span>
                 </div>
-                <pre className="font-mono text-xs text-slate-800 whitespace-pre-wrap overflow-x-auto">
+                <pre className="font-mono text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap overflow-x-auto">
                   {workflowOutline}
                 </pre>
               </div>
@@ -1031,10 +1031,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           </div>
         )}
 
-        <div className="space-y-4 pt-2 border-t border-slate-200">
+        <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-slate-800">
           <div className="flex flex-col sm:flex-row sm:items-end gap-4">
             <div className="flex-1">
-              <label htmlFor="cmd-desc" className="block text-xs font-medium text-slate-700 mb-1.5">
+              <label htmlFor="cmd-desc" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 {tr('Beschreibung', 'Description')}
               </label>
               <input
@@ -1046,7 +1046,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   'Erklärt den Zweck und Ablauf des Befehls.',
                   'Explains the purpose and behavior of this command.'
                 )}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
             <button
@@ -1072,12 +1072,12 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           </div>
 
           {canShare && !editingId && (
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
                 checked={shareOnCreate}
                 onChange={(e) => setShareOnCreate(e.target.checked)}
-                className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
               />
               <span>
                 {tr(
@@ -1092,13 +1092,13 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       )}
 
       {/* Commands Table */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-4 flex-wrap">
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr(`Sichtbare Befehle (${filtered.length})`, `Visible Commands (${filtered.length})`)}
             </h2>
-            <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-md flex-wrap">
+            <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-md flex-wrap">
               {(
                 [
                   { id: 'all', label: tr('Alle', 'All') },
@@ -1113,8 +1113,8 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   onClick={() => setFilterKind(tab.id)}
                   className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                     filterKind === tab.id
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
                   {tab.label}
@@ -1130,7 +1130,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={tr('Befehle durchsuchen...', 'Search commands...')}
-              className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
         </div>
@@ -1138,14 +1138,14 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         {notice && (
           <div
             role="status"
-            className="px-6 py-2.5 bg-emerald-50 border-b border-emerald-200 text-xs text-emerald-800 flex items-center justify-between gap-3"
+            className="px-6 py-2.5 bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800/70 text-xs text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-3"
           >
             <span>{notice}</span>
             <button
               type="button"
               onClick={() => setNotice(null)}
               aria-label={tr('Meldung schließen', 'Dismiss notice')}
-              className="text-emerald-700 hover:text-emerald-950 cursor-pointer shrink-0"
+              className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-950 dark:hover:text-emerald-200 cursor-pointer shrink-0"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -1153,9 +1153,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         )}
 
         {canBulkAny && selectedCommands.length > 0 && (
-          <div className="px-6 py-3 bg-blue-50/80 border-b border-blue-200 flex flex-wrap items-center justify-between gap-3">
+          <div className="px-6 py-3 bg-blue-50/80 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800/70 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 text-xs">
-              <span className="font-semibold text-blue-950">
+              <span className="font-semibold text-blue-950 dark:text-blue-200">
                 {tr(
                   `${selectedCommands.length} Befehle ausgewählt`,
                   `${selectedCommands.length} commands selected`
@@ -1164,7 +1164,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               <button
                 type="button"
                 onClick={() => setSelectedCommandIds([])}
-                className="text-blue-700 hover:text-blue-950 underline cursor-pointer"
+                className="text-blue-700 dark:text-blue-400 hover:text-blue-950 dark:hover:text-blue-200 underline cursor-pointer"
               >
                 {tr('Auswahl aufheben', 'Clear selection')}
               </button>
@@ -1176,18 +1176,18 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                     type="button"
                     disabled={bulkQuickBusy}
                     onClick={() => handleQuickBulkCommands({ enabled: true })}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 dark:text-emerald-200 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700/80 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
                   >
-                    <Check className="w-3.5 h-3.5 text-emerald-700" />
+                    <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
                     {tr('Aktivieren', 'Enable')}
                   </button>
                   <button
                     type="button"
                     disabled={bulkQuickBusy}
                     onClick={() => handleQuickBulkCommands({ enabled: false })}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
                   >
-                    <X className="w-3.5 h-3.5 text-slate-500" />
+                    <X className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                     {tr('Deaktivieren', 'Disable')}
                   </button>
                 </>
@@ -1197,9 +1197,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   type="button"
                   disabled={bulkQuickBusy}
                   onClick={() => setBulkDialogFocus('sharing')}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-800 bg-white border border-blue-300 hover:bg-blue-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-800 dark:text-blue-300 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700/80 hover:bg-blue-50 dark:hover:bg-blue-950/50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
                 >
-                  <Share2 className="w-3.5 h-3.5 text-blue-700" />
+                  <Share2 className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
                   {tr('Teilen', 'Share')}
                 </button>
               )}
@@ -1221,10 +1221,10 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         {filtered.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <SlidersHorizontal className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <p className="text-sm font-medium text-slate-900">
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
               {tr('Keine SSH-Befehle vorhanden', 'No SSH commands available')}
             </p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {tr(
                 'Legen Sie oben einen Einzelbefehl oder eine Befehlskette an oder laden Sie die Debian-Standardbefehle.',
                 'Create a single command or chain above, or load the Debian preset commands.'
@@ -1235,7 +1235,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-xs font-medium text-slate-500 dark:text-slate-400">
                   {canBulkAny && (
                     <th className="py-2.5 pl-6 pr-2 w-10">
                       <input
@@ -1248,7 +1248,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                           'Alle eigenen gefilterten Befehle auswählen / abwählen',
                           'Select / deselect all own filtered commands'
                         )}
-                        className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
+                        className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
                       />
                     </th>
                   )}
@@ -1261,7 +1261,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   <th className="py-2.5 px-6 text-right">{tr('Aktionen', 'Actions')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-sm">
                 {filtered.map((cmd) => {
                   const isChain = cmd.kind === 'chain';
                   const isWorkflow = cmd.kind === 'workflow';
@@ -1279,7 +1279,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                     <tr
                       key={cmd.id}
                       className={`transition-colors ${
-                        isSelected ? 'bg-blue-50/40 hover:bg-blue-50/70' : 'hover:bg-slate-50/80'
+                        isSelected ? 'bg-blue-50/40 dark:bg-blue-950/30 hover:bg-blue-50/70 dark:hover:bg-blue-950/50' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                       }`}
                     >
                       {canBulkAny && (
@@ -1290,7 +1290,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                               checked={isSelected}
                               onChange={() => toggleCommandSelection(cmd.id)}
                               aria-label={tr(`${cmd.name} auswählen`, `Select ${cmd.name}`)}
-                              className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                              className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                             />
                           ) : (
                             <input
@@ -1301,30 +1301,30 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                                 'Dieser Befehl kann nicht bearbeitet werden',
                                 'This command cannot be modified'
                               )}
-                              className="rounded border-slate-200 opacity-35 cursor-not-allowed"
+                              className="rounded border-slate-200 dark:border-slate-800 opacity-35 cursor-not-allowed"
                             />
                           )}
                         </td>
                       )}
                       <td className="py-3 px-4">
-                        <p className="font-medium text-slate-900">{cmd.name}</p>
+                        <p className="font-medium text-slate-900 dark:text-slate-100">{cmd.name}</p>
                         {cmd.description && (
-                          <p className="text-xs text-slate-500 mt-0.5 max-w-sm truncate">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-sm truncate">
                             {cmd.description}
                           </p>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-xs text-slate-600 whitespace-nowrap tabular-nums">
+                      <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap tabular-nums">
                         {isWorkflow ? (
                           <span>
-                            <span className="font-medium text-indigo-700">
+                            <span className="font-medium text-indigo-700 dark:text-indigo-400">
                               {tr('JSON-Workflow', 'JSON Workflow')}
                             </span>{' '}
                             · {catLabel}
                           </span>
                         ) : isChain ? (
                           <span>
-                            <span className="font-medium text-blue-800">
+                            <span className="font-medium text-blue-800 dark:text-blue-300">
                               {tr(
                                 `Kette (${cmd.steps.length} Schritte${sleepSum > 0 ? `, ${sleepSum}s Sleep` : ''})`,
                                 `Chain (${cmd.steps.length} steps${sleepSum > 0 ? `, ${sleepSum}s sleep` : ''})`
@@ -1340,7 +1340,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                       </td>
                       <td className="py-3 px-4">
                         <code
-                          className="font-mono text-xs text-slate-800 block max-w-md truncate"
+                          className="font-mono text-xs text-slate-800 dark:text-slate-200 block max-w-md truncate"
                           title={cmd.command}
                         >
                           {cmd.command}
@@ -1350,14 +1350,14 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                         <span
                           className={
                             !isOwner || cmd.sharedWithAll || cmd.sharedWithUserIds.length > 0
-                              ? 'text-blue-800 font-medium'
-                              : 'text-slate-500'
+                              ? 'text-blue-800 dark:text-blue-300 font-medium'
+                              : 'text-slate-500 dark:text-slate-400'
                           }
                         >
                           {shareLabel}
                         </span>
                       </td>
-                      <td className="py-3 px-4 font-mono text-xs text-slate-600 tabular-nums text-right whitespace-nowrap">
+                      <td className="py-3 px-4 font-mono text-xs text-slate-600 dark:text-slate-400 tabular-nums text-right whitespace-nowrap">
                         {cmd.timeoutSec}s
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
@@ -1367,14 +1367,14 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                             onClick={() => handleToggleEnabled(cmd)}
                             className={`text-xs font-medium cursor-pointer ${
                               cmd.enabled
-                                ? 'text-emerald-700 hover:text-emerald-900'
-                                : 'text-slate-500 hover:text-slate-800'
+                                ? 'text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-200'
+                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                             }`}
                           >
                             {cmd.enabled ? tr('Aktiv', 'Active') : tr('Deaktiviert', 'Disabled')}
                           </button>
                         ) : (
-                          <span className="text-xs font-medium text-emerald-700">
+                          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                             {cmd.enabled ? tr('Aktiv', 'Active') : tr('Deaktiviert', 'Disabled')}
                           </span>
                         )}
@@ -1386,7 +1386,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                               <button
                                 type="button"
                                 onClick={() => setSharingCmd(cmd)}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer"
                               >
                                 <Share2 className="w-3.5 h-3.5" />
                                 {tr('Teilen', 'Share')}
@@ -1397,7 +1397,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                                 <button
                                   type="button"
                                   onClick={() => startEdit(cmd)}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-700 cursor-pointer"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer"
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
                                   {tr('Bearbeiten', 'Edit')}
@@ -1405,7 +1405,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                                 <button
                                   type="button"
                                   onClick={() => handleDelete(cmd.id)}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 cursor-pointer"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                   {tr('Löschen', 'Delete')}

@@ -234,10 +234,10 @@ export function BackgroundJobsView({
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {tr('Hintergrundprozesse', 'Background Processes')}
           </h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             {isAdmin
               ? tr(
                   'Live-Übersicht aller laufenden und abgeschlossenen SSH-Kurzbefehle – für Ihr eigenes Konto oder systemweit über alle Benutzer. Das konfigurierte Limit gilt jeweils pro Benutzer.',
@@ -254,7 +254,7 @@ export function BackgroundJobsView({
           type="button"
           onClick={handleManualRefresh}
           disabled={refreshing}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
           {tr('Aktualisieren', 'Refresh')}
@@ -264,30 +264,30 @@ export function BackgroundJobsView({
       {error && (
         <div
           role="alert"
-          className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800"
+          className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300"
         >
           {error}
         </div>
       )}
 
       {/* Single-elevation KPI Strip */}
-      <section className="bg-white border border-slate-200 rounded-lg grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 dark:divide-slate-800">
         <div className="p-5">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {tr('Meine laufenden (Kontingent)', 'Running for Me (Quota)')}
           </p>
           <p
             className={`mt-1 font-display text-2xl font-bold tabular-nums ${
               myAtCapacity
-                ? 'text-amber-700'
+                ? 'text-amber-700 dark:text-amber-400'
                 : myRunningCount > 0
-                ? 'text-blue-700'
-                : 'text-slate-900'
+                ? 'text-blue-700 dark:text-blue-400'
+                : 'text-slate-900 dark:text-slate-100'
             }`}
           >
             {myRunningCount} / {maxBackgroundJobs}
           </p>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             {myAtCapacity
               ? tr('Mein Limit erreicht', 'My quota full')
               : tr(
@@ -298,19 +298,19 @@ export function BackgroundJobsView({
         </div>
 
         <div className="p-5">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {isAdmin
               ? tr('Aktiv gesamt (alle Benutzer)', 'Active Total (all users)')
               : tr('Aufträge im Verlauf', 'Jobs in History')}
           </p>
           <p
             className={`mt-1 font-display text-2xl font-bold tabular-nums ${
-              isAdmin && effectiveActiveTotal > 0 ? 'text-blue-700' : 'text-slate-900'
+              isAdmin && effectiveActiveTotal > 0 ? 'text-blue-700 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'
             }`}
           >
             {isAdmin ? effectiveActiveTotal : myJobs.length}
           </p>
-          <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
             {isAdmin
               ? activeUsersCount > 0
                 ? tr(
@@ -323,17 +323,17 @@ export function BackgroundJobsView({
         </div>
 
         <div className="p-5">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {tr('Abgeschlossen / Fehler', 'Completed / Errors')}
           </p>
           <p className="mt-1 font-display text-2xl font-bold tabular-nums">
-            <span className="text-emerald-700">{counts.completed}</span>
+            <span className="text-emerald-700 dark:text-emerald-400">{counts.completed}</span>
             <span className="text-slate-300 mx-1.5">/</span>
-            <span className={counts.failed > 0 ? 'text-red-700' : 'text-slate-400'}>
+            <span className={counts.failed > 0 ? 'text-red-700 dark:text-red-400' : 'text-slate-400'}>
               {counts.failed}
             </span>
           </p>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             {isAdmin && scope === 'all'
               ? tr('Systemweit', 'System-wide')
               : tr('Eigenes Konto', 'Own account')}
@@ -341,7 +341,7 @@ export function BackgroundJobsView({
         </div>
 
         <div className="p-5">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {tr('Limit pro Benutzer (global)', 'Limit per User (global)')}
           </p>
           {isAdmin ? (
@@ -354,7 +354,7 @@ export function BackgroundJobsView({
                 onChange={(e) => setLimitInput(e.target.value)}
                 disabled={savingLimit}
                 aria-label={tr('Max. Hintergrundprozesse pro Benutzer', 'Max background jobs per user')}
-                className="w-16 px-2 py-1 text-sm font-mono tabular-nums bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-16 px-2 py-1 text-sm font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
               <button
                 type="submit"
@@ -364,17 +364,17 @@ export function BackgroundJobsView({
                 {savingLimit ? '...' : tr('Setzen', 'Set')}
               </button>
               {limitSavedNotice && (
-                <span className="text-xs text-emerald-700 font-medium">
+                <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
                   {tr('OK', 'OK')}
                 </span>
               )}
             </form>
           ) : (
             <>
-              <p className="mt-1 font-display text-2xl font-bold text-slate-900 tabular-nums">
+              <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-slate-100 tabular-nums">
                 {maxBackgroundJobs}
               </p>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr('Pro Benutzer (vom Admin)', 'Per user (set by admin)')}
               </p>
             </>
@@ -383,18 +383,18 @@ export function BackgroundJobsView({
       </section>
 
       {/* Filter & Admin Scope Bar */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             {isAdmin && (
-              <div className="inline-flex items-center gap-1 p-1 bg-blue-50 border border-blue-100 rounded-md">
+              <div className="inline-flex items-center gap-1 p-1 bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/60 rounded-md">
                 <button
                   type="button"
                   onClick={() => setScope('all')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                     scope === 'all'
-                      ? 'bg-white text-blue-800 shadow-xs'
-                      : 'text-blue-900/70 hover:text-blue-900'
+                      ? 'bg-white dark:bg-slate-900 text-blue-800 dark:text-blue-300 shadow-xs'
+                      : 'text-blue-900/70 dark:text-blue-300/80 hover:text-blue-900 dark:hover:text-blue-300'
                   }`}
                 >
                   <Users className="w-3.5 h-3.5" />
@@ -405,8 +405,8 @@ export function BackgroundJobsView({
                   onClick={() => setScope('mine')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                     scope === 'mine'
-                      ? 'bg-white text-blue-800 shadow-xs'
-                      : 'text-blue-900/70 hover:text-blue-900'
+                      ? 'bg-white dark:bg-slate-900 text-blue-800 dark:text-blue-300 shadow-xs'
+                      : 'text-blue-900/70 dark:text-blue-300/80 hover:text-blue-900 dark:hover:text-blue-300'
                   }`}
                 >
                   <UserIcon className="w-3.5 h-3.5" />
@@ -415,7 +415,7 @@ export function BackgroundJobsView({
               </div>
             )}
 
-            <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md">
+            <div className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-md">
               {(
                 [
                   { id: 'all', label: tr(`Alle (${counts.total})`, `All (${counts.total})`) },
@@ -436,8 +436,8 @@ export function BackgroundJobsView({
                   onClick={() => setStatusFilter(tab.id)}
                   className={`px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                     statusFilter === tab.id
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
                   {tab.label}
@@ -457,7 +457,7 @@ export function BackgroundJobsView({
                   ? tr('Befehl, IP oder Benutzer suchen...', 'Search command, IP, or user...')
                   : tr('Befehl oder Server-IP suchen...', 'Search command or server IP...')
               }
-              className="w-full pl-9 pr-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full pl-9 pr-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
         </div>
@@ -466,12 +466,12 @@ export function BackgroundJobsView({
         {filteredJobs.length === 0 ? (
           <div className="px-6 py-14 text-center space-y-2">
             <Activity className="w-7 h-7 text-slate-300 mx-auto" />
-            <p className="text-sm font-medium text-slate-700">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
               {statusFilter === 'running'
                 ? tr('Derzeit laufen keine Hintergrundprozesse.', 'No background processes are currently running.')
                 : tr('Keine Hintergrundprozesse gefunden.', 'No background processes found.')}
             </p>
-            <p className="text-xs text-slate-500 max-w-md mx-auto">
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
               {tr(
                 'Sobald im Dashboard ein Kurzbefehl oder eine Sammelausführung gestartet wird, erscheint der Fortschritt hier in Echtzeit.',
                 'As soon as a quick command or batch is dispatched from the Dashboard, live progress appears here.'
@@ -479,7 +479,7 @@ export function BackgroundJobsView({
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-200">
+          <div className="divide-y divide-slate-200 dark:divide-slate-800">
             {filteredJobs.map((job) => {
               const isRunning = job.status === 'running';
               const isOwnJob = job.userId === currentUser.id;
@@ -491,7 +491,7 @@ export function BackgroundJobsView({
                 <div
                   key={job.id}
                   className={`px-6 py-4 transition-colors ${
-                    isRunning ? 'bg-blue-50/30' : 'bg-white hover:bg-slate-50/60'
+                    isRunning ? 'bg-blue-50/30 dark:bg-blue-950/25' : 'bg-white dark:bg-slate-900 hover:bg-slate-50/60 dark:hover:bg-slate-800/50'
                   }`}
                 >
                   <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
@@ -499,28 +499,28 @@ export function BackgroundJobsView({
                     <div className="flex-1 min-w-0 space-y-2.5">
                       <div className="flex flex-wrap items-center gap-2">
                         {isRunning ? (
-                          <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+                          <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
                         ) : job.status === 'completed' ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         ) : job.status === 'partial' ? (
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                         ) : (
-                          <XCircle className="w-4 h-4 text-red-600 shrink-0" />
+                          <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
                         )}
 
-                        <h3 className="text-sm font-semibold text-slate-900 truncate">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
                           {job.title}
                         </h3>
 
                         <span
                           className={`px-2 py-0.5 text-[11px] font-medium rounded border ${
                             isRunning
-                              ? 'bg-blue-50 text-blue-800 border-blue-200'
+                              ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/70'
                               : job.status === 'completed'
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/70'
                               : job.status === 'partial'
-                              ? 'bg-amber-50 text-amber-800 border-amber-200'
-                              : 'bg-red-50 text-red-800 border-red-200'
+                              ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/70'
+                              : 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800/70'
                           }`}
                         >
                           {isRunning
@@ -533,8 +533,8 @@ export function BackgroundJobsView({
                         </span>
 
                         {isAdmin && scope === 'all' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono bg-slate-100 text-slate-700 border border-slate-200 rounded">
-                            <UserIcon className="w-3 h-3 text-slate-500" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 rounded">
+                            <UserIcon className="w-3 h-3 text-slate-500 dark:text-slate-400" />
                             {job.username}
                             {isOwnJob && (
                               <span className="text-slate-400 font-sans">({tr('ich', 'me')})</span>
@@ -544,18 +544,18 @@ export function BackgroundJobsView({
                       </div>
 
                       {/* Target IPs */}
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                         <Server className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         {previewTargets.map((label, idx) => (
                           <span
                             key={`${job.id}-t-${idx}`}
-                            className="px-2 py-0.5 text-[11px] font-mono bg-slate-100 text-slate-700 rounded border border-slate-200"
+                            className="px-2 py-0.5 text-[11px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-800"
                           >
                             {label}
                           </span>
                         ))}
                         {extraTargets > 0 && (
-                          <span className="text-[11px] text-slate-500 font-mono">
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
                             +{extraTargets} {tr('weitere', 'more')}
                           </span>
                         )}
@@ -565,8 +565,8 @@ export function BackgroundJobsView({
                       {isRunning ? (
                         <div className="space-y-1.5 max-w-2xl">
                           <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono tabular-nums">
-                            <div className="flex items-center gap-2 text-slate-700">
-                              <span className="font-semibold text-blue-800">
+                            <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                              <span className="font-semibold text-blue-800 dark:text-blue-300">
                                 {progress.percent}%
                               </span>
                               <span className="text-slate-300">·</span>
@@ -577,7 +577,7 @@ export function BackgroundJobsView({
                             </div>
                             <div
                               className={`inline-flex items-center gap-1.5 ${
-                                progress.nearTimeout ? 'text-amber-700 font-medium' : 'text-slate-500'
+                                progress.nearTimeout ? 'text-amber-700 dark:text-amber-400 font-medium' : 'text-slate-500 dark:text-slate-400'
                               }`}
                             >
                               <Clock className="w-3.5 h-3.5 shrink-0" />
@@ -594,7 +594,7 @@ export function BackgroundJobsView({
                             </div>
                           </div>
 
-                          <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+                          <div className="h-2 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                             <div
                               className={`h-full transition-all duration-700 ease-out rounded-full ${
                                 progress.nearTimeout ? 'bg-amber-500' : 'bg-blue-600'
@@ -604,9 +604,9 @@ export function BackgroundJobsView({
                           </div>
                         </div>
                       ) : (
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono tabular-nums text-slate-600">
-                          <span className="text-emerald-700 font-medium">{job.successCount} OK</span>
-                          <span className={job.failedCount > 0 ? 'text-red-700 font-medium' : 'text-slate-400'}>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                          <span className="text-emerald-700 dark:text-emerald-400 font-medium">{job.successCount} OK</span>
+                          <span className={job.failedCount > 0 ? 'text-red-700 dark:text-red-400 font-medium' : 'text-slate-400'}>
                             {job.failedCount} {tr('Fehler', 'Failed')}
                           </span>
                           <span className="text-slate-300">·</span>
@@ -614,7 +614,7 @@ export function BackgroundJobsView({
                             {tr('Dauer', 'Duration')}: {formatDurationShort(job.durationMs)}
                           </span>
                           <span className="text-slate-300">·</span>
-                          <span className="text-slate-500">
+                          <span className="text-slate-500 dark:text-slate-400">
                             Timeout: {formatSecondsCompact(progress.timeoutSec)}
                           </span>
                         </div>
@@ -623,7 +623,7 @@ export function BackgroundJobsView({
 
                     {/* Right: Timestamps & Actions */}
                     <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between gap-2 shrink-0">
-                      <div className="text-[11px] text-slate-500 font-mono tabular-nums text-right">
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums text-right">
                         <div>
                           {tr('Start', 'Start')}: {formatClockTime(job.startedAt)}
                         </div>
@@ -638,7 +638,7 @@ export function BackgroundJobsView({
                         <button
                           type="button"
                           onClick={() => onSelectJob(job)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/70 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           {isRunning
@@ -652,7 +652,7 @@ export function BackgroundJobsView({
                             onClick={() => void handleDelete(job.id)}
                             title={tr('Eintrag entfernen', 'Remove entry')}
                             aria-label={tr('Eintrag entfernen', 'Remove entry')}
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-md transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

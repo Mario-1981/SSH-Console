@@ -225,14 +225,14 @@ export function AccountSecurityPanel({
       {showEnforcementBanner && (
         <div
           role="alert"
-          className="p-4 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 flex items-start gap-3"
+          className="p-4 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 text-amber-950 dark:text-amber-200 flex items-start gap-3"
         >
-          <ShieldAlert className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+          <ShieldAlert className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
           <div className="text-sm space-y-1">
             <p className="font-semibold">
               {tr('Sicherheitseinrichtung erforderlich', 'Security Setup Required')}
             </p>
-            <p className="text-xs text-amber-900">
+            <p className="text-xs text-amber-900 dark:text-amber-200">
               {user.mustSetupTwoFactor && user.mustSetupPasskey
                 ? tr(
                     'Ihr Administrator erzwingt sowohl 2-Faktor-Authentifizierung (App oder Sicherheitsschlüssel) als auch einen Passkey. Bitte richten Sie beides unten ein, um den Arbeitsbereich freizuschalten.',
@@ -253,21 +253,21 @@ export function AccountSecurityPanel({
       )}
 
       {error && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-900 flex items-start gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700" />
+        <div className="px-4 py-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-900 dark:text-emerald-200 flex items-start gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700 dark:text-emerald-400" />
           <span>{success}</span>
         </div>
       )}
 
       {/* One-time Recovery Codes display */}
       {recoveryCodes && (
-        <div className="p-5 rounded-lg bg-slate-900 text-slate-100 space-y-3">
+        <div className="p-5 rounded-lg bg-slate-900 dark:bg-slate-950 dark:border dark:border-slate-800 text-slate-100 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold text-white">
@@ -303,13 +303,13 @@ export function AccountSecurityPanel({
       )}
 
       {isSsoUser ? (
-        <section className="bg-white border border-slate-200 rounded-lg p-6 text-sm text-slate-600 flex items-start gap-3">
-          <ShieldCheck className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" />
+        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 text-sm text-slate-600 dark:text-slate-400 flex items-start gap-3">
+          <ShieldCheck className="w-5 h-5 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-slate-900">
+            <p className="font-medium text-slate-900 dark:text-slate-100">
               {tr('SSO-verwaltetes Konto', 'SSO-Managed Account')}
             </p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {tr(
                 'Ihre Anmeldung (inkl. MFA/Passwort) wird zentral über Ihren SSO-Anbieter verwaltet.',
                 'Your sign-in (including MFA and password) is managed centrally by your SSO provider.'
@@ -318,21 +318,21 @@ export function AccountSecurityPanel({
           </div>
         </section>
       ) : loading ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-sm text-slate-500">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 text-sm text-slate-500 dark:text-slate-400">
           {tr('Lade Sicherheitsoptionen...', 'Loading security options...')}
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* 2FA Card: Authenticator App + Hardware Security Keys */}
-          <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-            <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-200">
+          <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5">
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-start gap-2.5">
-                <Smartphone className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+                <Smartphone className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
                 <div>
-                  <h2 className="font-display text-base font-semibold text-slate-900">
+                  <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                     {tr('2-Faktor-Authentifizierung (2FA)', 'Two-Factor Authentication (2FA)')}
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {tr(
                       'Authenticator-App (TOTP) und Hardware-Sicherheitsschlüssel (FIDO2).',
                       'Authenticator App (TOTP) and Hardware Security Keys (FIDO2).'
@@ -343,10 +343,10 @@ export function AccountSecurityPanel({
               <span
                 className={`text-xs font-medium px-2 py-0.5 rounded ${
                   user.hasTwoFactor
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/70'
                     : settings.twoFactorEnforced
-                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                      : 'bg-slate-100 text-slate-600'
+                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/70'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
                 {user.hasTwoFactor
@@ -358,7 +358,7 @@ export function AccountSecurityPanel({
             </div>
 
             {!settings.twoFactorEnabled ? (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 {tr(
                   '2FA wurde vom Administrator noch nicht eingeschaltet.',
                   '2FA has not been enabled by your administrator yet.'
@@ -370,10 +370,10 @@ export function AccountSecurityPanel({
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <p className="text-sm font-medium text-slate-900">
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                         {tr('Authenticator-App (TOTP)', 'Authenticator App (TOTP)')}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         {security?.totpEnabled
                           ? tr(
                               `Aktiv · ${security.recoveryCodesRemaining} Wiederherstellungscodes verbleibend`,
@@ -387,7 +387,7 @@ export function AccountSecurityPanel({
                         type="button"
                         disabled={totpBusy}
                         onClick={handleDisableTotp}
-                        className="text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer whitespace-nowrap"
+                        className="text-xs font-medium text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 cursor-pointer whitespace-nowrap"
                       >
                         {tr('Deaktivieren', 'Disable')}
                       </button>
@@ -406,20 +406,20 @@ export function AccountSecurityPanel({
                   {totpSetup && (
                     <form
                       onSubmit={handleVerifyTotp}
-                      className="p-4 rounded-md bg-slate-50 border border-slate-200 space-y-3"
+                      className="p-4 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-3"
                     >
                       <div className="flex flex-col sm:flex-row items-center gap-4">
                         <img
                           src={totpSetup.qrDataUrl}
                           alt="TOTP QR Code"
-                          className="w-36 h-36 rounded border border-slate-200 bg-white p-1 shrink-0"
+                          className="w-36 h-36 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 shrink-0"
                         />
-                        <div className="text-xs text-slate-600 space-y-2 min-w-0">
-                          <p className="font-medium text-slate-900">
+                        <div className="text-xs text-slate-600 dark:text-slate-400 space-y-2 min-w-0">
+                          <p className="font-medium text-slate-900 dark:text-slate-100">
                             {tr('1. QR-Code mit Ihrer Authenticator-App scannen', '1. Scan QR code with your Authenticator App')}
                           </p>
                           <p>{tr('Oder Schlüssel manuell eingeben:', 'Or enter key manually:')}</p>
-                          <code className="block font-mono text-xs bg-white border border-slate-200 rounded px-2 py-1 text-slate-900 break-all">
+                          <code className="block font-mono text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-slate-900 dark:text-slate-100 break-all">
                             {totpSetup.secret}
                           </code>
                         </div>
@@ -433,7 +433,7 @@ export function AccountSecurityPanel({
                           value={totpCode}
                           onChange={(e) => setTotpCode(e.target.value)}
                           placeholder={tr('6-stelliger Code', '6-digit code')}
-                          className="flex-1 px-3 py-1.5 text-sm font-mono border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="flex-1 px-3 py-1.5 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                           required
                         />
                         <button
@@ -446,7 +446,7 @@ export function AccountSecurityPanel({
                         <button
                           type="button"
                           onClick={() => setTotpSetup(null)}
-                          className="px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900 cursor-pointer"
+                          className="px-2.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer"
                         >
                           {tr('Abbrechen', 'Cancel')}
                         </button>
@@ -456,10 +456,10 @@ export function AccountSecurityPanel({
                 </div>
 
                 {/* Hardware Security Keys Sub-block */}
-                <div className="pt-4 border-t border-slate-200 space-y-3">
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
                   <div className="flex items-center gap-2">
-                    <KeyRound className="w-4 h-4 text-slate-600" />
-                    <p className="text-sm font-medium text-slate-900">
+                    <KeyRound className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                       {tr('Hardware-Sicherheitsschlüssel (FIDO2 / WebAuthn)', 'Hardware Security Keys (FIDO2 / WebAuthn)')}
                     </p>
                   </div>
@@ -470,13 +470,13 @@ export function AccountSecurityPanel({
                       value={secKeyName}
                       onChange={(e) => setSecKeyName(e.target.value)}
                       placeholder={tr('z. B. YubiKey 5C Büro', 'e.g. YubiKey 5C Office')}
-                      className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="flex-1 px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                     />
                     <button
                       type="button"
                       disabled={secKeyBusy}
                       onClick={() => handleRegisterWebAuthn('security-key')}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md cursor-pointer whitespace-nowrap"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-md cursor-pointer whitespace-nowrap"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       {secKeyBusy
@@ -486,12 +486,12 @@ export function AccountSecurityPanel({
                   </div>
 
                   {security && security.securityKeys.length > 0 ? (
-                    <ul className="divide-y divide-slate-200 border border-slate-200 rounded-md">
+                    <ul className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-md">
                       {security.securityKeys.map((k) => (
                         <li key={k.id} className="px-3 py-2 flex items-center justify-between gap-2 text-xs">
                           <div className="min-w-0">
-                            <p className="font-medium text-slate-900 truncate">{k.name}</p>
-                            <p className="text-slate-500">
+                            <p className="font-medium text-slate-900 dark:text-slate-100 truncate">{k.name}</p>
+                            <p className="text-slate-500 dark:text-slate-400">
                               {k.lastUsedAt
                                 ? tr(`Zuletzt genutzt: ${formatDateTime(k.lastUsedAt)}`, `Last used: ${formatDateTime(k.lastUsedAt)}`)
                                 : tr(`Hinzugefügt: ${formatDateTime(k.createdAt)}`, `Added: ${formatDateTime(k.createdAt)}`)}
@@ -500,7 +500,7 @@ export function AccountSecurityPanel({
                           <button
                             type="button"
                             onClick={() => handleDeleteCredential(k.id)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded cursor-pointer shrink-0"
+                            className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded cursor-pointer shrink-0"
                             title={tr('Entfernen', 'Remove')}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -519,15 +519,15 @@ export function AccountSecurityPanel({
           </section>
 
           {/* Passkeys Card */}
-          <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-            <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-200">
+          <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5">
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-start gap-2.5">
-                <Fingerprint className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+                <Fingerprint className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
                 <div>
-                  <h2 className="font-display text-base font-semibold text-slate-900">
+                  <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                     {tr('Passkeys (Passwortlose Anmeldung)', 'Passkeys (Passwordless Sign-In)')}
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {tr(
                       'Direkte Anmeldung ohne Passwort per Touch ID, Face ID, Windows Hello oder FIDO2-Stick.',
                       'Direct passwordless sign-in with Touch ID, Face ID, Windows Hello, or FIDO2 key.'
@@ -538,10 +538,10 @@ export function AccountSecurityPanel({
               <span
                 className={`text-xs font-medium px-2 py-0.5 rounded ${
                   user.passkeyCount > 0
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/70'
                     : settings.passkeyEnforced
-                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                      : 'bg-slate-100 text-slate-600'
+                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/70'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
                 {user.passkeyCount > 0
@@ -553,7 +553,7 @@ export function AccountSecurityPanel({
             </div>
 
             {!settings.passkeyEnabled ? (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 {tr(
                   'Passkeys wurden vom Administrator noch nicht eingeschaltet.',
                   'Passkeys have not been enabled by your administrator yet.'
@@ -567,7 +567,7 @@ export function AccountSecurityPanel({
                     value={passkeyName}
                     onChange={(e) => setPasskeyName(e.target.value)}
                     placeholder={tr('z. B. MacBook Touch ID / Smartphone', 'e.g. MacBook Touch ID / Phone')}
-                    className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                   />
                   <button
                     type="button"
@@ -583,12 +583,12 @@ export function AccountSecurityPanel({
                 </div>
 
                 {security && security.passkeys.length > 0 ? (
-                  <ul className="divide-y divide-slate-200 border border-slate-200 rounded-md">
+                  <ul className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-md">
                     {security.passkeys.map((pk) => (
                       <li key={pk.id} className="px-3 py-2.5 flex items-center justify-between gap-2 text-xs">
                         <div className="min-w-0">
-                          <p className="font-medium text-slate-900 truncate">{pk.name}</p>
-                          <p className="text-slate-500">
+                          <p className="font-medium text-slate-900 dark:text-slate-100 truncate">{pk.name}</p>
+                          <p className="text-slate-500 dark:text-slate-400">
                             {pk.lastUsedAt
                               ? tr(`Zuletzt genutzt: ${formatDateTime(pk.lastUsedAt)}`, `Last used: ${formatDateTime(pk.lastUsedAt)}`)
                               : tr(`Registriert: ${formatDateTime(pk.createdAt)}`, `Registered: ${formatDateTime(pk.createdAt)}`)}
@@ -597,7 +597,7 @@ export function AccountSecurityPanel({
                         <button
                           type="button"
                           onClick={() => handleDeleteCredential(pk.id)}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded cursor-pointer shrink-0"
+                          className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded cursor-pointer shrink-0"
                           title={tr('Entfernen', 'Remove')}
                         >
                           <Trash2 className="w-3.5 h-3.5" />

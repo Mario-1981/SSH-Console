@@ -566,10 +566,10 @@ export function ServersView({
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
           {tr('Meine Server (Ziel-IPs & BMC)', 'My Servers (Target IPs & BMC)')}
         </h1>
-        <p className="text-sm text-slate-600 mt-1">
+        <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
           {canShare
             ? tr(
                 'Hinterlegen Sie Ziel-IPs und bis zu zwei optionale BMC-Adressen (HTTPS Port 443). Einträge sind standardmäßig privat und können mit anderen Benutzern geteilt werden.',
@@ -588,18 +588,18 @@ export function ServersView({
       </div>
 
       {error && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {notice && (
-        <div role="status" className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-800 flex items-center justify-between gap-3">
+        <div role="status" className="px-4 py-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-3">
           <span>{notice}</span>
           <button
             type="button"
             onClick={() => setNotice(null)}
-            className="text-emerald-700 hover:text-emerald-950 cursor-pointer shrink-0"
+            className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-950 dark:hover:text-emerald-200 cursor-pointer shrink-0"
             aria-label={tr('Meldung schließen', 'Dismiss notice')}
           >
             <X className="w-4 h-4" />
@@ -608,21 +608,21 @@ export function ServersView({
       )}
 
       {isAdmin && (
-        <div className="bg-white border border-slate-200 rounded-lg px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start gap-2.5 min-w-0">
             <ShieldAlert
               className={`w-4 h-4 shrink-0 mt-0.5 ${
-                allowInsecureHostKey ? 'text-amber-600' : 'text-slate-500'
+                allowInsecureHostKey ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'
               }`}
             />
             <div className="text-xs">
-              <p className="font-semibold text-slate-900">
+              <p className="font-semibold text-slate-900 dark:text-slate-100">
                 {tr(
                   'Admin-Richtlinie: Host-Key-Prüfung & known_hosts',
                   'Admin Policy: Host Key Checking & known_hosts'
                 )}
               </p>
-              <p className="text-slate-500 mt-0.5">
+              <p className="text-slate-500 dark:text-slate-400 mt-0.5">
                 {allowInsecureHostKey
                   ? tr(
                       'Zugelassen: Benutzer dürfen pro IP „StrictHostKeyChecking=no“ und „UserKnownHostsFile=/dev/null“ aktivieren.',
@@ -643,18 +643,18 @@ export function ServersView({
               disabled={togglingGlobalHostKey}
               className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 ${
                 allowInsecureHostKey
-                  ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
-                  : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/50'
+                  : 'bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
               {allowInsecureHostKey ? (
                 <>
-                  <ShieldAlert className="w-3.5 h-3.5 text-amber-700" />
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
                   {tr('Global zugelassen (Verbieten)', 'Globally Allowed (Prohibit)')}
                 </>
               ) : (
                 <>
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
                   {tr('Global verboten (Zulassen)', 'Globally Prohibited (Allow)')}
                 </>
               )}
@@ -677,7 +677,7 @@ export function ServersView({
                   type="button"
                   onClick={() => setConfirmClearAllHostKeys(false)}
                   disabled={clearingAllHostKeys}
-                  className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+                  className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
                 >
                   {tr('Abbrechen', 'Cancel')}
                 </button>
@@ -686,7 +686,7 @@ export function ServersView({
               <button
                 type="button"
                 onClick={() => setConfirmClearAllHostKeys(true)}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/70 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title={tr(
                   'Alle gespeicherten SSH-Host-Keys (known_hosts) global für sämtliche Benutzer löschen',
                   'Globally delete all stored SSH host keys (known_hosts) for all users'
@@ -702,15 +702,15 @@ export function ServersView({
 
       {/* IP Categories Manager */}
       {canManageServers && (
-      <section className="bg-white border border-slate-200 rounded-lg p-5 space-y-3.5">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start gap-2.5 min-w-0">
-            <Tag className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+            <Tag className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
             <div>
-              <h2 className="font-display text-sm font-semibold text-slate-900">
+              <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100">
                 {tr('IP-Kategorien verwalten', 'Manage IP Categories')}
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Legen Sie Kategorien an (z. B. Produktion, Webserver, Datenbank), ordnen Sie jeder IP eine oder mehrere Kategorien zu und filtern Sie danach im Dashboard.',
                   'Define categories (e.g. Production, Web, Database), assign one or multiple categories to each IP, and filter by them on the Dashboard.'
@@ -726,12 +726,12 @@ export function ServersView({
               onChange={(e) => setNewCategoryName(e.target.value)}
               maxLength={48}
               placeholder={tr('Neue Kategorie, z. B. Produktion', 'New category, e.g. Production')}
-              className="w-52 sm:w-56 px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-52 sm:w-56 px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
             <button
               type="submit"
               disabled={creatingCategory || !newCategoryName.trim()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-40 rounded-md transition-colors cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
               {tr('Anlegen', 'Add')}
@@ -740,7 +740,7 @@ export function ServersView({
         </div>
 
         {savedCategories.length === 0 ? (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {tr(
               'Noch keine Kategorien angelegt. Erstellen Sie oben Ihre erste Kategorie oder direkt beim Anlegen einer IP.',
               'No categories created yet. Add your first category above or directly when adding an IP.'
@@ -753,10 +753,10 @@ export function ServersView({
               return (
                 <span
                   key={cat.id}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-800 bg-slate-50 border border-slate-200 rounded-md"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-md"
                 >
                   <span>{cat.name}</span>
-                  <span className="font-mono text-[11px] text-slate-500 tabular-nums">
+                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
                     {count}
                   </span>
                   <button
@@ -767,7 +767,7 @@ export function ServersView({
                       `Kategorie „${cat.name}“ löschen (wird auch von Ihren IPs entfernt)`,
                       `Delete category "${cat.name}" (also removed from your IPs)`
                     )}
-                    className="ml-0.5 text-slate-400 hover:text-red-700 disabled:opacity-40 cursor-pointer transition-colors"
+                    className="ml-0.5 text-slate-400 hover:text-red-700 dark:hover:text-red-300 disabled:opacity-40 cursor-pointer transition-colors"
                     aria-label={tr(`Kategorie ${cat.name} löschen`, `Delete category ${cat.name}`)}
                   >
                     <X className="w-3 h-3" />
@@ -781,9 +781,9 @@ export function ServersView({
       )}
 
       {canManageServers && (
-      <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="font-display text-base font-semibold text-slate-900">
+          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
             {editingId
               ? tr('Zielserver bearbeiten', 'Edit Target Server')
               : tr('Zielserver hinzufügen', 'Add Target Server')}
@@ -792,7 +792,7 @@ export function ServersView({
             <button
               type="button"
               onClick={resetForm}
-              className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+              className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
               {tr('Abbrechen', 'Cancel')}
@@ -802,7 +802,7 @@ export function ServersView({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-3">
-            <label htmlFor="srv-ip" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="srv-ip" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Server-IP (IPv4 / IPv6)', 'Server IP (IPv4 / IPv6)')}
             </label>
             <input
@@ -811,13 +811,13 @@ export function ServersView({
               value={ipAddress}
               onChange={(e) => setIpAddress(e.target.value)}
               placeholder="192.168.10.24"
-              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
           </div>
 
           <div className="lg:col-span-3">
-            <label htmlFor="srv-bmc-ip" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="srv-bmc-ip" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('BMC-IP 1 (optional · HTTPS :443)', 'BMC IP 1 (optional · HTTPS :443)')}
             </label>
             <input
@@ -826,12 +826,12 @@ export function ServersView({
               value={bmcIpAddress}
               onChange={(e) => setBmcIpAddress(e.target.value)}
               placeholder="192.168.10.124"
-              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <div className="lg:col-span-3">
-            <label htmlFor="srv-bmc-ip2" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="srv-bmc-ip2" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('BMC-IP 2 (optional · HTTPS :443)', 'BMC IP 2 (optional · HTTPS :443)')}
             </label>
             <input
@@ -840,12 +840,12 @@ export function ServersView({
               value={bmcIpAddress2}
               onChange={(e) => setBmcIpAddress2(e.target.value)}
               placeholder="192.168.10.125"
-              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <div className="lg:col-span-3">
-            <label htmlFor="srv-label" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="srv-label" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Bezeichnung', 'Label')}
             </label>
             <input
@@ -854,14 +854,14 @@ export function ServersView({
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder="web-trixie-01"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
           <div className="lg:col-span-2">
-            <label htmlFor="srv-port" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="srv-port" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('SSH-Port', 'SSH Port')}
             </label>
             <input
@@ -871,13 +871,13 @@ export function ServersView({
               max={65535}
               value={port}
               onChange={(e) => setPort(e.target.value)}
-              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
           </div>
 
           <div className="lg:col-span-2">
-            <label htmlFor="srv-sshuser" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="srv-sshuser" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('SSH-Benutzer', 'SSH User')}
             </label>
             <input
@@ -886,13 +886,13 @@ export function ServersView({
               value={sshUser}
               onChange={(e) => setSshUser(e.target.value)}
               placeholder="root"
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
           </div>
 
           <div className="sm:col-span-2 lg:col-span-5">
-            <label htmlFor="srv-notes" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="srv-notes" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Notiz (optional)', 'Notes (optional)')}
             </label>
             <input
@@ -904,7 +904,7 @@ export function ServersView({
                 'z. B. Debian 13 Reverse-Proxy im Rechenzentrum Frankfurt · iDRAC/IPMI',
                 'e.g. Debian 13 reverse proxy in Frankfurt DC · iDRAC/IPMI'
               )}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
@@ -925,12 +925,12 @@ export function ServersView({
         </div>
 
         {/* Multi-Category Assignment */}
-        <div className="pt-2 border-t border-slate-100 space-y-2.5">
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/70 space-y-2.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-700">
+            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
               {tr('Kategorien zuordnen (Mehrfachauswahl)', 'Assign Categories (Multi-select)')}
               {selectedCategories.length > 0 && (
-                <span className="ml-1.5 font-mono text-[11px] text-blue-700">
+                <span className="ml-1.5 font-mono text-[11px] text-blue-700 dark:text-blue-400">
                   ({selectedCategories.length} {tr('gewählt', 'selected')})
                 </span>
               )}
@@ -948,13 +948,13 @@ export function ServersView({
                 }}
                 maxLength={48}
                 placeholder={tr('Schnell neue Kategorie hinzufügen...', 'Quick add new category...')}
-                className="w-48 sm:w-52 px-2.5 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-48 sm:w-52 px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
               <button
                 type="button"
                 onClick={handleInlineAddCategory}
                 disabled={creatingCategory || !inlineCategoryName.trim()}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3 h-3" />
                 {tr('Hinzufügen', 'Add')}
@@ -975,11 +975,11 @@ export function ServersView({
                     onClick={() => toggleCategorySelection(catName)}
                     className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                       isSelected
-                        ? 'bg-blue-50 text-blue-800 border-blue-300'
-                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-700/80'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-900 dark:hover:text-slate-100'
                     }`}
                   >
-                    {isSelected && <Check className="w-3 h-3 text-blue-700 shrink-0" />}
+                    {isSelected && <Check className="w-3 h-3 text-blue-700 dark:text-blue-400 shrink-0" />}
                     <span>{catName}</span>
                   </button>
                 );
@@ -988,7 +988,7 @@ export function ServersView({
                 <button
                   type="button"
                   onClick={() => setSelectedCategories([])}
-                  className="px-2 py-1 text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
+                  className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
                 >
                   {tr('Auswahl leeren', 'Clear')}
                 </button>
@@ -1005,12 +1005,12 @@ export function ServersView({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-1">
-          <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+          <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
             <input
               type="checkbox"
               checked={pingEnabled}
               onChange={(e) => setPingEnabled(e.target.checked)}
-              className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
             />
             <span>
               {tr(
@@ -1018,7 +1018,7 @@ export function ServersView({
                 'Auto-ping this IP (reachability check)'
               )}
               {!globalPingAllowed && (
-                <span className="text-amber-700 ml-1.5">
+                <span className="text-amber-700 dark:text-amber-400 ml-1.5">
                   ({tr('aktuell vom Admin global deaktiviert', 'currently disabled globally by admin')})
                 </span>
               )}
@@ -1028,7 +1028,7 @@ export function ServersView({
           <label
             className={`inline-flex items-center gap-2 text-xs ${
               allowInsecureHostKey || ignoreHostKey
-                ? 'text-slate-700 cursor-pointer'
+                ? 'text-slate-700 dark:text-slate-300 cursor-pointer'
                 : 'text-slate-400 cursor-not-allowed'
             }`}
           >
@@ -1037,18 +1037,18 @@ export function ServersView({
               checked={ignoreHostKey}
               disabled={!allowInsecureHostKey && !ignoreHostKey}
               onChange={(e) => setIgnoreHostKey(e.target.checked)}
-              className="rounded border-slate-300 text-amber-600 focus:ring-amber-600 disabled:opacity-50"
+              className="rounded border-slate-300 dark:border-slate-700 text-amber-600 dark:text-amber-400 focus:ring-amber-600 disabled:opacity-50"
             />
             <span>
               {tr(
                 'Host-Key-Prüfung deaktivieren',
                 'Disable Host Key Checking'
               )}{' '}
-              <code className="font-mono text-[11px] text-slate-500">
+              <code className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
                 (StrictHostKeyChecking=no, UserKnownHostsFile=/dev/null)
               </code>
               {!allowInsecureHostKey && (
-                <span className="text-amber-700 ml-1.5">
+                <span className="text-amber-700 dark:text-amber-400 ml-1.5">
                   ({tr('vom Admin global verboten', 'globally prohibited by admin')})
                 </span>
               )}
@@ -1056,12 +1056,12 @@ export function ServersView({
           </label>
 
           {canShare && !editingId && (
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
                 checked={shareOnCreate}
                 onChange={(e) => setShareOnCreate(e.target.checked)}
-                className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
               />
               <span>
                 {tr(
@@ -1076,9 +1076,9 @@ export function ServersView({
       )}
 
       {/* Server Table */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h2 className="font-display text-base font-semibold text-slate-900">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
             {tr(`Gespeicherte Zielserver (${filtered.length})`, `Saved Target Servers (${filtered.length})`)}
           </h2>
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
@@ -1087,7 +1087,7 @@ export function ServersView({
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 aria-label={tr('Nach Kategorie filtern', 'Filter by category')}
-                className="w-full sm:w-48 px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full sm:w-48 px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
                 <option value="">{tr('Alle Kategorien', 'All categories')}</option>
                 {tableFilterCategories.map((cat) => (
@@ -1107,16 +1107,16 @@ export function ServersView({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={tr('Nach IP, Kategorie oder Name filtern...', 'Filter by IP, category, or name...')}
-                className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
           </div>
         </div>
 
         {canBulkModify && selectedServers.length > 0 && (
-          <div className="px-6 py-3 bg-blue-50/80 border-b border-blue-200 flex flex-wrap items-center justify-between gap-3">
+          <div className="px-6 py-3 bg-blue-50/80 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800/70 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 text-xs">
-              <span className="font-semibold text-blue-950">
+              <span className="font-semibold text-blue-950 dark:text-blue-200">
                 {tr(
                   `${selectedServers.length} Server ausgewählt`,
                   `${selectedServers.length} servers selected`
@@ -1125,7 +1125,7 @@ export function ServersView({
               <button
                 type="button"
                 onClick={() => setSelectedServerIds([])}
-                className="text-blue-700 hover:text-blue-950 underline cursor-pointer"
+                className="text-blue-700 dark:text-blue-400 hover:text-blue-950 dark:hover:text-blue-200 underline cursor-pointer"
               >
                 {tr('Auswahl aufheben', 'Clear selection')}
               </button>
@@ -1137,27 +1137,27 @@ export function ServersView({
                     type="button"
                     disabled={bulkQuickBusy}
                     onClick={() => handleQuickBulkServers({ pingEnabled: true })}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 dark:text-emerald-200 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700/80 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
                   >
-                    <Activity className="w-3.5 h-3.5 text-emerald-700" />
+                    <Activity className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
                     {tr('Ping an', 'Ping On')}
                   </button>
                   <button
                     type="button"
                     disabled={bulkQuickBusy}
                     onClick={() => handleQuickBulkServers({ pingEnabled: false })}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
                   >
-                    <Ban className="w-3.5 h-3.5 text-slate-500" />
+                    <Ban className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                     {tr('Ping aus', 'Ping Off')}
                   </button>
                   <button
                     type="button"
                     disabled={bulkQuickBusy}
                     onClick={() => setBulkDialogFocus('categories')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
                   >
-                    <Tag className="w-3.5 h-3.5 text-slate-500" />
+                    <Tag className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                     {tr('Kategorien', 'Categories')}
                   </button>
                 </>
@@ -1167,9 +1167,9 @@ export function ServersView({
                   type="button"
                   disabled={bulkQuickBusy}
                   onClick={() => setBulkDialogFocus('sharing')}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-800 bg-white border border-blue-300 hover:bg-blue-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-800 dark:text-blue-300 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700/80 hover:bg-blue-50 dark:hover:bg-blue-950/50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
                 >
-                  <Share2 className="w-3.5 h-3.5 text-blue-700" />
+                  <Share2 className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
                   {tr('Teilen', 'Share')}
                 </button>
               )}
@@ -1191,12 +1191,12 @@ export function ServersView({
         {filtered.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <Server className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <p className="text-sm font-medium text-slate-900">
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
               {servers.length === 0
                 ? tr('Noch keine Zielserver angelegt', 'No target servers added yet')
                 : tr('Keine passenden Server gefunden', 'No matching servers found')}
             </p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {servers.length === 0
                 ? tr(
                     'Fügen Sie oben eine IPv4- oder IPv6-Adresse (sowie optional eine BMC-IP) hinzu.',
@@ -1209,7 +1209,7 @@ export function ServersView({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-xs font-medium text-slate-500 dark:text-slate-400">
                   {canBulkModify && (
                     <th className="py-2.5 pl-6 pr-2 w-10">
                       <input
@@ -1222,7 +1222,7 @@ export function ServersView({
                           'Alle eigenen gefilterten Server auswählen / abwählen',
                           'Select / deselect all own filtered servers'
                         )}
-                        className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
+                        className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
                       />
                     </th>
                   )}
@@ -1236,7 +1236,7 @@ export function ServersView({
                   <th className="py-2.5 px-6 text-right">{tr('Aktionen', 'Actions')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-sm">
                 {filtered.map((srv) => {
                   const isOwner = srv.userId === user.id;
                   const isSelected = selectedServerIds.includes(srv.id);
@@ -1254,7 +1254,7 @@ export function ServersView({
                     <tr
                       key={srv.id}
                       className={`transition-colors ${
-                        isSelected ? 'bg-blue-50/40 hover:bg-blue-50/70' : 'hover:bg-slate-50/80'
+                        isSelected ? 'bg-blue-50/40 dark:bg-blue-950/30 hover:bg-blue-50/70 dark:hover:bg-blue-950/50' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                       }`}
                     >
                       {canBulkModify && (
@@ -1265,7 +1265,7 @@ export function ServersView({
                               checked={isSelected}
                               onChange={() => toggleServerSelection(srv.id)}
                               aria-label={tr(`${srv.label} auswählen`, `Select ${srv.label}`)}
-                              className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                              className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                             />
                           ) : (
                             <input
@@ -1276,12 +1276,12 @@ export function ServersView({
                                 'Geteilte Server anderer Benutzer können nicht bearbeitet werden',
                                 'Shared servers owned by other users cannot be modified'
                               )}
-                              className="rounded border-slate-200 opacity-35 cursor-not-allowed"
+                              className="rounded border-slate-200 dark:border-slate-800 opacity-35 cursor-not-allowed"
                             />
                           )}
                         </td>
                       )}
-                      <td className="py-3 px-4 font-medium text-slate-900">
+                      <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">
                         <p className="whitespace-nowrap">{srv.label}</p>
                         {(srv.categories?.length ?? 0) > 0 && (
                           <div className="flex flex-wrap items-center gap-1 mt-1">
@@ -1300,8 +1300,8 @@ export function ServersView({
                                 )}
                                 className={`px-1.5 py-0.5 text-[11px] font-medium rounded border transition-colors cursor-pointer ${
                                   categoryFilter.toLowerCase() === cat.toLowerCase()
-                                    ? 'bg-blue-50 text-blue-800 border-blue-300'
-                                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-700/80'
+                                    : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-900 dark:hover:text-slate-100'
                                 }`}
                               >
                                 {cat}
@@ -1310,9 +1310,9 @@ export function ServersView({
                           </div>
                         )}
                       </td>
-                      <td className="py-3 px-4 font-mono text-xs text-slate-800 tabular-nums whitespace-nowrap">
+                      <td className="py-3 px-4 font-mono text-xs text-slate-800 dark:text-slate-200 tabular-nums whitespace-nowrap">
                         <p>{srv.ipAddress}</p>
-                        <p className="text-slate-500">
+                        <p className="text-slate-500 dark:text-slate-400">
                           {srv.sshUser} · Port {srv.port}
                         </p>
                       </td>
@@ -1337,7 +1337,7 @@ export function ServersView({
                                         `${formatBmcUrl(ip)} in neuem Tab öffnen`,
                                         `Open ${formatBmcUrl(ip)} in a new tab`
                                       )}
-                                      className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline tabular-nums"
+                                      className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 hover:underline tabular-nums"
                                     >
                                       <span>{ip}</span>
                                       <ExternalLink className="w-3 h-3 shrink-0" />
@@ -1350,7 +1350,7 @@ export function ServersView({
                                         `BMC ${slot} über https:// Port 443 prüfen`,
                                         `Check BMC ${slot} over https:// port 443`
                                       )}
-                                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded transition-colors cursor-pointer"
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded transition-colors cursor-pointer"
                                     >
                                       {isCheckingBmc ? (
                                         <RefreshCw className="w-3 h-3 animate-spin" />
@@ -1367,7 +1367,7 @@ export function ServersView({
                                   {bmcRes && (
                                     <p
                                       className={`inline-flex items-center gap-1 text-[11px] font-mono tabular-nums ${
-                                        bmcRes.reachable ? 'text-emerald-700' : 'text-red-700'
+                                        bmcRes.reachable ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'
                                       }`}
                                       title={bmcRes.error || `${bmcRes.url} (${bmcRes.tlsProtocol || 'TLS'})`}
                                     >
@@ -1412,8 +1412,8 @@ export function ServersView({
                             }
                             className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
                               srv.pingEnabled !== false
-                                ? 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
-                                : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
+                                ? 'text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+                                : 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
                             }`}
                           >
                             {srv.pingEnabled !== false ? (
@@ -1431,7 +1431,7 @@ export function ServersView({
                         ) : (
                           <span
                             className={`inline-flex items-center gap-1 font-medium ${
-                              srv.pingEnabled !== false ? 'text-emerald-700' : 'text-slate-500'
+                              srv.pingEnabled !== false ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'
                             }`}
                           >
                             {srv.pingEnabled !== false ? (
@@ -1468,18 +1468,18 @@ export function ServersView({
                               }
                               className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
                                 srv.ignoreHostKey
-                                  ? 'text-amber-900 bg-amber-100 hover:bg-amber-200'
-                                  : 'text-slate-700 bg-slate-100 hover:bg-slate-200'
+                                  ? 'text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60'
+                                  : 'text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
                               }`}
                             >
                               {srv.ignoreHostKey ? (
                                 <>
-                                  <ShieldAlert className="w-3 h-3 shrink-0 text-amber-700" />
+                                  <ShieldAlert className="w-3 h-3 shrink-0 text-amber-700 dark:text-amber-400" />
                                   <span>{tr('Ignorieren', 'Bypass')}</span>
                                 </>
                               ) : (
                                 <>
-                                  <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-700" />
+                                  <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-700 dark:text-emerald-400" />
                                   <span>{tr('Prüfen', 'Verify')}</span>
                                 </>
                               )}
@@ -1487,9 +1487,9 @@ export function ServersView({
                           ) : srv.ignoreHostKey && allowInsecureHostKey ? (
                             <span
                               title="StrictHostKeyChecking=no, UserKnownHostsFile=/dev/null"
-                              className="inline-flex items-center gap-1 font-medium text-amber-800"
+                              className="inline-flex items-center gap-1 font-medium text-amber-800 dark:text-amber-300"
                             >
-                              <ShieldAlert className="w-3 h-3 shrink-0 text-amber-700" />
+                              <ShieldAlert className="w-3 h-3 shrink-0 text-amber-700 dark:text-amber-400" />
                               {tr('Ignorieren', 'Bypass')}
                             </span>
                           ) : (
@@ -1502,9 +1502,9 @@ export function ServersView({
                                     )
                                   : 'StrictHostKeyChecking=accept-new'
                               }
-                              className="inline-flex items-center gap-1 font-medium text-slate-600"
+                              className="inline-flex items-center gap-1 font-medium text-slate-600 dark:text-slate-400"
                             >
-                              <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-700" />
+                              <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-700 dark:text-emerald-400" />
                               {srv.ignoreHostKey && !allowInsecureHostKey
                                 ? tr('Prüfen (Admin)', 'Verify (Admin)')
                                 : tr('Prüfen', 'Verify')}
@@ -1520,7 +1520,7 @@ export function ServersView({
                                 `Alten gespeicherten Host-Key für ${srv.ipAddress}${srv.port !== 22 ? `:${srv.port}` : ''} löschen`,
                                 `Delete stored host key for ${srv.ipAddress}${srv.port !== 22 ? `:${srv.port}` : ''}`
                               )}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:text-red-700 bg-slate-100 hover:bg-red-50 border border-slate-200 hover:border-red-200 rounded transition-colors cursor-pointer disabled:opacity-50"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-300 bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/50 border border-slate-200 dark:border-slate-800 hover:border-red-200 dark:hover:border-red-800/70 rounded transition-colors cursor-pointer disabled:opacity-50"
                             >
                               <RotateCcw
                                 className={`w-3 h-3 shrink-0 ${
@@ -1536,14 +1536,14 @@ export function ServersView({
                         <span
                           className={
                             !isOwner || srv.sharedWithAll || srv.sharedWithUserIds.length > 0
-                              ? 'text-blue-800 font-medium'
-                              : 'text-slate-500'
+                              ? 'text-blue-800 dark:text-blue-300 font-medium'
+                              : 'text-slate-500 dark:text-slate-400'
                           }
                         >
                           {shareLabel}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-xs text-slate-500 max-w-xs truncate">
+                      <td className="py-3 px-4 text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">
                         {srv.notes || '—'}
                       </td>
                       <td className="py-3 px-6 text-right whitespace-nowrap">
@@ -1553,7 +1553,7 @@ export function ServersView({
                               <button
                                 type="button"
                                 onClick={() => startEdit(srv)}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-950 cursor-pointer"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-slate-100 cursor-pointer"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                                 {tr('Bearbeiten', 'Edit')}
@@ -1563,7 +1563,7 @@ export function ServersView({
                               <button
                                 type="button"
                                 onClick={() => setSharingServer(srv)}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer"
                               >
                                 <Share2 className="w-3.5 h-3.5" />
                                 {tr('Teilen', 'Share')}
@@ -1574,7 +1574,7 @@ export function ServersView({
                                 type="button"
                                 onClick={() => handleDelete(srv.id)}
                                 disabled={deletingId === srv.id}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                                 {tr('Entfernen', 'Delete')}

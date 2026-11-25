@@ -349,7 +349,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
 
   if (loading && !status) {
     return (
-      <div className="py-12 text-center text-sm text-slate-500">
+      <div className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">
         {tr('Lade Datenbankstatus...', 'Loading database status...')}
       </div>
     );
@@ -362,10 +362,10 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {tr('Datenbank & Migration', 'Database & Migration')}
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {tr(
               'Die Ersteinrichtung nutzt standardmäßig SQLite. Optional können Sie jederzeit auf eine externe MariaDB migrieren oder zurück zu SQLite wechseln.',
               'Initial setup always uses SQLite by default. Optionally migrate to an external MariaDB server or switch back to SQLite at any time.'
@@ -376,7 +376,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
           type="button"
           onClick={() => void loadStatus(false)}
           disabled={refreshing || migrating}
-          className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50 self-start sm:self-auto"
+          className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50 self-start sm:self-auto"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
           {tr('Status aktualisieren', 'Refresh status')}
@@ -385,22 +385,22 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
 
       {/* Global Alerts */}
       {error && (
-        <div className="p-3.5 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+        <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300 flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
           <div className="min-w-0 break-words">{error}</div>
         </div>
       )}
 
       {success && (
-        <div className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800 flex items-start gap-2.5">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+        <div className="p-3.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
           <div className="min-w-0 break-words">{success}</div>
         </div>
       )}
 
       {status?.lastSyncError && isMariaDb && (
-        <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-900 flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <div className="p-3.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="font-medium">
               {tr('Hinweis zur letzten MariaDB-Synchronisierung', 'Notice on last MariaDB sync')}
@@ -411,19 +411,19 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
       )}
 
       {/* Active Engine & Status Overview */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             {isMariaDb ? (
-              <Server className="w-5 h-5 text-blue-700" />
+              <Server className="w-5 h-5 text-blue-700 dark:text-blue-400" />
             ) : (
-              <HardDrive className="w-5 h-5 text-emerald-700" />
+              <HardDrive className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />
             )}
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                 {tr('Aktive Datenbank-Engine', 'Active Database Engine')}
               </h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 {isMariaDb
                   ? tr(
                       'Externe MariaDB-Instanz ist aktiv und speichert alle Änderungen.',
@@ -441,8 +441,8 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
             <span
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md border ${
                 isMariaDb
-                  ? 'bg-blue-50 text-blue-800 border-blue-200'
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/70'
+                  : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/70'
               }`}
             >
               <Database className="w-3.5 h-3.5" />
@@ -451,8 +451,8 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
             <span
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border ${
                 status?.connected
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-red-50 text-red-700 border-red-200'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/70'
+                  : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800/70'
               }`}
             >
               <span
@@ -467,16 +467,16 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
 
         <div className="p-5 space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-3.5 rounded-md bg-slate-50 border border-slate-200">
-              <p className="text-xs font-medium text-slate-500">
+            <div className="p-3.5 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {isMariaDb ? tr('MariaDB-Server', 'MariaDB Server') : tr('SQLite-Speicherort', 'SQLite Location')}
               </p>
-              <p className="text-sm font-mono font-medium text-slate-900 mt-1 break-all">
+              <p className="text-sm font-mono font-medium text-slate-900 dark:text-slate-100 mt-1 break-all">
                 {isMariaDb
                   ? `${status?.mariadb.host}:${status?.mariadb.port}/${status?.mariadb.database}`
                   : status?.sqlitePath || '—'}
               </p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {isMariaDb
                   ? status?.mariadbVersion
                     ? `Version: ${status.mariadbVersion}`
@@ -487,14 +487,14 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
               </p>
             </div>
 
-            <div className="p-3.5 rounded-md bg-slate-50 border border-slate-200">
-              <p className="text-xs font-medium text-slate-500">
+            <div className="p-3.5 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {tr('Gesamte Datensätze', 'Total Records')}
               </p>
-              <p className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-1">
+              <p className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100 mt-1">
                 {status?.totalRows ?? 0}
               </p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {tr(
                   `Verteilt auf ${status?.tables.length ?? 0} Tabellen`,
                   `Across ${status?.tables.length ?? 0} tables`
@@ -502,14 +502,14 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
               </p>
             </div>
 
-            <div className="p-3.5 rounded-md bg-slate-50 border border-slate-200">
-              <p className="text-xs font-medium text-slate-500">
+            <div className="p-3.5 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {tr('Letzte Migration', 'Last Migration')}
               </p>
-              <p className="text-sm font-medium text-slate-900 mt-1">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mt-1">
                 {status?.lastMigratedAt ? formatDateTime(status.lastMigratedAt) : tr('Noch keine Migration', 'No migration yet')}
               </p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {status?.lastMigrationDirection === 'sqlite-to-mariadb'
                   ? 'SQLite → MariaDB'
                   : status?.lastMigrationDirection === 'mariadb-to-sqlite'
@@ -522,20 +522,20 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
           {/* Table Breakdown */}
           {status && status.tables.length > 0 && (
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2.5">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2.5">
                 {tr('Tabellenübersicht (Live)', 'Table Overview (Live)')}
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                 {status.tables.map((tbl) => (
                   <div
                     key={tbl.table}
-                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-md border border-slate-200 bg-white"
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
                   >
                     <div className="min-w-0">
-                      <p className="text-xs font-medium text-slate-800 truncate">{tbl.label}</p>
+                      <p className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">{tbl.label}</p>
                       <p className="text-[11px] font-mono text-slate-400 truncate">{tbl.table}</p>
                     </div>
-                    <span className="text-xs font-mono font-semibold tabular-nums text-slate-900 shrink-0">
+                    <span className="text-xs font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100 shrink-0">
                       {tbl.rows}
                     </span>
                   </div>
@@ -548,31 +548,31 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
 
       {/* Post-migration Result Banner */}
       {lastMigrationResult && (
-        <section className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-5 space-y-2.5">
-          <div className="flex items-center gap-2 text-emerald-900 font-semibold text-sm">
-            <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+        <section className="bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/70 rounded-lg p-5 space-y-2.5">
+          <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200 font-semibold text-sm">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
             {lastMigrationResult.direction === 'sqlite-to-mariadb'
               ? tr('Migrationsbericht: SQLite → MariaDB', 'Migration Report: SQLite → MariaDB')
               : tr('Migrationsbericht: MariaDB → SQLite', 'Migration Report: MariaDB → SQLite')}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-emerald-900">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-emerald-900 dark:text-emerald-200">
             <div>
-              <span className="text-emerald-700">{tr('Übertragene Datensätze', 'Migrated rows')}: </span>
+              <span className="text-emerald-700 dark:text-emerald-400">{tr('Übertragene Datensätze', 'Migrated rows')}: </span>
               <span className="font-mono font-semibold">{lastMigrationResult.totalRows}</span>
             </div>
             <div>
-              <span className="text-emerald-700">{tr('Dauer', 'Duration')}: </span>
+              <span className="text-emerald-700 dark:text-emerald-400">{tr('Dauer', 'Duration')}: </span>
               <span className="font-mono font-semibold">{lastMigrationResult.durationMs} ms</span>
             </div>
             {lastMigrationResult.mariadbVersion && (
               <div>
-                <span className="text-emerald-700">MariaDB: </span>
+                <span className="text-emerald-700 dark:text-emerald-400">MariaDB: </span>
                 <span className="font-mono font-semibold">{lastMigrationResult.mariadbVersion}</span>
               </div>
             )}
             {lastMigrationResult.backupFileName && (
               <div className="sm:col-span-3">
-                <span className="text-emerald-700">{tr('SQLite-Backup erstellt', 'SQLite backup created')}: </span>
+                <span className="text-emerald-700 dark:text-emerald-400">{tr('SQLite-Backup erstellt', 'SQLite backup created')}: </span>
                 <span className="font-mono font-semibold">{lastMigrationResult.backupFileName}</span>
               </div>
             )}
@@ -581,13 +581,13 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
       )}
 
       {/* MariaDB Connection Configuration */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {tr('MariaDB-Verbindung konfigurieren', 'Configure MariaDB Connection')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Das Passwort wird verschlüsselt gespeichert und niemals im Klartext ausgegeben.',
                 'The password is stored encrypted and is never displayed in plaintext.'
@@ -595,7 +595,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
             </p>
           </div>
           {status?.mariadb.configured && (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md">
               <Lock className="w-3 h-3" />
               {tr('Konfiguration hinterlegt', 'Configuration saved')}
             </span>
@@ -605,7 +605,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
         <form onSubmit={handleSaveConfig} className="p-5 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
             <div className="md:col-span-6">
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('MariaDB Host / IP-Adresse', 'MariaDB Host / IP Address')}
               </label>
               <input
@@ -617,12 +617,12 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                 }}
                 placeholder="127.0.0.1 oder mariadb.intern"
                 disabled={isMariaDb}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 disabled:text-slate-600 font-mono"
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-600 dark:disabled:text-slate-500 font-mono"
               />
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Port</label>
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Port</label>
               <input
                 type="number"
                 min={1}
@@ -633,12 +633,12 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                   setTestResult(null);
                 }}
                 disabled={isMariaDb}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 disabled:text-slate-600 font-mono"
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-600 dark:disabled:text-slate-500 font-mono"
               />
             </div>
 
             <div className="md:col-span-4">
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Datenbankname', 'Database Name')}
               </label>
               <input
@@ -650,12 +650,12 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                 }}
                 placeholder="ssh_console"
                 disabled={isMariaDb}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 disabled:text-slate-600 font-mono"
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-600 dark:disabled:text-slate-500 font-mono"
               />
             </div>
 
             <div className="md:col-span-6">
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Benutzername', 'Username')}
               </label>
               <input
@@ -668,15 +668,15 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                 placeholder="ssh_console"
                 autoComplete="off"
                 disabled={isMariaDb}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 disabled:text-slate-600 font-mono"
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-600 dark:disabled:text-slate-500 font-mono"
               />
             </div>
 
             <div className="md:col-span-6">
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Passwort', 'Password')}
                 {status?.mariadb.hasPassword && (
-                  <span className="ml-2 text-[11px] font-normal text-emerald-700">
+                  <span className="ml-2 text-[11px] font-normal text-emerald-700 dark:text-emerald-400">
                     ({tr('verschlüsselt hinterlegt – leer lassen zum Beibehalten', 'stored encrypted – leave blank to keep')})
                   </span>
                 )}
@@ -695,14 +695,14 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                 }
                 autoComplete="new-password"
                 disabled={isMariaDb}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 disabled:text-slate-600"
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-600 dark:disabled:text-slate-500"
               />
             </div>
           </div>
 
           {/* TLS/SSL Options */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-1">
-            <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+            <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
                 checked={ssl}
@@ -711,13 +711,13 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                   setSsl(e.target.checked);
                   setTestResult(null);
                 }}
-                className="rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-500"
               />
               {tr('TLS/SSL-Verbindung verwenden', 'Use TLS/SSL connection')}
             </label>
 
             {ssl && (
-              <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+              <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={sslRejectUnauthorized}
@@ -726,7 +726,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                     setSslRejectUnauthorized(e.target.checked);
                     setTestResult(null);
                   }}
-                  className="rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                  className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-500"
                 />
                 {tr('Server-Zertifikat streng prüfen (empfohlen)', 'Verify server certificate (recommended)')}
               </label>
@@ -734,7 +734,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
           </div>
 
           {isMariaDb && (
-            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+            <p className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-md px-3 py-2">
               {tr(
                 'Die Zugangsdaten sind schreibgeschützt, solange MariaDB aktiv ist. Um auf eine andere MariaDB zu wechseln, migrieren Sie zuerst zurück zu SQLite.',
                 'Connection fields are read-only while MariaDB is active. To switch to another MariaDB instance, migrate back to SQLite first.'
@@ -744,17 +744,17 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
 
           {/* Connection Test Output */}
           {testResult && (
-            <div className="p-3.5 rounded-md bg-blue-50 border border-blue-200 text-xs text-blue-950 space-y-1.5">
+            <div className="p-3.5 rounded-md bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 text-xs text-blue-950 dark:text-blue-200 space-y-1.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-semibold flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-blue-700" />
+                  <ShieldCheck className="w-4 h-4 text-blue-700 dark:text-blue-400" />
                   {tr('Verbindungstest erfolgreich', 'Connection test succeeded')}
                 </span>
-                <span className="font-mono text-blue-800">
+                <span className="font-mono text-blue-800 dark:text-blue-300">
                   {testResult.version} · {testResult.latencyMs} ms
                 </span>
               </div>
-              <p className="text-blue-800">
+              <p className="text-blue-800 dark:text-blue-300">
                 {testResult.existingRowCount > 0
                   ? tr(
                       `In "${testResult.database}" wurden bereits ${testResult.existingRowCount} bestehende Datensätze gefunden.`,
@@ -769,15 +769,15 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
           )}
 
           {/* Action Buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800/70">
             <div className="flex flex-wrap items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => void handleTestConnection()}
                 disabled={testing || migrating || !formHasRequiredFields}
-                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <PlugZap className="w-3.5 h-3.5 text-blue-700" />
+                <PlugZap className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
                 {testing
                   ? tr('Teste Verbindung...', 'Testing connection...')
                   : tr('Verbindung testen', 'Test connection')}
@@ -787,7 +787,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                 <button
                   type="submit"
                   disabled={savingConfig || migrating || !formHasRequiredFields}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-white bg-slate-800 hover:bg-slate-900 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-white bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-3.5 h-3.5" />
                   {savingConfig
@@ -801,7 +801,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
               <div>
                 {confirmClearConfig ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-red-700">
+                    <span className="text-xs text-red-700 dark:text-red-400">
                       {tr('Daten entfernen?', 'Remove settings?')}
                     </span>
                     <button
@@ -815,7 +815,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                     <button
                       type="button"
                       onClick={() => setConfirmClearConfig(false)}
-                      className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md cursor-pointer"
+                      className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md cursor-pointer"
                     >
                       {tr('Abbrechen', 'Cancel')}
                     </button>
@@ -824,7 +824,7 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                   <button
                     type="button"
                     onClick={() => setConfirmClearConfig(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-md transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     {tr('Gespeicherte MariaDB-Daten löschen', 'Delete saved MariaDB settings')}
@@ -839,13 +839,13 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
             <button
               type="button"
               onClick={() => setShowSqlSnippet((v) => !v)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer"
             >
               {showSqlSnippet ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               {tr('SQL-Vorlage zum Anlegen von Datenbank & Benutzer in MariaDB anzeigen', 'Show SQL snippet to create database & user in MariaDB')}
             </button>
             {showSqlSnippet && (
-              <div className="mt-2.5 rounded-md bg-slate-900 text-slate-100 p-3.5 relative">
+              <div className="mt-2.5 rounded-md bg-slate-900 dark:bg-slate-950 dark:border dark:border-slate-800 text-slate-100 p-3.5 relative">
                 <button
                   type="button"
                   onClick={() => void handleCopySql()}
@@ -864,14 +864,14 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
       </section>
 
       {/* Bidirectional Migration Card */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center gap-2.5">
-          <ArrowLeftRight className="w-4 h-4 text-blue-700" />
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2.5">
+          <ArrowLeftRight className="w-4 h-4 text-blue-700 dark:text-blue-400" />
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {tr('Datenbank-Migration', 'Database Migration')}
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               {tr(
                 'Alle Benutzer, Gruppen, Server, Befehle, SSH-Zertifikate, CAs, Passkeys, API-Schlüssel und Protokolle werden vollständig und konsistent übertragen.',
                 'All users, groups, servers, commands, SSH certificates, CAs, passkeys, API keys, and logs are migrated completely and consistently.'
@@ -883,14 +883,14 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
         <div className="p-5 space-y-4">
           {!isMariaDb ? (
             <>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-md bg-slate-50 border border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
                     <span>SQLite</span>
-                    <ArrowRight className="w-4 h-4 text-blue-700" />
+                    <ArrowRight className="w-4 h-4 text-blue-700 dark:text-blue-400" />
                     <span>MariaDB</span>
                   </div>
-                  <p className="text-xs text-slate-600 max-w-2xl">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 max-w-2xl">
                     {tr(
                       'Erstellt das Tabellen-Schema in MariaDB, überträgt alle vorhandenen Datensätze in einer Transaktion, prüft die Datensatzanzahl und schaltet die laufende Instanz nahtlos auf MariaDB um. Die lokale SQLite-Datei bleibt als Sicherheitskopie unverändert erhalten.',
                       'Creates the schema in MariaDB, transfers all records inside a transaction, verifies total row counts, and switches the running instance seamlessly to MariaDB. Your local SQLite file remains untouched as a backup.'
@@ -915,16 +915,16 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
               </div>
 
               {overwriteWarning && (
-                <div className="p-4 rounded-md bg-amber-50 border border-amber-300 space-y-3">
+                <div className="p-4 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 space-y-3">
                   <div className="flex items-start gap-2.5">
-                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                    <div className="text-xs text-amber-950 space-y-1">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-950 dark:text-amber-200 space-y-1">
                       <p className="font-semibold">
                         {tr('Ziel-Datenbank ist nicht leer', 'Target database is not empty')}
                       </p>
                       <p>{overwriteWarning.message}</p>
                       {overwriteWarning.existingTables.length > 0 && (
-                        <p className="font-mono text-[11px] text-amber-800">
+                        <p className="font-mono text-[11px] text-amber-800 dark:text-amber-300">
                           {overwriteWarning.existingTables
                             .filter((t) => t.rows > 0)
                             .map((t) => `${t.table}: ${t.rows}`)
@@ -933,12 +933,12 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
                       )}
                     </div>
                   </div>
-                  <label className="inline-flex items-center gap-2 text-xs font-medium text-amber-950 cursor-pointer">
+                  <label className="inline-flex items-center gap-2 text-xs font-medium text-amber-950 dark:text-amber-200 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={confirmOverwrite}
                       onChange={(e) => setConfirmOverwrite(e.target.checked)}
-                      className="rounded border-amber-400 text-amber-700 focus:ring-amber-500"
+                      className="rounded border-amber-400 dark:border-amber-700/80 text-amber-700 dark:text-amber-400 focus:ring-amber-500"
                     />
                     {tr(
                       'Ich bestätige, dass vorhandene SSH-Console-Daten in der Ziel-MariaDB überschrieben werden dürfen.',
@@ -949,14 +949,14 @@ export function DatabaseAdminView({ onDatabaseMigrated }: DatabaseAdminViewProps
               )}
             </>
           ) : (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-md bg-slate-50 border border-slate-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
               <div className="space-y-1">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
                   <span>MariaDB</span>
-                  <ArrowRight className="w-4 h-4 text-emerald-700" />
+                  <ArrowRight className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
                   <span>SQLite</span>
                 </div>
-                <p className="text-xs text-slate-600 max-w-2xl">
+                <p className="text-xs text-slate-600 dark:text-slate-400 max-w-2xl">
                   {tr(
                     'Liest den aktuellen Stand aus MariaDB, legt automatisch eine Sicherungskopie der bisherigen SQLite-Datei an, schreibt alle Datensätze atomar nach SQLite und schaltet sofort zurück auf SQLite. Die Daten in MariaDB werden dabei nicht gelöscht.',
                     'Reads the latest state from MariaDB, creates a timestamped backup of the previous SQLite file, writes all records atomically to SQLite, and switches back immediately. Data in MariaDB is not deleted.'

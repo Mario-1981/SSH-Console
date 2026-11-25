@@ -44,28 +44,28 @@ export function PasswordStrengthHint({ password, compact = false }: PasswordStre
         compact ? 'px-2.5 py-2 space-y-1.5' : 'px-3 py-2.5 space-y-2'
       } ${
         !started
-          ? 'bg-slate-50 border-slate-200 text-slate-600'
+          ? 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
           : status.valid
-            ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
-            : 'bg-amber-50/70 border-amber-200 text-amber-950'
+            ? 'bg-emerald-50/70 dark:bg-emerald-950/35 border-emerald-200 dark:border-emerald-800/70 text-emerald-900 dark:text-emerald-200'
+            : 'bg-amber-50/70 dark:bg-amber-950/35 border-amber-200 dark:border-amber-800/70 text-amber-950 dark:text-amber-200'
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <span className="inline-flex items-center gap-1.5 font-medium">
           {status.hasMinLength ? (
-            <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
           ) : started ? (
-            <X className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+            <X className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
           ) : (
             <Circle className="w-3 h-3 text-slate-400 shrink-0" />
           )}
           <span
             className={
               status.hasMinLength
-                ? 'text-emerald-800'
+                ? 'text-emerald-800 dark:text-emerald-300'
                 : started
-                  ? 'text-amber-900'
-                  : 'text-slate-700'
+                  ? 'text-amber-900 dark:text-amber-200'
+                  : 'text-slate-700 dark:text-slate-300'
             }
           >
             {tr('Mindestens 8 Zeichen (Pflicht)', 'At least 8 characters (required)')}
@@ -74,10 +74,10 @@ export function PasswordStrengthHint({ password, compact = false }: PasswordStre
         <span
           className={`tabular-nums font-medium ${
             categoriesSatisfied
-              ? 'text-emerald-800'
+              ? 'text-emerald-800 dark:text-emerald-300'
               : started
-                ? 'text-amber-900'
-                : 'text-slate-600'
+                ? 'text-amber-900 dark:text-amber-200'
+                : 'text-slate-600 dark:text-slate-400'
           }`}
         >
           {tr(
@@ -91,13 +91,13 @@ export function PasswordStrengthHint({ password, compact = false }: PasswordStre
         {categories.map((cat) => (
           <div key={cat.key} className="flex items-center gap-1.5 min-w-0">
             {cat.met ? (
-              <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+              <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
             ) : (
               <Circle className="w-2.5 h-2.5 text-slate-400 shrink-0" />
             )}
             <span
               className={`truncate ${
-                cat.met ? 'text-emerald-800 font-medium' : 'text-slate-600'
+                cat.met ? 'text-emerald-800 dark:text-emerald-300 font-medium' : 'text-slate-600 dark:text-slate-400'
               }`}
             >
               {cat.label}

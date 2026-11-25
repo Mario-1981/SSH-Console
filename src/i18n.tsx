@@ -111,7 +111,7 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
     <div
       role="group"
       aria-label="Language / Sprache"
-      className="inline-flex items-center p-0.5 bg-slate-100 border border-slate-200 rounded-md shrink-0"
+      className="inline-flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md shrink-0"
     >
       {(['de', 'en'] as const).map((code) => {
         const active = locale === code;
@@ -123,8 +123,8 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
             aria-pressed={active}
             className={`${compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'} font-medium uppercase rounded transition-colors cursor-pointer ${
               active
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-500 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }`}
           >
             {code}

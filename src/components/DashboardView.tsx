@@ -825,10 +825,10 @@ export function DashboardView({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {tr('Server-Dashboard', 'Server Dashboard')}
           </h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             {!globalPingAllowed
               ? tr(
                   'Der regelmäßige Auto-Ping ist durch den Administrator global deaktiviert. Manuelles Prüfen einzelner oder aller IPs sowie die Sammelausführung bleiben jederzeit möglich.',
@@ -854,7 +854,7 @@ export function DashboardView({
             'Alle sichtbaren Ziel-IPs jetzt manuell anpingen (auch bei deaktiviertem Auto-Ping)',
             'Manually ping all target IPs now (works even when auto-ping is disabled)'
           )}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${pingingAll ? 'animate-spin' : ''}`} />
           {pingingAll
@@ -864,68 +864,68 @@ export function DashboardView({
       </div>
 
       {error && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {/* Single-elevation KPI Strip */}
-      <section className="bg-white border border-slate-200 rounded-lg grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 dark:divide-slate-800">
         <div className="p-5">
-          <p className="text-xs text-slate-500">{tr('Server-IPs gesamt', 'Total Server IPs')}</p>
-          <p className="mt-1 font-display text-2xl font-bold text-slate-900 tabular-nums">
+          <p className="text-xs text-slate-500 dark:text-slate-400">{tr('Server-IPs gesamt', 'Total Server IPs')}</p>
+          <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-slate-100 tabular-nums">
             {counts.total}
           </p>
           {counts.disabled > 0 && (
-            <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
               {tr(`${counts.disabled} ohne Auto-Ping`, `${counts.disabled} auto-ping off`)}
             </p>
           )}
         </div>
         <div className="p-5">
-          <p className="text-xs text-slate-500">Online</p>
-          <p className="mt-1 font-display text-2xl font-bold text-emerald-700 tabular-nums">
+          <p className="text-xs text-slate-500 dark:text-slate-400">Online</p>
+          <p className="mt-1 font-display text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
             {counts.online}
           </p>
         </div>
         <div className="p-5">
-          <p className="text-xs text-slate-500">Offline</p>
-          <p className="mt-1 font-display text-2xl font-bold text-red-700 tabular-nums">
+          <p className="text-xs text-slate-500 dark:text-slate-400">Offline</p>
+          <p className="mt-1 font-display text-2xl font-bold text-red-700 dark:text-red-400 tabular-nums">
             {counts.offline}
           </p>
         </div>
         <div className="p-5">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {tr(`Auto-Ping (${intervalSec}s-Takt)`, `Auto-Ping (${intervalSec}s cycle)`)}
           </p>
           {!globalPingAllowed ? (
             <>
-              <p className="mt-1 font-mono text-sm font-semibold text-amber-800">
+              <p className="mt-1 font-mono text-sm font-semibold text-amber-800 dark:text-amber-300">
                 {tr('Global aus (Admin)', 'Globally off (Admin)')}
               </p>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr('Manuelles Prüfen weiterhin möglich', 'Manual checks still available')}
               </p>
             </>
           ) : !userPingEnabled ? (
             <>
-              <p className="mt-1 font-mono text-sm font-semibold text-slate-700">
+              <p className="mt-1 font-mono text-sm font-semibold text-slate-700 dark:text-slate-300">
                 {tr('Auto-Ping pausiert', 'Auto-ping paused')}
               </p>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr('Manuelles Prüfen weiterhin möglich', 'Manual checks still available')}
               </p>
             </>
           ) : (
             <>
-              <p className="mt-1 font-mono text-sm font-semibold text-slate-900 tabular-nums">
+              <p className="mt-1 font-mono text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
                 {tr(`Nächster in ${secondsToNext}s`, `Next in ${secondsToNext}s`)}
               </p>
-              <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
                 {tr('Letzter Lauf', 'Last run')}: {formatClockTime(pingData?.lastCycleAt)}
               </p>
               {pingData?.pacingMs != null && (pingData.activeTargetCount ?? 0) > 1 && (
-                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
                   {tr(
                     `Verteilt: ~1 IP alle ${formatPacingInterval(pingData.pacingMs, locale)}`,
                     `Paced: ~1 IP every ${formatPacingInterval(pingData.pacingMs, locale)}`
@@ -933,7 +933,7 @@ export function DashboardView({
                 </p>
               )}
               {backoffCount > 0 && offlineThreshold > 0 && (
-                <p className="text-xs text-amber-800 mt-0.5 tabular-nums">
+                <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5 tabular-nums">
                   {tr(
                     `${backoffCount} Offline-IP${backoffCount === 1 ? '' : 's'} im ${formatIntervalShort(
                       Math.min(86400, intervalSec * offlineMultiplier)
@@ -950,16 +950,16 @@ export function DashboardView({
       </section>
 
       {/* Ping Controls Bar (User + Admin) */}
-      <section className="bg-white border border-slate-200 rounded-lg px-5 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-5 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800">
-            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+          <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             <span>{tr('Auto-Ping-Steuerung', 'Auto-Ping Controls')}</span>
           </div>
           <span aria-hidden="true" className="hidden sm:inline text-slate-300">|</span>
           <label
             className={`inline-flex items-center gap-2 text-xs ${
-              globalPingAllowed ? 'text-slate-700 cursor-pointer' : 'text-slate-400 cursor-not-allowed'
+              globalPingAllowed ? 'text-slate-700 dark:text-slate-300 cursor-pointer' : 'text-slate-400 cursor-not-allowed'
             }`}
           >
             <input
@@ -967,7 +967,7 @@ export function DashboardView({
               checked={userPingEnabled}
               disabled={!globalPingAllowed || savingUserPing}
               onChange={handleToggleUserPing}
-              className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-50"
+              className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 disabled:opacity-50"
             />
             <span>
               {tr(
@@ -977,22 +977,22 @@ export function DashboardView({
             </span>
           </label>
           {!globalPingAllowed && (
-            <span className="text-xs text-amber-800 font-medium">
+            <span className="text-xs text-amber-800 dark:text-amber-300 font-medium">
               ({tr('Auto-Ping vom Admin deaktiviert · Manuell aktiv', 'Auto-ping disabled by admin · Manual active')})
             </span>
           )}
         </div>
 
         {isAdmin && (
-          <div className="flex flex-wrap items-center gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-200">
+          <div className="flex flex-wrap items-center gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={handleToggleGlobalPing}
               disabled={savingAdminPing}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap ${
                 globalPingAllowed
-                  ? 'text-red-700 bg-red-50 border-red-200 hover:bg-red-100'
-                  : 'text-emerald-800 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                  ? 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800/70 hover:bg-red-100 dark:hover:bg-red-900/50'
+                  : 'text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/70 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
               }`}
             >
               {globalPingAllowed ? (
@@ -1009,7 +1009,7 @@ export function DashboardView({
             </button>
 
             <form onSubmit={handleSaveInterval} className="flex flex-wrap items-center gap-2">
-              <label htmlFor="admin-ping-interval" className="text-xs text-slate-600 whitespace-nowrap">
+              <label htmlFor="admin-ping-interval" className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
                 {tr('Intervall (Sek.):', 'Interval (sec):')}
               </label>
               <input
@@ -1021,12 +1021,12 @@ export function DashboardView({
                 value={intervalInput}
                 onChange={(e) => setIntervalInput(e.target.value)}
                 disabled={savingAdminPing}
-                className="w-16 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-16 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
               <span aria-hidden="true" className="hidden sm:inline text-slate-300">|</span>
               <label
                 htmlFor="admin-ping-offline-threshold"
-                className="text-xs text-slate-600 whitespace-nowrap"
+                className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap"
                 title={tr(
                   'Nach dieser Anzahl aufeinanderfolgender Offline-Pings wird das Intervall pro IP verlängert (0 = deaktiviert). Bei Online-Antwort sofort wieder Standard.',
                   'After this many consecutive offline pings, the interval is extended per IP (0 = disabled). Resets immediately when online.'
@@ -1044,11 +1044,11 @@ export function DashboardView({
                 onChange={(e) => setOfflineThresholdInput(e.target.value)}
                 disabled={savingAdminPing}
                 title={tr('0 = Offline-Drosselung deaktiviert', '0 = offline backoff disabled')}
-                className="w-14 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-14 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
               <label
                 htmlFor="admin-ping-offline-multiplier"
-                className="text-xs text-slate-600 whitespace-nowrap"
+                className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap"
               >
                 {tr('× Offline → ×', '× offline → ×')}
               </label>
@@ -1077,17 +1077,17 @@ export function DashboardView({
                     )
                   )}`
                 )}
-                className="w-14 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-400"
+                className="w-14 px-2 py-1 text-xs font-mono tabular-nums border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-400 dark:disabled:text-slate-600"
               />
               <button
                 type="submit"
                 disabled={savingAdminPing}
-                className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 {tr('Speichern', 'Save')}
               </button>
               {intervalSavedNotice && (
-                <span className="text-xs text-emerald-700 font-medium whitespace-nowrap">
+                <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium whitespace-nowrap">
                   {tr('Gespeichert', 'Saved')}
                 </span>
               )}
@@ -1098,13 +1098,13 @@ export function DashboardView({
 
       {/* Quick Command & Multi-IP Dispatch Bar */}
       {canExecuteCommands ? (
-      <section className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
           <div>
-            <h2 className="font-display text-sm font-semibold text-slate-900">
+            <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100">
               {tr('Schnellauswahl & Sammelausführung', 'Quick Select & Batch Execution')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Aufträge laufen direkt im Hintergrund weiter – Sie können sofort weitere Befehle absenden oder z. B. in die SSH-Shell wechseln. Ergebnisse erscheinen oben rechts an der Glocke.',
                 'Jobs run asynchronously in the background—you can queue more commands right away or switch to the SSH Shell. Results appear in the top-right bell.'
@@ -1115,10 +1115,10 @@ export function DashboardView({
             <span
               className={`px-2 py-0.5 text-xs font-mono tabular-nums rounded border whitespace-nowrap ${
                 bgActiveCount >= bgMaxJobs
-                  ? 'bg-amber-50 text-amber-800 border-amber-200 font-semibold'
+                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/70 font-semibold'
                   : bgActiveCount > 0
-                  ? 'bg-blue-50 text-blue-800 border-blue-200'
-                  : 'bg-slate-50 text-slate-600 border-slate-200'
+                  ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/70'
+                  : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
               }`}
               title={tr(
                 'Ihre aktiven Hintergrundprozesse im Vergleich zum Admin-Limit pro Benutzer',
@@ -1127,7 +1127,7 @@ export function DashboardView({
             >
               {tr('Hintergrund', 'Background')}: {bgActiveCount}/{bgMaxJobs}
             </span>
-            <span className="text-xs font-mono text-slate-600 tabular-nums whitespace-nowrap">
+            <span className="text-xs font-mono text-slate-600 dark:text-slate-400 tabular-nums whitespace-nowrap">
               {tr(
                 `${preparedJobs.length} Auftrag${preparedJobs.length === 1 ? '' : 'e'} bereit`,
                 `${preparedJobs.length} job${preparedJobs.length === 1 ? '' : 's'} ready`
@@ -1139,7 +1139,7 @@ export function DashboardView({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
           {/* Quick Command Selector */}
           <div className="lg:col-span-5">
-            <label htmlFor="dash-quick-cmd" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="dash-quick-cmd" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('SSH-Befehl / Befehlskette', 'SSH Command / Chain')}
             </label>
             <select
@@ -1147,7 +1147,7 @@ export function DashboardView({
               value={quickCommandId}
               onChange={(e) => setQuickCommandId(e.target.value)}
               disabled={activeCommands.length === 0}
-              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
             >
               {activeCommands.length === 0 ? (
                 <option value="">{tr('Keine sichtbaren Befehle vorhanden', 'No visible commands available')}</option>
@@ -1169,7 +1169,7 @@ export function DashboardView({
 
           {/* Certificate Selector */}
           <div className="lg:col-span-4">
-            <label htmlFor="dash-cert" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="dash-cert" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('SSH-Schlüssel / Zertifikatspaket', 'SSH Key / Certificate Bundle')}
             </label>
             {certificates.length === 0 ? (
@@ -1177,13 +1177,13 @@ export function DashboardView({
                 <button
                   type="button"
                   onClick={() => onNavigate('certificates')}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <KeyRound className="w-3.5 h-3.5" />
                   {tr('Schlüssel / Zertifikat hochladen', 'Upload Key / Certificate')}
                 </button>
               ) : (
-                <p className="px-3 py-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md">
+                <p className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-md">
                   {tr('Kein freigegebenes SSH-Zertifikat verfügbar', 'No shared SSH certificate available')}
                 </p>
               )
@@ -1192,7 +1192,7 @@ export function DashboardView({
                 id="dash-cert"
                 value={selectedCertId}
                 onChange={(e) => setSelectedCertId(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
                 {certificates.map((cert) => {
                   const hasCert = cert.metadata.hasCertificate !== false && Boolean(cert.certFileName);
@@ -1253,16 +1253,16 @@ export function DashboardView({
         </div>
 
         {selectedWorkflow && (
-          <div className="pt-3.5 border-t border-slate-100 space-y-3">
+          <div className="pt-3.5 border-t border-slate-100 dark:border-slate-800/70 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Braces className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                <span className="text-xs font-semibold text-slate-800">
+                <Braces className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400 shrink-0" />
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                   {tr('Workflow-Variablen (Laufzeit-Parameter)', 'Workflow Variables (Runtime Parameters)')}
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
                   {tr('Verfügbar als', 'Available as')}{' '}
-                  <code className="font-mono text-slate-700">{'{{vars.name}}'}</code>
+                  <code className="font-mono text-slate-700 dark:text-slate-300">{'{{vars.name}}'}</code>
                 </span>
               </div>
               <button
@@ -1270,7 +1270,7 @@ export function DashboardView({
                 onClick={() =>
                   setCustomRuntimeVars((prev) => [...prev, { key: '', value: '' }])
                 }
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
                 {tr('Variable hinzufügen', 'Add Variable')}
@@ -1288,12 +1288,12 @@ export function DashboardView({
                     <div key={inp.name} className="space-y-1">
                       <label
                         htmlFor={fieldId}
-                        className="flex items-center justify-between gap-2 text-xs font-medium text-slate-700"
+                        className="flex items-center justify-between gap-2 text-xs font-medium text-slate-700 dark:text-slate-300"
                       >
                         <span className="inline-flex items-center gap-1 truncate">
-                          {isSecret && <Lock className="w-3 h-3 text-amber-700 shrink-0" />}
+                          {isSecret && <Lock className="w-3 h-3 text-amber-700 dark:text-amber-400 shrink-0" />}
                           <span>{inp.label || inp.name}</span>
-                          {inp.required && <span className="text-red-600">*</span>}
+                          {inp.required && <span className="text-red-600 dark:text-red-400">*</span>}
                         </span>
                         <code className="text-[10px] font-mono text-slate-400 shrink-0">
                           {inp.name}
@@ -1307,7 +1307,7 @@ export function DashboardView({
                           onChange={(e) =>
                             setWorkflowVarValues((prev) => ({ ...prev, [inp.name]: e.target.value }))
                           }
-                          className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
                         >
                           {inp.options.map((opt) => (
                             <option key={opt} value={opt}>
@@ -1316,7 +1316,7 @@ export function DashboardView({
                           ))}
                         </select>
                       ) : inp.type === 'boolean' ? (
-                        <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-md cursor-pointer w-full">
+                        <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md cursor-pointer w-full">
                           <input
                             id={fieldId}
                             type="checkbox"
@@ -1327,9 +1327,9 @@ export function DashboardView({
                                 [inp.name]: e.target.checked ? 'true' : 'false',
                               }))
                             }
-                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                            className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
                           />
-                          <span className="text-xs text-slate-700 font-mono">
+                          <span className="text-xs text-slate-700 dark:text-slate-300 font-mono">
                             {value.toLowerCase() === 'true' || value === '1' ? 'true' : 'false'}
                           </span>
                         </label>
@@ -1344,7 +1344,7 @@ export function DashboardView({
                               setWorkflowVarValues((prev) => ({ ...prev, [inp.name]: e.target.value }))
                             }
                             placeholder={inp.placeholder || tr('Geheimen Wert eingeben...', 'Enter secret value...')}
-                            className="w-full pl-3 pr-9 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            className="w-full pl-3 pr-9 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                           />
                           <button
                             type="button"
@@ -1353,7 +1353,7 @@ export function DashboardView({
                             }
                             title={revealed ? tr('Verbergen', 'Hide') : tr('Anzeigen', 'Show')}
                             aria-label={revealed ? tr('Verbergen', 'Hide') : tr('Anzeigen', 'Show')}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
                           >
                             {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                           </button>
@@ -1367,12 +1367,12 @@ export function DashboardView({
                             setWorkflowVarValues((prev) => ({ ...prev, [inp.name]: e.target.value }))
                           }
                           placeholder={inp.placeholder || ''}
-                          className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                         />
                       )}
 
                       {inp.description && (
-                        <p className="text-[11px] text-slate-500">{inp.description}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{inp.description}</p>
                       )}
                     </div>
                   );
@@ -1385,7 +1385,7 @@ export function DashboardView({
                     <div key={varName} className="space-y-1">
                       <label
                         htmlFor={fieldId}
-                        className="flex items-center justify-between gap-2 text-xs font-medium text-slate-700"
+                        className="flex items-center justify-between gap-2 text-xs font-medium text-slate-700 dark:text-slate-300"
                       >
                         <span className="truncate">{varName}</span>
                         <code className="text-[10px] font-mono text-slate-400 shrink-0">vars</code>
@@ -1398,7 +1398,7 @@ export function DashboardView({
                           setWorkflowVarValues((prev) => ({ ...prev, [varName]: e.target.value }))
                         }
                         placeholder={defaultVal}
-                        className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        className="w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
                   );
@@ -1419,7 +1419,7 @@ export function DashboardView({
                         )
                       }
                       placeholder={tr('Variablenname (z. B. service)', 'Variable name (e.g. service)')}
-                      className="sm:w-52 px-3 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="sm:w-52 px-3 py-1.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                     />
                     <input
                       type="text"
@@ -1430,7 +1430,7 @@ export function DashboardView({
                         )
                       }
                       placeholder={tr('Wert für diesen Lauf', 'Value for this run')}
-                      className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="flex-1 px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                     />
                     <button
                       type="button"
@@ -1439,7 +1439,7 @@ export function DashboardView({
                       }
                       title={tr('Variable entfernen', 'Remove variable')}
                       aria-label={tr('Variable entfernen', 'Remove variable')}
-                      className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md cursor-pointer self-end sm:self-center"
+                      className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-md cursor-pointer self-end sm:self-center"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -1449,7 +1449,7 @@ export function DashboardView({
             )}
 
             {workflowInputs.some((i) => i.type === 'password' || i.secret) && (
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 {tr(
                   'Passwort-/Geheim-Variablen werden nicht gespeichert, nach dem Ausführen geleert und im Audit-Log automatisch maskiert (********).',
                   'Password/secret variables are never stored, cleared after execution, and automatically masked (********) in the audit log.'
@@ -1460,12 +1460,12 @@ export function DashboardView({
         )}
 
         {needsRuntimePassphrase && (
-          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800/70 flex flex-col sm:flex-row sm:items-center gap-3">
             <label
               htmlFor="dash-key-passphrase"
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 dark:text-amber-200 whitespace-nowrap"
             >
-              <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+              <Lock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
               {tr('Schlüssel-Passwort zum Entsperren:', 'Key passphrase to unlock:')}
             </label>
             <input
@@ -1481,9 +1481,9 @@ export function DashboardView({
                 }
               }}
               placeholder={tr('Passwort für diesen Lauf eingeben...', 'Enter passphrase for this run...')}
-              className="w-full sm:max-w-xs px-3 py-1.5 text-sm bg-white border border-amber-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full sm:max-w-xs px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700/80 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
               {tr(
                 'Wird nicht gespeichert und nach dem Ausführen sofort geleert.',
                 'Not stored and cleared immediately after execution.'
@@ -1493,7 +1493,7 @@ export function DashboardView({
         )}
       </section>
       ) : (
-        <section className="bg-white border border-slate-200 rounded-lg px-5 py-4 text-xs text-slate-600">
+        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-5 py-4 text-xs text-slate-600 dark:text-slate-400">
           {tr(
             `Das Ausführen von SSH-Befehlen und Sammelaufträgen ist für Ihre Benutzergruppe („${currentUser.groupName || 'Benutzer'}“) deaktiviert.`,
             `Executing SSH commands and batch jobs is disabled for your user group ("${currentUser.groupName || 'User'}").`
@@ -1510,13 +1510,13 @@ export function DashboardView({
         if (runningUserJobs.length === 0 && !noticeJob) return null;
 
         return (
-          <section className="bg-white border border-blue-200 rounded-lg px-5 py-3.5 space-y-2.5">
+          <section className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800/70 rounded-lg px-5 py-3.5 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-900">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-slate-100">
                 {runningUserJobs.length > 0 ? (
-                  <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+                  <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
                 ) : (
-                  <Bell className="w-4 h-4 text-blue-600 shrink-0" />
+                  <Bell className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
                 )}
                 <span>
                   {runningUserJobs.length > 0
@@ -1535,7 +1535,7 @@ export function DashboardView({
                   type="button"
                   onClick={() => setRecentDispatchedNotice(null)}
                   aria-label={tr('Hinweis schließen', 'Dismiss notice')}
-                  className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
+                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1553,12 +1553,12 @@ export function DashboardView({
                       onClick={() => onOpenBackgroundJob(job)}
                       className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border transition-colors cursor-pointer ${
                         isRunning
-                          ? 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100'
+                          ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/70 text-blue-900 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/50'
                           : job.status === 'completed'
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/70 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
                           : job.status === 'partial'
-                          ? 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100'
-                          : 'bg-red-50 border-red-200 text-red-900 hover:bg-red-100'
+                          ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50'
+                          : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800/70 text-red-900 dark:text-red-200 hover:bg-red-100 dark:hover:bg-red-900/50'
                       }`}
                     >
                       {isRunning ? (
@@ -1589,10 +1589,10 @@ export function DashboardView({
       })()}
 
       {/* Main IP Table with Online/Offline Ping Status */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md">
+            <div className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-md">
               {(
                 [
                   { id: 'all', label: tr(`Alle (${counts.total})`, `All (${counts.total})`) },
@@ -1606,8 +1606,8 @@ export function DashboardView({
                   onClick={() => setStatusFilter(tab.id)}
                   className={`px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                     statusFilter === tab.id
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
                   {tab.label}
@@ -1616,11 +1616,11 @@ export function DashboardView({
             </div>
 
             {canExecuteCommands && servers.length > 0 && (
-              <div className="flex items-center gap-3 text-xs text-slate-600">
+              <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
                 <button
                   type="button"
                   onClick={selectAllVisible}
-                  className="hover:text-blue-700 font-medium cursor-pointer whitespace-nowrap"
+                  className="hover:text-blue-700 dark:hover:text-blue-300 font-medium cursor-pointer whitespace-nowrap"
                 >
                   {tr('Alle markieren', 'Select all')}
                 </button>
@@ -1628,7 +1628,7 @@ export function DashboardView({
                 <button
                   type="button"
                   onClick={selectOnlineOnly}
-                  className="hover:text-blue-700 font-medium cursor-pointer whitespace-nowrap"
+                  className="hover:text-blue-700 dark:hover:text-blue-300 font-medium cursor-pointer whitespace-nowrap"
                 >
                   {tr('Nur Online', 'Online only')}
                 </button>
@@ -1636,7 +1636,7 @@ export function DashboardView({
                 <button
                   type="button"
                   onClick={clearSelection}
-                  className="hover:text-slate-900 cursor-pointer whitespace-nowrap"
+                  className="hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer whitespace-nowrap"
                 >
                   {tr('Auswahl leeren', 'Clear selection')}
                 </button>
@@ -1651,16 +1651,16 @@ export function DashboardView({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={tr('IP, Kategorie oder Servername suchen...', 'Search IP, category, or server...')}
-              className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
         </div>
 
         {/* Category Filter Strip */}
         {availableCategories.length > 0 && (
-          <div className="px-6 py-3 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 mr-1">
-              <Tag className="w-3.5 h-3.5 text-slate-500" />
+          <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 mr-1">
+              <Tag className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               {tr('Kategorien:', 'Categories:')}
             </span>
 
@@ -1669,8 +1669,8 @@ export function DashboardView({
               onClick={clearCategoryFilters}
               className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                 !hasCategoryFilter
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                  ? 'bg-slate-900 dark:bg-blue-600 text-white border-slate-900 dark:border-blue-600'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               {tr('Alle', 'All')}
@@ -1687,14 +1687,14 @@ export function DashboardView({
                   onClick={() => toggleCategoryFilter(cat.name)}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                     active
-                      ? 'bg-blue-50 text-blue-800 border-blue-300'
-                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-700/80'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
                   <span>{cat.name}</span>
                   <span
                     className={`font-mono text-[11px] tabular-nums ${
-                      active ? 'text-blue-700' : 'text-slate-400'
+                      active ? 'text-blue-700 dark:text-blue-400' : 'text-slate-400'
                     }`}
                   >
                     {cat.count}
@@ -1709,14 +1709,14 @@ export function DashboardView({
                 onClick={() => setIncludeUncategorized((prev) => !prev)}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
                   includeUncategorized
-                    ? 'bg-blue-50 text-blue-800 border-blue-300'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-700/80'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 <span>{tr('Ohne Kategorie', 'Uncategorized')}</span>
                 <span
                   className={`font-mono text-[11px] tabular-nums ${
-                    includeUncategorized ? 'text-blue-700' : 'text-slate-400'
+                    includeUncategorized ? 'text-blue-700 dark:text-blue-400' : 'text-slate-400'
                   }`}
                 >
                   {uncategorizedCount}
@@ -1725,15 +1725,15 @@ export function DashboardView({
             )}
 
             {selectedCategories.length >= 2 && (
-              <div className="inline-flex items-center gap-1 ml-1 pl-2 border-l border-slate-200">
+              <div className="inline-flex items-center gap-1 ml-1 pl-2 border-l border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setCategoryMatchMode('any')}
                   title={tr('Mindestens eine der gewählten Kategorien', 'Match any selected category')}
                   className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors cursor-pointer ${
                     categoryMatchMode === 'any'
-                      ? 'bg-slate-800 text-white'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-slate-800 dark:bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
                   {tr('ODER', 'ANY')}
@@ -1744,8 +1744,8 @@ export function DashboardView({
                   title={tr('Alle gewählten Kategorien gleichzeitig', 'Match all selected categories')}
                   className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors cursor-pointer ${
                     categoryMatchMode === 'all'
-                      ? 'bg-slate-800 text-white'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-slate-800 dark:bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
                   {tr('UND', 'ALL')}
@@ -1757,7 +1757,7 @@ export function DashboardView({
               <button
                 type="button"
                 onClick={clearCategoryFilters}
-                className="inline-flex items-center gap-1 ml-auto text-xs text-slate-500 hover:text-slate-900 cursor-pointer"
+                className="inline-flex items-center gap-1 ml-auto text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
                 {tr('Filter zurücksetzen', 'Reset filter')}
@@ -1769,10 +1769,10 @@ export function DashboardView({
         {servers.length === 0 ? (
           <div className="px-6 py-14 text-center">
             <Server className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-slate-900">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {tr('Noch keine Server-IPs hinterlegt', 'No server IPs added yet')}
             </h3>
-            <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
               {tr(
                 `Fügen Sie Ihre Ziel-IPs unter „Meine Server (IPs)“ hinzu, um den ${intervalSec}-Sekunden-Ping-Status und die Sammelausführung zu nutzen.`,
                 `Add your target IPs under "My Servers (IPs)" to enable ${intervalSec}-second ping monitoring and batch execution.`
@@ -1789,14 +1789,14 @@ export function DashboardView({
             )}
           </div>
         ) : filteredServers.length === 0 ? (
-          <div className="px-6 py-10 text-center text-sm text-slate-500">
+          <div className="px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
             {tr('Keine Server entsprechen dem aktuellen Filter.', 'No servers match the current filter.')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-xs font-medium text-slate-500 dark:text-slate-400">
                   {canExecuteCommands && (
                     <th className="py-2.5 pl-6 pr-2 w-10">
                       <input
@@ -1807,7 +1807,7 @@ export function DashboardView({
                           'Alle Server dieser Seite auswählen',
                           'Select all servers on this page'
                         )}
-                        className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                        className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                       />
                     </th>
                   )}
@@ -1817,7 +1817,7 @@ export function DashboardView({
                   <th className="py-2.5 pl-4 pr-6 text-right">Ping</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-sm">
                 {paginatedServers.map((srv) => {
                   const st = statuses[srv.id];
                   const isChecked = selectedIds.includes(srv.id);
@@ -1845,7 +1845,7 @@ export function DashboardView({
                     <tr
                       key={srv.id}
                       className={`transition-colors ${
-                        isChecked ? 'bg-blue-50/40 hover:bg-blue-50/60' : 'hover:bg-slate-50/80'
+                        isChecked ? 'bg-blue-50/40 dark:bg-blue-950/30 hover:bg-blue-50/60 dark:hover:bg-blue-950/50' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                       }`}
                     >
                       {canExecuteCommands && (
@@ -1855,15 +1855,15 @@ export function DashboardView({
                             checked={isChecked}
                             onChange={() => toggleRow(srv.id)}
                             aria-label={tr(`${srv.label} auswählen`, `Select ${srv.label}`)}
-                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                            className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                           />
                         </td>
                       )}
                       <td className="py-3 px-4">
-                        <p className="font-medium text-slate-900 whitespace-nowrap">
+                        <p className="font-medium text-slate-900 dark:text-slate-100 whitespace-nowrap">
                           {srv.label}
                           {srv.userId !== currentUser.id && (
-                            <span className="ml-2 text-xs font-normal text-blue-800">
+                            <span className="ml-2 text-xs font-normal text-blue-800 dark:text-blue-300">
                               ·{' '}
                               {tr(
                                 `Geteilt von ${srv.ownerUsername || 'admin'}`,
@@ -1872,7 +1872,7 @@ export function DashboardView({
                             </span>
                           )}
                         </p>
-                        <p className="text-xs font-mono text-slate-500 tabular-nums whitespace-nowrap">
+                        <p className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums whitespace-nowrap">
                           {srv.sshUser}@{srv.ipAddress}:{srv.port}
                         </p>
                         {(srv.categories?.length ?? 0) > 0 && (
@@ -1892,8 +1892,8 @@ export function DashboardView({
                                   )}
                                   className={`px-1.5 py-0.5 text-[11px] font-medium rounded border transition-colors cursor-pointer ${
                                     active
-                                      ? 'bg-blue-50 text-blue-800 border-blue-300'
-                                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-700/80'
+                                      : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-900 dark:hover:text-slate-100'
                                   }`}
                                 >
                                   {cat}
@@ -1920,7 +1920,7 @@ export function DashboardView({
                                     `BMC-IP für ${srv.label} auswählen`,
                                     `Select BMC IP for ${srv.label}`
                                   )}
-                                  className="px-2 py-1 text-xs font-mono tabular-nums bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                  className="px-2 py-1 text-xs font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
                                 >
                                   <option value={1}>BMC 1 · {srv.bmcIpAddress}</option>
                                   <option value={2}>BMC 2 · {srv.bmcIpAddress2}</option>
@@ -1934,7 +1934,7 @@ export function DashboardView({
                                     `${formatBmcUrl(activeBmcIp)} in neuem Tab öffnen`,
                                     `Open ${formatBmcUrl(activeBmcIp)} in a new tab`
                                   )}
-                                  className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline tabular-nums"
+                                  className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 hover:underline tabular-nums"
                                 >
                                   {activeBmcSlot === 2 && (
                                     <span className="text-[11px] font-normal text-slate-400">
@@ -1955,7 +1955,7 @@ export function DashboardView({
                                     `BMC ${activeBmcSlot} (${formatBmcUrl(activeBmcIp)}) in neuem Tab öffnen`,
                                     `Open BMC ${activeBmcSlot} (${formatBmcUrl(activeBmcIp)}) in a new tab`
                                   )}
-                                  className="inline-flex items-center justify-center p-1 text-blue-700 hover:text-blue-900 hover:bg-blue-50 rounded transition-colors"
+                                  className="inline-flex items-center justify-center p-1 text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded transition-colors"
                                 >
                                   <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                                 </a>
@@ -1969,7 +1969,7 @@ export function DashboardView({
                                   `BMC ${activeBmcSlot} (${activeBmcIp}) über https:// Port 443 prüfen`,
                                   `Check BMC ${activeBmcSlot} (${activeBmcIp}) over https:// port 443`
                                 )}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded transition-colors cursor-pointer"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded transition-colors cursor-pointer"
                               >
                                 {isCheckingBmc ? (
                                   <RefreshCw className="w-3 h-3 animate-spin" />
@@ -1986,7 +1986,7 @@ export function DashboardView({
                             {bmcRes && (
                               <p
                                 className={`inline-flex items-center gap-1 text-[11px] font-mono tabular-nums ${
-                                  bmcRes.reachable ? 'text-emerald-700' : 'text-red-700'
+                                  bmcRes.reachable ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'
                                 }`}
                                 title={bmcRes.error || bmcRes.url}
                               >
@@ -2032,19 +2032,19 @@ export function DashboardView({
                               {st ? (
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   {st.online ? (
-                                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 tabular-nums">
+                                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 tabular-nums">
                                       <CheckCircle2 className="w-3.5 h-3.5" />
                                       Online{st.latencyMs !== null ? ` · ${st.latencyMs} ms` : ''}
                                     </span>
                                   ) : (
                                     <span
-                                      className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 tabular-nums"
+                                      className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400 tabular-nums"
                                       title={st.error || tr('Nicht erreichbar', 'Unreachable')}
                                     >
                                       <XCircle className="w-3.5 h-3.5" />
                                       Offline
                                       {(st.consecutiveFailures ?? 0) > 1 && (
-                                        <span className="text-[11px] font-mono text-red-600/80">
+                                        <span className="text-[11px] font-mono text-red-600/80 dark:text-red-400/80">
                                           ({st.consecutiveFailures}×)
                                         </span>
                                       )}
@@ -2064,7 +2064,7 @@ export function DashboardView({
                                           intervalSec
                                         )} once online.`
                                       )}
-                                      className="px-1.5 py-0.5 text-[10px] font-mono font-medium rounded border border-amber-200 bg-amber-50 text-amber-800 tabular-nums"
+                                      className="px-1.5 py-0.5 text-[10px] font-mono font-medium rounded border border-amber-200 dark:border-amber-800/70 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 tabular-nums"
                                     >
                                       {tr(
                                         `alle ${formatIntervalShort(
@@ -2079,7 +2079,7 @@ export function DashboardView({
                                   {autoPingOffLabel && (
                                     <span
                                       title={autoPingOffLabel}
-                                      className="px-1.5 py-0.5 text-[10px] font-medium rounded border border-slate-200 bg-slate-50 text-slate-500"
+                                      className="px-1.5 py-0.5 text-[10px] font-medium rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400"
                                     >
                                       {tr('Auto aus', 'Auto off')}
                                     </span>
@@ -2088,28 +2088,28 @@ export function DashboardView({
                               ) : autoPingOffLabel ? (
                                 <span
                                   className={`inline-flex items-center gap-1.5 text-xs ${
-                                    !globalPingAllowed ? 'text-amber-800' : 'text-slate-500'
+                                    !globalPingAllowed ? 'text-amber-800 dark:text-amber-300' : 'text-slate-500 dark:text-slate-400'
                                   }`}
                                 >
                                   <Ban className="w-3.5 h-3.5" />
                                   {autoPingOffLabel}
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                                   <Clock className="w-3.5 h-3.5" />
                                   {tr('Ausstehend', 'Pending')}
                                 </span>
                               )}
 
                               {st && (
-                                <p className="text-[11px] font-mono text-slate-500 tabular-nums">
+                                <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 tabular-nums">
                                   {tr('Geprüft:', 'Checked:')} {formatClockTime(st.checkedAt)}
                                 </p>
                               )}
 
                               {lastOnlineAt ? (
                                 <p
-                                  className="text-[11px] font-mono text-emerald-700/90 tabular-nums"
+                                  className="text-[11px] font-mono text-emerald-700/90 dark:text-emerald-400/90 tabular-nums"
                                   title={tr(
                                     'Zeitpunkt des letzten erfolgreichen Pings',
                                     'Timestamp of the last successful ping'
@@ -2150,8 +2150,8 @@ export function DashboardView({
                               }
                               className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded transition-colors cursor-pointer disabled:opacity-40 ${
                                 srv.pingEnabled !== false
-                                  ? 'text-slate-600 bg-slate-100 hover:bg-slate-200'
-                                  : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+                                  ? 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                  : 'text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
                               }`}
                             >
                               {srv.pingEnabled !== false ? (
@@ -2175,7 +2175,7 @@ export function DashboardView({
                               'Diese IP jetzt manuell prüfen (funktioniert auch bei deaktiviertem Auto-Ping)',
                               'Check this IP manually now (works even when auto-ping is disabled)'
                             )}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-blue-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                           >
                             <RefreshCw className={`w-3.5 h-3.5 ${isRowPinging ? 'animate-spin' : ''}`} />
                             {tr('Prüfen', 'Check')}
@@ -2192,8 +2192,8 @@ export function DashboardView({
 
         {/* Pagination & Page Size Footer */}
         {filteredServers.length > 0 && (
-          <div className="px-6 py-3 border-t border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600">
+          <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600 dark:text-slate-400">
               <span className="tabular-nums">
                 {pageSize === 'all'
                   ? tr(
@@ -2207,13 +2207,13 @@ export function DashboardView({
               </span>
 
               <div className="inline-flex items-center gap-2">
-                <span className="text-slate-500 whitespace-nowrap">
+                <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
                   {tr('Pro Seite:', 'Per page:')}
                 </span>
                 <div
                   role="group"
                   aria-label={tr('Einträge pro Seite', 'Items per page')}
-                  className="inline-flex items-center gap-0.5 p-0.5 bg-slate-200/70 rounded-md"
+                  className="inline-flex items-center gap-0.5 p-0.5 bg-slate-200/70 dark:bg-slate-700/70 rounded-md"
                 >
                   {PAGE_SIZE_OPTIONS.map((opt) => {
                     const active = pageSize === opt;
@@ -2224,8 +2224,8 @@ export function DashboardView({
                         onClick={() => handleChangePageSize(opt)}
                         className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer tabular-nums ${
                           active
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                         }`}
                       >
                         {opt === 'all' ? tr('Alle', 'All') : opt}
@@ -2238,7 +2238,7 @@ export function DashboardView({
 
             {pageSize !== 'all' && (
               <div className="flex items-center justify-between sm:justify-end gap-1.5">
-                <span className="text-xs text-slate-500 mr-1.5 tabular-nums sm:hidden">
+                <span className="text-xs text-slate-500 dark:text-slate-400 mr-1.5 tabular-nums sm:hidden">
                   {tr(`Seite ${safePage} / ${totalPages}`, `Page ${safePage} / ${totalPages}`)}
                 </span>
 
@@ -2248,7 +2248,7 @@ export function DashboardView({
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={safePage <= 1}
                     aria-label={tr('Vorherige Seite', 'Previous page')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
                     <span className="hidden sm:inline">{tr('Zurück', 'Prev')}</span>
@@ -2272,7 +2272,7 @@ export function DashboardView({
                           className={`min-w-7 px-2 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer tabular-nums ${
                             item === safePage
                               ? 'bg-blue-700 text-white border-blue-700'
-                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                           }`}
                         >
                           {item}
@@ -2286,7 +2286,7 @@ export function DashboardView({
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={safePage >= totalPages}
                     aria-label={tr('Nächste Seite', 'Next page')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
                   >
                     <span className="hidden sm:inline">{tr('Weiter', 'Next')}</span>
                     <ChevronRight className="w-3.5 h-3.5" />

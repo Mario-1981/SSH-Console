@@ -1120,18 +1120,18 @@ export function CertificatesView({
     if (ar.enabled) {
       const isRevoking = revokingAutoRenewId === cert.id;
       return (
-        <div className="pt-3 border-t border-slate-200">
-          <div className="rounded-md bg-emerald-50/70 border border-emerald-200 px-3.5 py-2.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div className="pt-3 border-t border-slate-200 dark:border-slate-800">
+          <div className="rounded-md bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/70 px-3.5 py-2.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-start gap-2 min-w-0">
-              <RefreshCw className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+              <RefreshCw className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div className="space-y-0.5 min-w-0">
-                <p className="font-semibold text-emerald-950">
+                <p className="font-semibold text-emerald-950 dark:text-emerald-200">
                   {tr(
                     'Automatische Neuzertifizierung aktiv (bis auf Widerruf oder Rechteentzug)',
                     'Automatic re-certification active (until revoked or rights removed)'
                   )}
                 </p>
-                <p className="text-emerald-900/90 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <p className="text-emerald-900/90 dark:text-emerald-200/90 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span>
                     CA: <strong className="font-medium">{ar.caName || ar.caId}</strong>
                   </span>
@@ -1150,12 +1150,12 @@ export function CertificatesView({
                   </span>
                 </p>
                 {ar.lastRenewedAt && (
-                  <p className="text-[11px] text-emerald-800/80">
+                  <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">
                     {tr('Zuletzt erneuert:', 'Last renewed:')} {formatDateTime(ar.lastRenewedAt)}
                   </p>
                 )}
                 {ar.lastError && (
-                  <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
+                  <p className="text-[11px] text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 rounded px-2 py-1 mt-1">
                     {tr('Letzter Erneuerungshinweis:', 'Last renewal notice:')} {ar.lastError}
                   </p>
                 )}
@@ -1166,7 +1166,7 @@ export function CertificatesView({
                 type="button"
                 onClick={() => void handleRevokeAutoRenew(cert)}
                 disabled={isRevoking}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-700 bg-white hover:bg-red-50 border border-red-200 rounded-md transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 self-start sm:self-center"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/50 border border-red-200 dark:border-red-800/70 rounded-md transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 self-start sm:self-center"
               >
                 <Ban className="w-3.5 h-3.5" />
                 {isRevoking
@@ -1181,11 +1181,11 @@ export function CertificatesView({
 
     if (ar.revokedReason) {
       return (
-        <div className="pt-3 border-t border-slate-200">
-          <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-600 flex items-start gap-2">
+        <div className="pt-3 border-t border-slate-200 dark:border-slate-800">
+          <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 px-3 py-2 text-[11px] text-slate-600 dark:text-slate-400 flex items-start gap-2">
             <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
             <span>
-              <strong className="font-medium text-slate-700">
+              <strong className="font-medium text-slate-700 dark:text-slate-300">
                 {tr('Automatische Neuzertifizierung beendet:', 'Automatic re-certification stopped:')}
               </strong>{' '}
               {ar.revokedReason}
@@ -1539,21 +1539,21 @@ export function CertificatesView({
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {tr('SSH-Schlüssel & Zertifikate', 'SSH Keys & Certificates')}
           </h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             {tr(
               'Laden Sie für die passwortlose Anmeldung entweder ein klassisches Schlüsselpaar (',
               'For passwordless login, upload either a standard SSH keypair ('
             )}
-            <code className="font-mono text-xs text-slate-800">zertifikat</code> +{' '}
-            <code className="font-mono text-xs text-slate-800">zertifikat.pub</code>
+            <code className="font-mono text-xs text-slate-800 dark:text-slate-200">zertifikat</code> +{' '}
+            <code className="font-mono text-xs text-slate-800 dark:text-slate-200">zertifikat.pub</code>
             {tr(
               ') oder zusätzlich ein signiertes OpenSSH-Zertifikat (',
               ') or additionally a signed OpenSSH certificate ('
             )}
-            <code className="font-mono text-xs text-slate-800">zertifikat-cert.pub</code>
+            <code className="font-mono text-xs text-slate-800 dark:text-slate-200">zertifikat-cert.pub</code>
             {tr(') hoch.', ').')}
           </p>
         </div>
@@ -1572,8 +1572,8 @@ export function CertificatesView({
               }}
               className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-medium border rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                 showApiPanel && (!isAdmin || activeViewTab === 'mine')
-                  ? 'text-blue-800 bg-blue-50 border-blue-300'
-                  : 'text-slate-700 bg-white border-slate-300 hover:bg-slate-50'
+                  ? 'text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700/80'
+                  : 'text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60'
               }`}
             >
               <Terminal className="w-3.5 h-3.5" />
@@ -1588,7 +1588,7 @@ export function CertificatesView({
               type="button"
               onClick={openGenerateModal}
               disabled={generating}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer whitespace-nowrap"
             >
               <Wand2 className="w-3.5 h-3.5" />
               {generating
@@ -1603,7 +1603,7 @@ export function CertificatesView({
         <div
           role="tablist"
           aria-label={tr('Zertifikatsansicht', 'Certificate View')}
-          className="flex flex-wrap items-center gap-1 border-b border-slate-200"
+          className="flex flex-wrap items-center gap-1 border-b border-slate-200 dark:border-slate-800"
         >
           <button
             type="button"
@@ -1612,13 +1612,13 @@ export function CertificatesView({
             onClick={() => setActiveViewTab('mine')}
             className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
               activeViewTab === 'mine'
-                ? 'border-blue-700 text-blue-800'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                ? 'border-blue-700 text-blue-800 dark:text-blue-300'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:border-slate-300 dark:hover:border-slate-600'
             }`}
           >
             <KeyRound className="w-4 h-4" />
             {tr('Eigene & geteilte Zertifikate', 'Own & Shared Certificates')}
-            <span className="text-xs font-mono text-slate-500 tabular-nums">
+            <span className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">
               ({certificates.length})
             </span>
           </button>
@@ -1632,13 +1632,13 @@ export function CertificatesView({
             }}
             className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
               activeViewTab === 'all'
-                ? 'border-blue-700 text-blue-800'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                ? 'border-blue-700 text-blue-800 dark:text-blue-300'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:border-slate-300 dark:hover:border-slate-600'
             }`}
           >
             <Users className="w-4 h-4" />
             {tr('Alle Benutzer-Zertifikate (Admin)', 'All User Certificates (Admin)')}
-            <span className="text-xs font-mono text-slate-500 tabular-nums">
+            <span className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">
               ({adminCertificates.length})
             </span>
           </button>
@@ -1655,13 +1655,13 @@ export function CertificatesView({
       )}
 
       {error && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-900">
+        <div className="px-4 py-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-900 dark:text-emerald-200">
           {success}
         </div>
       )}
@@ -1669,16 +1669,16 @@ export function CertificatesView({
       {(!isAdmin || activeViewTab === 'mine') && (
         <>
       {!canUpload && lastGeneratedBundle && (
-        <div className="bg-white border border-slate-200 rounded-lg p-5 text-xs text-slate-700 space-y-2">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 text-xs text-slate-700 dark:text-slate-300 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-medium text-slate-900">
+            <span className="font-medium text-slate-900 dark:text-slate-100">
               {tr('Erzeugte Dateien lokal herunterladen:', 'Download generated files locally:')}
             </span>
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => downloadTextFile('zertifikat', lastGeneratedBundle.privateKey)}
-                className="text-blue-700 hover:text-blue-900 font-mono font-medium cursor-pointer"
+                className="text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-mono font-medium cursor-pointer"
               >
                 zertifikat
               </button>
@@ -1686,20 +1686,20 @@ export function CertificatesView({
               <button
                 type="button"
                 onClick={() => downloadTextFile('zertifikat.pub', lastGeneratedBundle.publicKey)}
-                className="text-blue-700 hover:text-blue-900 font-mono font-medium cursor-pointer"
+                className="text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-mono font-medium cursor-pointer"
               >
                 zertifikat.pub
               </button>
             </div>
           </div>
-          <p className="text-[11px] text-slate-500 font-mono break-all">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono break-all">
             authorized_keys: {lastGeneratedBundle.publicKey.trim()}
           </p>
         </div>
       )}
 
       {!canUpload && (
-        <div className="px-4 py-3 rounded-md bg-slate-100 border border-slate-200 text-xs text-slate-700">
+        <div className="px-4 py-3 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
           {tr(
             `Das Hochladen und Verwalten eigener SSH-Zertifikate ist für Ihre Benutzergruppe („${user.groupName || 'Benutzer'}“) deaktiviert. Freigegebene Zertifikate stehen unten weiterhin für SSH-Verbindungen bereit.`,
             `Uploading and managing own SSH certificates is disabled for your user group ("${user.groupName || 'User'}"). Shared certificates below remain available for SSH connections.`
@@ -1709,16 +1709,16 @@ export function CertificatesView({
 
       {/* Upload Form */}
       {canUpload && (
-      <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200 dark:border-slate-800">
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr(
                 'SSH-Schlüsselpaar (2 Dateien) oder Zertifikatspaket (3 Dateien) hochladen',
                 'Upload SSH Keypair (2 files) or Certificate Bundle (3 files)'
               )}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Die kryptografische Zusammengehörigkeit von Privatschlüssel, öffentlichem Schlüssel und optionalem CA-Zertifikat wird beim Speichern verifiziert.',
                 'Cryptographic pairing between the private key, public key, and optional CA certificate is verified upon saving.'
@@ -1728,7 +1728,7 @@ export function CertificatesView({
           <button
             type="button"
             onClick={() => setShowTextEditors((v) => !v)}
-            className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap shrink-0"
+            className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer whitespace-nowrap shrink-0"
           >
             {showTextEditors
               ? tr('Textfelder ausblenden', 'Hide text fields')
@@ -1751,17 +1751,17 @@ export function CertificatesView({
             }
           }}
           className={`border border-dashed rounded-md px-6 py-6 text-center transition-colors ${
-            isDragging ? 'border-blue-600 bg-blue-50/50' : 'border-slate-300 bg-slate-50/70'
+            isDragging ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/30' : 'border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50'
           }`}
         >
-          <Upload className="w-5 h-5 text-slate-500 mx-auto mb-2" />
-          <p className="text-sm font-medium text-slate-800">
+          <Upload className="w-5 h-5 text-slate-500 dark:text-slate-400 mx-auto mb-2" />
+          <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
             {tr(
               '2 Dateien (Schlüsselpaar) oder 3 Dateien (mit CA-Zertifikat) hierher ziehen oder auswählen',
               'Drag and drop 2 files (keypair) or 3 files (with CA certificate) here, or browse'
             )}
           </p>
-          <p className="text-xs text-slate-500 mt-1 font-mono">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
             zertifikat · zertifikat.pub · [optional: zertifikat-cert.pub]
           </p>
           <input
@@ -1777,7 +1777,7 @@ export function CertificatesView({
           <button
             type="button"
             onClick={() => multiInputRef.current?.click()}
-            className="mt-3 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+            className="mt-3 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer whitespace-nowrap"
           >
             {tr('Dateien auswählen', 'Select Files')}
           </button>
@@ -1786,26 +1786,26 @@ export function CertificatesView({
         {/* Individual 3 slots */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Slot 1: zertifikat */}
-          <div className="border border-slate-200 rounded-md p-4 flex flex-col justify-between bg-white">
+          <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 flex flex-col justify-between bg-white dark:bg-slate-900">
             <div>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-slate-900">1. zertifikat</span>
+                <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">1. zertifikat</span>
                 <span
                   className={`text-xs font-medium ${
-                    privContent.trim() ? 'text-emerald-700' : 'text-slate-400'
+                    privContent.trim() ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'
                   }`}
                 >
                   {privContent.trim() ? tr('Geladen', 'Loaded') : tr('Fehlt', 'Missing')}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {tr(
                   'Privater OpenSSH-Schlüssel (AES-256-GCM verschlüsselt gespeichert, chmod 0600).',
                   'Private OpenSSH key (stored with AES-256-GCM encryption, chmod 0600).'
                 )}
               </p>
               {requireCertPassphrase && (
-                <p className="mt-1.5 text-[11px] font-medium text-amber-800">
+                <p className="mt-1.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
                   {tr(
                     'Pflicht: Ihre Benutzergruppe erfordert einen passwortgeschützten Privatschlüssel.',
                     'Required: Your user group requires a passphrase-protected private key.'
@@ -1813,7 +1813,7 @@ export function CertificatesView({
                 </p>
               )}
               {privContent.trim() && (
-                <p className="mt-2 text-xs font-mono text-slate-700 truncate">{privFile}</p>
+                <p className="mt-2 text-xs font-mono text-slate-700 dark:text-slate-300 truncate">{privFile}</p>
               )}
             </div>
             <div className="mt-4 flex items-center gap-2">
@@ -1826,7 +1826,7 @@ export function CertificatesView({
               <button
                 type="button"
                 onClick={() => privInputRef.current?.click()}
-                className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 {tr('Datei wählen', 'Choose File')}
               </button>
@@ -1834,7 +1834,7 @@ export function CertificatesView({
                 <button
                   type="button"
                   onClick={() => downloadTextFile(privFile || 'zertifikat', privContent)}
-                  className="p-1.5 text-slate-500 hover:text-slate-900 rounded-md cursor-pointer"
+                  className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 rounded-md cursor-pointer"
                   title={tr('zertifikat herunterladen', 'Download zertifikat')}
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -1844,26 +1844,26 @@ export function CertificatesView({
           </div>
 
           {/* Slot 2: zertifikat.pub */}
-          <div className="border border-slate-200 rounded-md p-4 flex flex-col justify-between bg-white">
+          <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 flex flex-col justify-between bg-white dark:bg-slate-900">
             <div>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-slate-900">2. zertifikat.pub</span>
+                <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">2. zertifikat.pub</span>
                 <span
                   className={`text-xs font-medium ${
-                    pubContent.trim() ? 'text-emerald-700' : 'text-slate-400'
+                    pubContent.trim() ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'
                   }`}
                 >
                   {pubContent.trim() ? tr('Geladen', 'Loaded') : tr('Fehlt', 'Missing')}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {tr(
                   'Öffentlicher Schlüssel (z. B. ssh-ed25519 AAAA...) zur Schlüsselpaar-Prüfung.',
                   'Public key (e.g. ssh-ed25519 AAAA...) used to verify keypair integrity.'
                 )}
               </p>
               {pubContent.trim() && (
-                <p className="mt-2 text-xs font-mono text-slate-700 truncate">{pubFile}</p>
+                <p className="mt-2 text-xs font-mono text-slate-700 dark:text-slate-300 truncate">{pubFile}</p>
               )}
             </div>
             <div className="mt-4 flex items-center gap-2">
@@ -1877,7 +1877,7 @@ export function CertificatesView({
               <button
                 type="button"
                 onClick={() => pubInputRef.current?.click()}
-                className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 {tr('Datei wählen', 'Choose File')}
               </button>
@@ -1885,7 +1885,7 @@ export function CertificatesView({
                 <button
                   type="button"
                   onClick={() => downloadTextFile(pubFile || 'zertifikat.pub', pubContent)}
-                  className="p-1.5 text-slate-500 hover:text-slate-900 rounded-md cursor-pointer"
+                  className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 rounded-md cursor-pointer"
                   title={tr('zertifikat.pub herunterladen', 'Download zertifikat.pub')}
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -1896,28 +1896,28 @@ export function CertificatesView({
 
           {/* Slot 3: zertifikat-cert.pub (optional / policy-controlled) */}
           {canUploadSignedCert ? (
-            <div className="border border-slate-200 rounded-md p-4 flex flex-col justify-between bg-white">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 flex flex-col justify-between bg-white dark:bg-slate-900">
               <div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs font-semibold text-slate-900">
+                  <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
                     3. zertifikat-cert.pub
                   </span>
                   <span
                     className={`text-xs font-medium ${
-                      certContent.trim() ? 'text-emerald-700' : 'text-slate-500'
+                      certContent.trim() ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'
                     }`}
                   >
                     {certContent.trim() ? tr('Geladen', 'Loaded') : tr('Optional', 'Optional')}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   {tr(
                     'Optional: Von Ihrer SSH-CA signiertes OpenSSH-Benutzerzertifikat (*-cert-v01@openssh.com). Leer lassen für klassisches Schlüsselpaar.',
                     'Optional: OpenSSH user certificate (*-cert-v01@openssh.com) signed by your SSH CA. Leave empty for a standard keypair.'
                   )}
                 </p>
                 {certContent.trim() && (
-                  <p className="mt-2 text-xs font-mono text-slate-700 truncate">{certFile}</p>
+                  <p className="mt-2 text-xs font-mono text-slate-700 dark:text-slate-300 truncate">{certFile}</p>
                 )}
               </div>
               <div className="mt-4 flex items-center gap-2">
@@ -1931,7 +1931,7 @@ export function CertificatesView({
                 <button
                   type="button"
                   onClick={() => certInputRef.current?.click()}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                  className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                 >
                   {tr('Datei wählen', 'Choose File')}
                 </button>
@@ -1940,7 +1940,7 @@ export function CertificatesView({
                     <button
                       type="button"
                       onClick={() => downloadTextFile(certFile || 'zertifikat-cert.pub', certContent)}
-                      className="p-1.5 text-slate-500 hover:text-slate-900 rounded-md cursor-pointer"
+                      className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 rounded-md cursor-pointer"
                       title={tr('zertifikat-cert.pub herunterladen', 'Download zertifikat-cert.pub')}
                     >
                       <Download className="w-3.5 h-3.5" />
@@ -1948,7 +1948,7 @@ export function CertificatesView({
                     <button
                       type="button"
                       onClick={() => setCertContent('')}
-                      className="text-xs text-slate-500 hover:text-red-700 cursor-pointer"
+                      className="text-xs text-slate-500 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-300 cursor-pointer"
                     >
                       {tr('Leeren', 'Clear')}
                     </button>
@@ -1957,18 +1957,18 @@ export function CertificatesView({
               </div>
             </div>
           ) : (
-            <div className="border border-slate-200 rounded-md p-4 flex flex-col justify-between bg-slate-50">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-md p-4 flex flex-col justify-between bg-slate-50 dark:bg-slate-800/60">
               <div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs font-semibold text-slate-700">
+                  <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">
                     3. zertifikat-cert.pub
                   </span>
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500">
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
                     <Lock className="w-3 h-3" />
                     {tr('Gesperrt', 'Restricted')}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                   {canSelfSign
                     ? tr(
                         'Das Hochladen eigener zertifikat-cert.pub-Dateien ist für Ihre Benutzergruppe deaktiviert. Nach dem Speichern können Sie Ihren Schlüssel direkt über die zugewiesene CA signieren.',
@@ -1985,16 +1985,16 @@ export function CertificatesView({
         </div>
 
         {lastGeneratedBundle && (
-          <div className="px-4 py-3 rounded-md bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
+          <div className="px-4 py-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-medium text-slate-900">
+              <span className="font-medium text-slate-900 dark:text-slate-100">
                 {tr('Erzeugte Dateien lokal herunterladen (optional):', 'Download generated files locally (optional):')}
               </span>
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={() => downloadTextFile('zertifikat', lastGeneratedBundle.privateKey)}
-                  className="text-blue-700 hover:text-blue-900 font-mono font-medium cursor-pointer"
+                  className="text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-mono font-medium cursor-pointer"
                 >
                   zertifikat
                 </button>
@@ -2002,22 +2002,22 @@ export function CertificatesView({
                 <button
                   type="button"
                   onClick={() => downloadTextFile('zertifikat.pub', lastGeneratedBundle.publicKey)}
-                  className="text-blue-700 hover:text-blue-900 font-mono font-medium cursor-pointer"
+                  className="text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-mono font-medium cursor-pointer"
                 >
                   zertifikat.pub
                 </button>
               </div>
             </div>
-            <p className="text-[11px] text-slate-500 font-mono break-all">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono break-all">
               authorized_keys: {lastGeneratedBundle.publicKey.trim()}
             </p>
           </div>
         )}
 
         {showTextEditors && (
-          <div className="grid grid-cols-1 gap-4 pt-2 border-t border-slate-200">
+          <div className="grid grid-cols-1 gap-4 pt-2 border-t border-slate-200 dark:border-slate-800">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Inhalt von zertifikat (Privater Schlüssel)', 'Contents of zertifikat (Private Key)')}
               </label>
               <textarea
@@ -2025,11 +2025,11 @@ export function CertificatesView({
                 value={privContent}
                 onChange={(e) => setPrivContent(e.target.value)}
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Inhalt von zertifikat.pub (Öffentlicher Schlüssel)', 'Contents of zertifikat.pub (Public Key)')}
               </label>
               <textarea
@@ -2037,12 +2037,12 @@ export function CertificatesView({
                 value={pubContent}
                 onChange={(e) => setPubContent(e.target.value)}
                 placeholder="ssh-ed25519 AAAA..."
-                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
             {canUploadSignedCert && (
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   {tr(
                     'Inhalt von zertifikat-cert.pub (optional · Signiertes OpenSSH-Zertifikat)',
                     'Contents of zertifikat-cert.pub (optional · Signed OpenSSH Certificate)'
@@ -2053,17 +2053,17 @@ export function CertificatesView({
                   value={certContent}
                   onChange={(e) => setCertContent(e.target.value)}
                   placeholder="Optional: ssh-ed25519-cert-v01@openssh.com AAAA..."
-                  className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
             )}
           </div>
         )}
 
-        <div className="space-y-4 pt-2 border-t border-slate-200">
+        <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-slate-800">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="cert-bundle-name" className="block text-xs font-medium text-slate-700 mb-1.5">
+              <label htmlFor="cert-bundle-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 {tr('Bezeichnung für dieses Schlüssel-/Zertifikatspaket', 'Label for this key / certificate bundle')}
               </label>
               <input
@@ -2075,13 +2075,13 @@ export function CertificatesView({
                 placeholder={tr('z. B. Produktion Ed25519 (Q4)', 'e.g. Production Ed25519 (Q4)')}
                 className={`w-full px-3.5 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 ${
                   matchingExistingOwnCert
-                    ? 'border-amber-400 bg-amber-50/40 focus:ring-amber-500'
-                    : 'border-slate-300 focus:ring-blue-600'
+                    ? 'border-amber-400 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/30 focus:ring-amber-500'
+                    : 'border-slate-300 dark:border-slate-700 focus:ring-blue-600'
                 }`}
               />
               {matchingExistingOwnCert && (
-                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                   <span>
                     {tr(
                       `Der Name „${matchingExistingOwnCert.name}“ ist bereits vergeben. Beim Speichern werden Sie gefragt, ob das bestehende Zertifikat überschrieben werden soll.`,
@@ -2092,7 +2092,7 @@ export function CertificatesView({
               )}
             </div>
             <div>
-              <label htmlFor="cert-key-passphrase" className="block text-xs font-medium text-slate-700 mb-1.5">
+              <label htmlFor="cert-key-passphrase" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 {tr('Schlüssel-Passwort (optional)', 'Key Passphrase (optional)')}
               </label>
               {canStoreCertPassphrase ? (
@@ -2107,9 +2107,9 @@ export function CertificatesView({
                       'Leer lassen für Eingabe bei jeder Nutzung',
                       'Leave empty to enter on each use'
                     )}
-                    className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    className="w-full px-3.5 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                   />
-                  <p className="text-[11px] text-slate-500 mt-1">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                     {tr(
                       'Nur nötig, falls der private Schlüssel passwortgeschützt ist. Wird optional AES-256-GCM-verschlüsselt gespeichert oder leer gelassen und jeweils manuell eingegeben.',
                       'Only needed if the private key is passphrase-protected. Optionally stored AES-256-GCM encrypted, or leave blank to prompt on each use.'
@@ -2120,7 +2120,7 @@ export function CertificatesView({
                   )}
                 </>
               ) : (
-                <div className="px-3 py-2 rounded-md bg-slate-100 border border-slate-200 text-xs text-slate-600">
+                <div className="px-3 py-2 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400">
                   {tr(
                     'Das Speichern von Zertifikats-Passwörtern auf dem Server ist für Ihre Benutzergruppe deaktiviert. Passwortgeschützte Schlüssel werden bei jeder Nutzung manuell entsperrt.',
                     'Storing certificate passphrases on the server is disabled for your user group. Passphrase-protected keys are unlocked manually on each use.'
@@ -2133,12 +2133,12 @@ export function CertificatesView({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               {canShare && (
-                <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={shareOnCreate}
                     onChange={(e) => setShareOnCreate(e.target.checked)}
-                    className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                    className="rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
                   />
                   <span>
                     {tr(
@@ -2168,7 +2168,7 @@ export function CertificatesView({
       {/* Saved Bundles */}
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-base font-semibold text-slate-900">
+          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
             {tr(
               `Hinterlegte Zertifikatspakete (${certificates.length})`,
               `Saved Key & Certificate Bundles (${certificates.length})`
@@ -2184,7 +2184,7 @@ export function CertificatesView({
                     certificates.every((c) => selectedMineIds.includes(c.id));
                   setSelectedMineIds(allSelected ? [] : certificates.map((c) => c.id));
                 }}
-                className="text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
+                className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer whitespace-nowrap"
               >
                 {certificates.length > 0 &&
                 certificates.every((c) => selectedMineIds.includes(c.id))
@@ -2216,7 +2216,7 @@ export function CertificatesView({
                         type="button"
                         disabled={batchRevokingAutoRenew}
                         onClick={() => void handleBatchRevokeAutoRenew(activeAutoRenewSelected)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/70 rounded-md transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
                       >
                         <Ban className="w-3.5 h-3.5" />
                         {tr(
@@ -2240,7 +2240,7 @@ export function CertificatesView({
                     ownCertificates.every((c) => selectedMineIds.includes(c.id));
                   setSelectedMineIds(allSelected ? [] : ownCertificates.map((c) => c.id));
                 }}
-                className="text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
+                className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer whitespace-nowrap"
               >
                 {ownCertificates.length > 0 &&
                 ownCertificates.every((c) => selectedMineIds.includes(c.id))
@@ -2273,7 +2273,7 @@ export function CertificatesView({
                         type="button"
                         disabled={batchRevokingAutoRenew}
                         onClick={() => void handleBatchRevokeAutoRenew(activeAutoRenewOwn)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/70 rounded-md transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
                       >
                         <Ban className="w-3.5 h-3.5" />
                         {tr(
@@ -2290,7 +2290,7 @@ export function CertificatesView({
                   <button
                     type="button"
                     onClick={() => openSelfSignModal(ownCertificates)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/70 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                   >
                     <FileSignature className="w-3.5 h-3.5" />
                     {tr(
@@ -2306,19 +2306,19 @@ export function CertificatesView({
 
         {/* User Self-Signing Assigned CA summary strip */}
         {canSelfSign && (
-          <div className="rounded-md bg-blue-50/60 border border-blue-200 px-4 py-3 text-xs text-slate-700 flex flex-wrap items-center justify-between gap-3">
+          <div className="rounded-md bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/70 px-4 py-3 text-xs text-slate-700 dark:text-slate-300 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-start gap-2 min-w-0">
-              <FileSignature className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+              <FileSignature className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
               <div className="space-y-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium text-slate-900">
+                  <p className="font-medium text-slate-900 dark:text-slate-100">
                     {tr(
                       'Selbstsignierung über zugewiesene CA aktiviert',
                       'Self-signing via assigned CA enabled'
                     )}
                   </p>
                   {canAutoRenew && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-800">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-[11px] font-medium text-emerald-800 dark:text-emerald-300">
                       <RefreshCw className="w-3 h-3" />
                       {tr(
                         'Automatische Neuzertifizierung freigegeben',
@@ -2328,11 +2328,11 @@ export function CertificatesView({
                   )}
                 </div>
                 {assignedCasLoading && assignedCas.length === 0 ? (
-                  <p className="text-slate-500">
+                  <p className="text-slate-500 dark:text-slate-400">
                     {tr('Zugewiesene CAs werden geladen...', 'Loading assigned CAs...')}
                   </p>
                 ) : assignedCas.length === 0 ? (
-                  <p className="text-amber-900">
+                  <p className="text-amber-900 dark:text-amber-200">
                     {tr(
                       'Ihrer Benutzergruppe ist aktuell noch keine CA zugewiesen. Bitte wenden Sie sich an einen Administrator.',
                       'No CA is currently assigned to your user group. Please contact an administrator.'
@@ -2343,15 +2343,15 @@ export function CertificatesView({
                     {assignedCas.map((ca) => (
                       <span
                         key={ca.id}
-                        className="inline-flex flex-wrap items-center gap-1.5 px-2 py-0.5 rounded bg-white border border-blue-200 text-[11px]"
+                        className="inline-flex flex-wrap items-center gap-1.5 px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800/70 text-[11px]"
                       >
-                        <span className="font-semibold text-blue-950">{ca.name}</span>
-                        <span className="font-mono text-slate-600">
+                        <span className="font-semibold text-blue-950 dark:text-blue-200">{ca.name}</span>
+                        <span className="font-mono text-slate-600 dark:text-slate-400">
                           -n {ca.effectivePrincipals.join(', ') || '—'}
                         </span>
-                        <span className="font-mono text-slate-500">· -V {ca.validity}</span>
+                        <span className="font-mono text-slate-500 dark:text-slate-400">· -V {ca.validity}</span>
                         {!ca.hasStoredPassphrase && (
-                          <span className="text-amber-700 font-medium">
+                          <span className="text-amber-700 dark:text-amber-400 font-medium">
                             · {tr('Passwort fehlt', 'Passphrase missing')}
                           </span>
                         )}
@@ -2365,12 +2365,12 @@ export function CertificatesView({
         )}
 
         {certificates.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-lg px-6 py-12 text-center">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-6 py-12 text-center">
             <KeyRound className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-slate-900">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {tr('Noch kein SSH-Schlüssel oder Zertifikat hinterlegt', 'No SSH keys or certificates stored yet')}
             </h3>
-            <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
               {tr('Laden Sie oben ', 'Upload ')}
               <code className="font-mono text-xs">zertifikat</code> {tr('und', 'and')}{' '}
               <code className="font-mono text-xs">zertifikat.pub</code>{' '}
@@ -2398,8 +2398,8 @@ export function CertificatesView({
               return (
                 <article
                   key={cert.id}
-                  className={`bg-white border rounded-lg p-6 space-y-4 transition-colors ${
-                    isSelectedMine ? 'border-blue-400 ring-1 ring-blue-100' : 'border-slate-200'
+                  className={`bg-white dark:bg-slate-900 border rounded-lg p-6 space-y-4 transition-colors ${
+                    isSelectedMine ? 'border-blue-400 ring-1 ring-blue-100 dark:ring-blue-900/40' : 'border-slate-200 dark:border-slate-800'
                   }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -2413,28 +2413,28 @@ export function CertificatesView({
                             `Zertifikat ${cert.name} für Sammelsignierung auswählen`,
                             `Select certificate ${cert.name} for batch signing`
                           )}
-                          className="mt-1 w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer shrink-0"
+                          className="mt-1 w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer shrink-0"
                         />
                       )}
                       <div className="min-w-0">
                       <div className="flex items-center gap-2.5 flex-wrap">
-                        <h3 className="font-display text-base font-semibold text-slate-900">
+                        <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                           {cert.name}
                         </h3>
                         {hasCert ? (
                           m.isExpired ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700">
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-400">
                               <AlertTriangle className="w-3.5 h-3.5" />
                               {tr('Abgelaufen', 'Expired')}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               {tr('3-Dateien-Verbund verifiziert', '3-file bundle verified')}
                             </span>
                           )
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             {tr(
                               'Schlüsselpaar verifiziert (ohne CA-Zertifikat)',
@@ -2446,8 +2446,8 @@ export function CertificatesView({
                         <span
                           className={`text-xs ${
                             !isOwner || cert.sharedWithAll || cert.sharedWithUserIds.length > 0
-                              ? 'text-blue-800 font-medium'
-                              : 'text-slate-500'
+                              ? 'text-blue-800 dark:text-blue-300 font-medium'
+                              : 'text-slate-500 dark:text-slate-400'
                           }`}
                         >
                           {shareLabel}
@@ -2457,7 +2457,7 @@ export function CertificatesView({
                             <span aria-hidden="true" className="text-slate-300">·</span>
                             <span
                               className={`inline-flex items-center gap-1 text-xs font-medium ${
-                                cert.hasStoredPassphrase ? 'text-emerald-700' : 'text-amber-800'
+                                cert.hasStoredPassphrase ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-800 dark:text-amber-300'
                               }`}
                             >
                               <Lock className="w-3 h-3" />
@@ -2468,7 +2468,7 @@ export function CertificatesView({
                           </>
                         )}
                       </div>
-                      <p className="text-xs text-slate-500 mt-1 font-mono">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
                         {cert.privateKeyFileName} · {cert.publicKeyFileName}
                         {hasCert
                           ? ` · ${cert.certFileName}`
@@ -2483,7 +2483,7 @@ export function CertificatesView({
                           <button
                             type="button"
                             onClick={() => openSignModal([cert])}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                           >
                             <FileSignature className="w-3.5 h-3.5" />
                             {tr('Mit CA signieren', 'Sign with CA')}
@@ -2494,7 +2494,7 @@ export function CertificatesView({
                             type="button"
                             onClick={() => openSelfSignModal([cert])}
                             disabled={assignedCas.length === 0}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                           >
                             <FileSignature className="w-3.5 h-3.5" />
                             {hasCert
@@ -2508,8 +2508,8 @@ export function CertificatesView({
                             onClick={() => (editingCertId === cert.id ? cancelEdit() : startEdit(cert))}
                             className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                               editingCertId === cert.id
-                                ? 'text-slate-900 bg-slate-100 hover:bg-slate-200'
-                                : 'text-slate-700 hover:bg-slate-100'
+                                ? 'text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                             }`}
                           >
                             {editingCertId === cert.id ? (
@@ -2529,7 +2529,7 @@ export function CertificatesView({
                           <button
                             type="button"
                             onClick={() => setSharingCert(cert)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                           >
                             <Share2 className="w-3.5 h-3.5" />
                             {tr('Teilen', 'Share')}
@@ -2540,7 +2540,7 @@ export function CertificatesView({
                             type="button"
                             onClick={() => handleDelete(cert.id)}
                             disabled={deletingId === cert.id}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             {deletingId === cert.id
@@ -2555,7 +2555,7 @@ export function CertificatesView({
                           <button
                             type="button"
                             onClick={() => openSignModal([cert])}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                           >
                             <FileSignature className="w-3.5 h-3.5" />
                             {tr('Mit CA signieren', 'Sign with CA')}
@@ -2571,17 +2571,17 @@ export function CertificatesView({
                   {editingCertId === cert.id && isOwner && canUpload && (
                     <form
                       onSubmit={(e) => handleSaveEdit(e, cert)}
-                      className="rounded-md border border-blue-200 bg-slate-50/70 p-4 space-y-4"
+                      className="rounded-md border border-blue-200 dark:border-blue-800/70 bg-slate-50/70 dark:bg-slate-800/50 p-4 space-y-4"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
                         <div>
-                          <h4 className="text-xs font-semibold text-slate-900">
+                          <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
                             {tr(
                               'Paket bearbeiten (einzelne Dateien gezielt austauschen)',
                               'Edit Bundle (replace individual files selectively)'
                             )}
                           </h4>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                             {tr(
                               'Nicht geänderte Dateien bleiben unverändert erhalten. Ideal, um z. B. nur ein neues zertifikat-cert.pub einzuspielen.',
                               'Unchanged files are kept as-is. Ideal for rotating only zertifikat-cert.pub without re-uploading your private key.'
@@ -2591,7 +2591,7 @@ export function CertificatesView({
                         <button
                           type="button"
                           onClick={() => setEditShowText((v) => !v)}
-                          className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap shrink-0 self-start sm:self-auto"
+                          className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer whitespace-nowrap shrink-0 self-start sm:self-auto"
                         >
                           {editShowText
                             ? tr('Textfelder ausblenden', 'Hide text fields')
@@ -2603,7 +2603,7 @@ export function CertificatesView({
                         <div>
                           <label
                             htmlFor={`edit-cert-name-${cert.id}`}
-                            className="block text-xs font-medium text-slate-700 mb-1"
+                            className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                           >
                             {tr('Bezeichnung', 'Bundle Label')}
                           </label>
@@ -2624,15 +2624,15 @@ export function CertificatesView({
                                   type="text"
                                   value={editName}
                                   onChange={(e) => setEditName(e.target.value)}
-                                  className={`w-full px-3 py-1.5 text-sm bg-white border rounded-md focus:outline-none focus:ring-2 ${
+                                  className={`w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border rounded-md focus:outline-none focus:ring-2 ${
                                     matchingOtherEditCert
-                                      ? 'border-amber-400 bg-amber-50/40 focus:ring-amber-500'
-                                      : 'border-slate-300 focus:ring-blue-600'
+                                      ? 'border-amber-400 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/30 focus:ring-amber-500'
+                                      : 'border-slate-300 dark:border-slate-700 focus:ring-blue-600'
                                   }`}
                                 />
                                 {matchingOtherEditCert && (
-                                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800">
-                                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                                     <span>
                                       {tr(
                                         `Der Name „${matchingOtherEditCert.name}“ ist bereits an ein anderes eigenes Zertifikat vergeben.`,
@@ -2649,7 +2649,7 @@ export function CertificatesView({
                         <div className="space-y-1.5">
                           <label
                             htmlFor={`edit-cert-pass-${cert.id}`}
-                            className="block text-xs font-medium text-slate-700"
+                            className="block text-xs font-medium text-slate-700 dark:text-slate-300"
                           >
                             {tr('Schlüssel-Passwort', 'Key Passphrase')}
                           </label>
@@ -2673,14 +2673,14 @@ export function CertificatesView({
                                         'Store optionally (blank = enter on use)'
                                       )
                                 }
-                                className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-400"
+                                className="w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-400 dark:disabled:text-slate-600"
                               />
                               {!editClearPassphrase && editPassphrase.length > 0 && (
                                 <PasswordStrengthHint password={editPassphrase} compact />
                               )}
                             </>
                           ) : (
-                            <p className="px-3 py-1.5 text-xs text-slate-600 bg-slate-100 border border-slate-200 rounded-md">
+                            <p className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-md">
                               {tr(
                                 'Speichern von Zertifikats-Passwörtern ist für Ihre Gruppe deaktiviert.',
                                 'Storing certificate passphrases is disabled for your group.'
@@ -2688,7 +2688,7 @@ export function CertificatesView({
                             </p>
                           )}
                           {cert.hasStoredPassphrase && (
-                            <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={editClearPassphrase}
@@ -2696,7 +2696,7 @@ export function CertificatesView({
                                   setEditClearPassphrase(e.target.checked);
                                   if (e.target.checked) setEditPassphrase('');
                                 }}
-                                className="rounded border-slate-300 text-red-600 focus:ring-red-600"
+                                className="rounded border-slate-300 dark:border-slate-700 text-red-600 dark:text-red-400 focus:ring-red-600"
                               />
                               <span>
                                 {tr(
@@ -2724,11 +2724,11 @@ export function CertificatesView({
                         }}
                         className={`border border-dashed rounded-md px-4 py-3 text-center transition-colors ${
                           editDragging
-                            ? 'border-blue-600 bg-blue-50/70'
-                            : 'border-slate-300 bg-white'
+                            ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/35'
+                            : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
                         }`}
                       >
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-xs text-slate-600">
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400">
                           <Upload className="w-4 h-4 text-slate-400 shrink-0" />
                           <span>
                             {tr(
@@ -2751,7 +2751,7 @@ export function CertificatesView({
                           <button
                             type="button"
                             onClick={() => editMultiInputRef.current?.click()}
-                            className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition-colors cursor-pointer whitespace-nowrap"
+                            className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors cursor-pointer whitespace-nowrap"
                           >
                             {tr('Dateien wählen', 'Browse Files')}
                           </button>
@@ -2760,15 +2760,15 @@ export function CertificatesView({
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         {/* Edit Slot 1: private key */}
-                        <div className="border border-slate-200 rounded-md p-3 bg-white flex flex-col justify-between gap-2.5">
+                        <div className="border border-slate-200 dark:border-slate-800 rounded-md p-3 bg-white dark:bg-slate-900 flex flex-col justify-between gap-2.5">
                           <div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-xs font-semibold text-slate-900">
+                              <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
                                 1. zertifikat
                               </span>
                               <span
                                 className={`text-[11px] font-medium ${
-                                  editPrivContent.trim() ? 'text-blue-700' : 'text-slate-500'
+                                  editPrivContent.trim() ? 'text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'
                                 }`}
                               >
                                 {editPrivContent.trim()
@@ -2776,7 +2776,7 @@ export function CertificatesView({
                                   : tr('Unverändert', 'Unchanged')}
                               </span>
                             </div>
-                            <p className="mt-1 text-[11px] font-mono text-slate-600 truncate">
+                            <p className="mt-1 text-[11px] font-mono text-slate-600 dark:text-slate-400 truncate">
                               {editPrivContent.trim()
                                 ? editPrivFile || 'zertifikat'
                                 : tr(
@@ -2795,7 +2795,7 @@ export function CertificatesView({
                             <button
                               type="button"
                               onClick={() => editPrivInputRef.current?.click()}
-                              className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer whitespace-nowrap"
+                              className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded cursor-pointer whitespace-nowrap"
                             >
                               {tr('Austauschen', 'Replace')}
                             </button>
@@ -2806,7 +2806,7 @@ export function CertificatesView({
                                   setEditPrivContent('');
                                   setEditPrivFile('');
                                 }}
-                                className="text-xs text-slate-500 hover:text-red-700 cursor-pointer"
+                                className="text-xs text-slate-500 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-300 cursor-pointer"
                               >
                                 {tr('Zurücksetzen', 'Reset')}
                               </button>
@@ -2815,15 +2815,15 @@ export function CertificatesView({
                         </div>
 
                         {/* Edit Slot 2: public key */}
-                        <div className="border border-slate-200 rounded-md p-3 bg-white flex flex-col justify-between gap-2.5">
+                        <div className="border border-slate-200 dark:border-slate-800 rounded-md p-3 bg-white dark:bg-slate-900 flex flex-col justify-between gap-2.5">
                           <div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-xs font-semibold text-slate-900">
+                              <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
                                 2. zertifikat.pub
                               </span>
                               <span
                                 className={`text-[11px] font-medium ${
-                                  editPubContent.trim() ? 'text-blue-700' : 'text-slate-500'
+                                  editPubContent.trim() ? 'text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'
                                 }`}
                               >
                                 {editPubContent.trim()
@@ -2831,7 +2831,7 @@ export function CertificatesView({
                                   : tr('Unverändert', 'Unchanged')}
                               </span>
                             </div>
-                            <p className="mt-1 text-[11px] font-mono text-slate-600 truncate">
+                            <p className="mt-1 text-[11px] font-mono text-slate-600 dark:text-slate-400 truncate">
                               {editPubContent.trim()
                                 ? editPubFile || 'zertifikat.pub'
                                 : tr(
@@ -2851,7 +2851,7 @@ export function CertificatesView({
                             <button
                               type="button"
                               onClick={() => editPubInputRef.current?.click()}
-                              className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer whitespace-nowrap"
+                              className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded cursor-pointer whitespace-nowrap"
                             >
                               {tr('Austauschen', 'Replace')}
                             </button>
@@ -2862,7 +2862,7 @@ export function CertificatesView({
                                   setEditPubContent('');
                                   setEditPubFile('');
                                 }}
-                                className="text-xs text-slate-500 hover:text-red-700 cursor-pointer"
+                                className="text-xs text-slate-500 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-300 cursor-pointer"
                               >
                                 {tr('Zurücksetzen', 'Reset')}
                               </button>
@@ -2874,22 +2874,22 @@ export function CertificatesView({
                         <div
                           className={`border rounded-md p-3 flex flex-col justify-between gap-2.5 ${
                             canUploadSignedCert
-                              ? 'border-blue-200 bg-white'
-                              : 'border-slate-200 bg-slate-50'
+                              ? 'border-blue-200 dark:border-blue-800/70 bg-white dark:bg-slate-900'
+                              : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60'
                           }`}
                         >
                           <div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-xs font-semibold text-slate-900">
+                              <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
                                 3. zertifikat-cert.pub
                               </span>
                               <span
                                 className={`text-[11px] font-medium ${
                                   editRemoveCert
-                                    ? 'text-red-700'
+                                    ? 'text-red-700 dark:text-red-400'
                                     : editCertContent.trim()
-                                      ? 'text-blue-700'
-                                      : 'text-slate-500'
+                                      ? 'text-blue-700 dark:text-blue-400'
+                                      : 'text-slate-500 dark:text-slate-400'
                                 }`}
                               >
                                 {editRemoveCert
@@ -2905,7 +2905,7 @@ export function CertificatesView({
                                         : tr('Nicht vorhanden', 'Not set')}
                               </span>
                             </div>
-                            <p className="mt-1 text-[11px] font-mono text-slate-600 truncate">
+                            <p className="mt-1 text-[11px] font-mono text-slate-600 dark:text-slate-400 truncate">
                               {editRemoveCert
                                 ? tr(
                                     'Umstellung auf 2-Dateien-Schlüsselpaar',
@@ -2942,7 +2942,7 @@ export function CertificatesView({
                                 <button
                                   type="button"
                                   onClick={() => editCertInputRef.current?.click()}
-                                  className="px-2.5 py-1 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 rounded cursor-pointer whitespace-nowrap"
+                                  className="px-2.5 py-1 text-xs font-medium text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded cursor-pointer whitespace-nowrap"
                                 >
                                   {hasCert ? tr('cert.pub tauschen', 'Replace cert.pub') : tr('Hinzufügen', 'Add cert.pub')}
                                 </button>
@@ -2953,14 +2953,14 @@ export function CertificatesView({
                                       setEditCertContent('');
                                       setEditCertFile('');
                                     }}
-                                    className="text-xs text-slate-500 hover:text-red-700 cursor-pointer"
+                                    className="text-xs text-slate-500 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-300 cursor-pointer"
                                   >
                                     {tr('Zurücksetzen', 'Reset')}
                                   </button>
                                 )}
                               </>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
                                 <Lock className="w-3 h-3" />
                                 {tr('Nur über CA-Signierung', 'Via CA signing only')}
                               </span>
@@ -2971,8 +2971,8 @@ export function CertificatesView({
                                 onClick={() => setEditRemoveCert((v) => !v)}
                                 className={`text-xs cursor-pointer ${
                                   editRemoveCert
-                                    ? 'text-slate-700 hover:text-slate-900 font-medium'
-                                    : 'text-red-700 hover:text-red-900'
+                                    ? 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 font-medium'
+                                    : 'text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300'
                                 }`}
                               >
                                 {editRemoveCert
@@ -2985,10 +2985,10 @@ export function CertificatesView({
                       </div>
 
                       {editShowText && (
-                        <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-200">
+                        <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
                           {canUploadSignedCert && (
                             <div>
-                              <label className="block text-xs font-medium text-slate-700 mb-1">
+                              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                                 {tr(
                                   'Neuer Inhalt für zertifikat-cert.pub (leer lassen = unverändert)',
                                   'New contents for zertifikat-cert.pub (leave empty = unchanged)'
@@ -3002,12 +3002,12 @@ export function CertificatesView({
                                   if (e.target.value.trim()) setEditRemoveCert(false);
                                 }}
                                 placeholder="ssh-ed25519-cert-v01@openssh.com AAAA..."
-                                className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                className="w-full px-3 py-2 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                               />
                             </div>
                           )}
                           <div>
-                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                               {tr(
                                 'Neuer Inhalt für zertifikat.pub (leer lassen = unverändert)',
                                 'New contents for zertifikat.pub (leave empty = unchanged)'
@@ -3018,11 +3018,11 @@ export function CertificatesView({
                               value={editPubContent}
                               onChange={(e) => setEditPubContent(e.target.value)}
                               placeholder="ssh-ed25519 AAAA..."
-                              className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                              className="w-full px-3 py-2 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                               {tr(
                                 'Neuer Inhalt für zertifikat (leer lassen = unverändert)',
                                 'New contents for zertifikat (leave empty = unchanged)'
@@ -3033,18 +3033,18 @@ export function CertificatesView({
                               value={editPrivContent}
                               onChange={(e) => setEditPrivContent(e.target.value)}
                               placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                              className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                              className="w-full px-3 py-2 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                             />
                           </div>
                         </div>
                       )}
 
-                      <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                      <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
                         <button
                           type="button"
                           onClick={cancelEdit}
                           disabled={editSaving}
-                          className="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+                          className="px-3.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer"
                         >
                           {tr('Abbrechen', 'Cancel')}
                         </button>
@@ -3062,86 +3062,86 @@ export function CertificatesView({
                   )}
 
                   {hasCert ? (
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 text-xs">
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 dark:border-slate-800 text-xs">
                       <div>
-                        <dt className="text-slate-500">{tr('Key-ID & Seriennummer', 'Key ID & Serial')}</dt>
-                        <dd className="font-mono text-slate-900 mt-0.5 tabular-nums">
+                        <dt className="text-slate-500 dark:text-slate-400">{tr('Key-ID & Seriennummer', 'Key ID & Serial')}</dt>
+                        <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5 tabular-nums">
                           {m.keyId || '—'} · #{m.serial}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">
+                        <dt className="text-slate-500 dark:text-slate-400">
                           {tr('Erlaubte Principals (SSH-User)', 'Allowed Principals (SSH Users)')}
                         </dt>
-                        <dd className="font-mono text-slate-900 mt-0.5">
+                        <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                           {m.principals.length > 0 ? m.principals.join(', ') : tr('(alle)', '(all)')}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">{tr('Gültig ab', 'Valid From')}</dt>
-                        <dd className="font-mono text-slate-900 mt-0.5 tabular-nums">
+                        <dt className="text-slate-500 dark:text-slate-400">{tr('Gültig ab', 'Valid From')}</dt>
+                        <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5 tabular-nums">
                           {formatDateTime(m.validAfter)}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">{tr('Gültig bis', 'Valid Until')}</dt>
+                        <dt className="text-slate-500 dark:text-slate-400">{tr('Gültig bis', 'Valid Until')}</dt>
                         <dd
                           className={`font-mono mt-0.5 tabular-nums ${
-                            m.isExpired ? 'text-red-700 font-semibold' : 'text-slate-900'
+                            m.isExpired ? 'text-red-700 dark:text-red-400 font-semibold' : 'text-slate-900 dark:text-slate-100'
                           }`}
                         >
                           {formatDateTime(m.validBefore)}
                         </dd>
                       </div>
                       <div className="sm:col-span-2">
-                        <dt className="text-slate-500">
+                        <dt className="text-slate-500 dark:text-slate-400">
                           {tr(
                             `Schlüssel-Fingerabdruck (${m.pubKeyAlgorithm})`,
                             `Key Fingerprint (${m.pubKeyAlgorithm})`
                           )}
                         </dt>
-                        <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.pubKeyFingerprint}>
+                        <dd className="font-mono text-slate-800 dark:text-slate-200 mt-0.5 truncate" title={m.pubKeyFingerprint}>
                           {m.pubKeyFingerprint}
                         </dd>
                       </div>
                       <div className="sm:col-span-2">
-                        <dt className="text-slate-500">
+                        <dt className="text-slate-500 dark:text-slate-400">
                           {tr('Signierende CA (TrustedUserCAKeys)', 'Signing CA (TrustedUserCAKeys)')}
                         </dt>
-                        <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.caFingerprint}>
+                        <dd className="font-mono text-slate-800 dark:text-slate-200 mt-0.5 truncate" title={m.caFingerprint}>
                           {m.caFingerprint}
                         </dd>
                       </div>
                     </dl>
                   ) : (
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 text-xs">
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 dark:border-slate-800 text-xs">
                       <div>
-                        <dt className="text-slate-500">{tr('Anmeldemodus', 'Auth Mode')}</dt>
-                        <dd className="font-mono text-slate-900 mt-0.5">
+                        <dt className="text-slate-500 dark:text-slate-400">{tr('Anmeldemodus', 'Auth Mode')}</dt>
+                        <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                           {tr('SSH-Schlüsselpaar (authorized_keys)', 'SSH Keypair (authorized_keys)')}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">{tr('Schlüsselkommentar', 'Key Comment')}</dt>
-                        <dd className="font-mono text-slate-900 mt-0.5">
+                        <dt className="text-slate-500 dark:text-slate-400">{tr('Schlüsselkommentar', 'Key Comment')}</dt>
+                        <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                           {m.keyId || '—'}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">{tr('Privatschlüssel-Format', 'Private Key Format')}</dt>
-                        <dd className="font-mono text-slate-900 mt-0.5">
+                        <dt className="text-slate-500 dark:text-slate-400">{tr('Privatschlüssel-Format', 'Private Key Format')}</dt>
+                        <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                           {m.privateKeyFormat}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-slate-500">{tr('Algorithmus', 'Algorithm')}</dt>
-                        <dd className="font-mono text-slate-900 mt-0.5">
+                        <dt className="text-slate-500 dark:text-slate-400">{tr('Algorithmus', 'Algorithm')}</dt>
+                        <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                           {m.pubKeyAlgorithm}
                         </dd>
                       </div>
                       <div className="sm:col-span-4">
-                        <dt className="text-slate-500">{tr('Schlüssel-Fingerabdruck', 'Key Fingerprint')}</dt>
-                        <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.pubKeyFingerprint}>
+                        <dt className="text-slate-500 dark:text-slate-400">{tr('Schlüssel-Fingerabdruck', 'Key Fingerprint')}</dt>
+                        <dd className="font-mono text-slate-800 dark:text-slate-200 mt-0.5 truncate" title={m.pubKeyFingerprint}>
                           {m.pubKeyFingerprint}
                         </dd>
                       </div>
@@ -3151,9 +3151,9 @@ export function CertificatesView({
                   {renderAutoRenewBanner(cert, isOwner || isAdmin)}
 
                   {m.warnings.length > 0 && (
-                    <div className="pt-3 border-t border-slate-200 space-y-1">
+                    <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
                       {m.warnings.map((w, idx) => (
-                        <p key={idx} className="text-xs text-amber-800 flex items-start gap-1.5">
+                        <p key={idx} className="text-xs text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
                           <FileText className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                           <span>{w}</span>
                         </p>
@@ -3172,16 +3172,16 @@ export function CertificatesView({
       {isAdmin && activeViewTab === 'all' && (
         <section className="space-y-5">
           {/* Security Notice */}
-          <div className="flex items-start gap-3 px-4 py-3 rounded-md bg-slate-50 border border-slate-200 text-xs text-slate-700">
-            <Shield className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-3 px-4 py-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
+            <Shield className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
-              <p className="font-medium text-slate-900">
+              <p className="font-medium text-slate-900 dark:text-slate-100">
                 {tr(
                   'Administrationsübersicht aller Benutzer-Zertifikate (Privatschlüssel geschützt)',
                   'Administrator Overview of All User Certificates (Private Keys Protected)'
                 )}
               </p>
-              <p className="text-slate-600">
+              <p className="text-slate-600 dark:text-slate-400">
                 {tr(
                   'Private Schlüssel und Passwörter anderer Benutzer werden niemals angezeigt oder übertragen. Fremde Zertifikate können hier eingesehen, durchsucht, gefiltert und bei Bedarf gelöscht werden — eine Bearbeitung oder SSH-Nutzung fremder, nicht geteilter Schlüssel ist gesperrt.',
                   'Private keys and passphrases of other users are never exposed or transmitted. Other users’ certificates can be inspected, searched, filtered, and deleted here — editing or using unshared keys for SSH is blocked.'
@@ -3191,7 +3191,7 @@ export function CertificatesView({
           </div>
 
           {/* Search & Filter Controls */}
-          <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
               <div className="md:col-span-6 relative">
                 <label htmlFor="admin-cert-search" className="sr-only">
@@ -3207,14 +3207,14 @@ export function CertificatesView({
                     'Suchen nach Name, Benutzer, Key-ID, Principal, Fingerabdruck, Algorithmus...',
                     'Search by name, user, Key ID, principal, fingerprint, algorithm...'
                   )}
-                  className="w-full pl-9 pr-8 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full pl-9 pr-8 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
                 {adminSearch && (
                   <button
                     type="button"
                     onClick={() => setAdminSearch('')}
                     aria-label={tr('Suche leeren', 'Clear search')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -3229,7 +3229,7 @@ export function CertificatesView({
                   id="admin-cert-owner-filter"
                   value={adminOwnerFilter}
                   onChange={(e) => setAdminOwnerFilter(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
                   <option value="all">
                     {tr(
@@ -3280,7 +3280,7 @@ export function CertificatesView({
                         | 'shared'
                     )
                   }
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
                   <option value="all">{tr('Alle Typen & Status', 'All Types & Statuses')}</option>
                   <option value="cert">
@@ -3296,7 +3296,7 @@ export function CertificatesView({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs text-slate-600">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/70 text-xs text-slate-600 dark:text-slate-400">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="tabular-nums">
                   {tr(
@@ -3324,7 +3324,7 @@ export function CertificatesView({
                           );
                         }
                       }}
-                      className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
+                      className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer whitespace-nowrap"
                     >
                       {filteredAdminCertificates.every((c) => selectedAdminIds.includes(c.id))
                         ? tr('Sichtbare abwählen', 'Deselect visible')
@@ -3345,7 +3345,7 @@ export function CertificatesView({
                       setAdminOwnerFilter('all');
                       setAdminTypeFilter('all');
                     }}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     {tr('Filter zurücksetzen', 'Reset filters')}
@@ -3355,7 +3355,7 @@ export function CertificatesView({
                   type="button"
                   onClick={() => void loadAdminCertificates()}
                   disabled={adminLoading}
-                  className="text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50 cursor-pointer"
+                  className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-50 cursor-pointer"
                 >
                   {adminLoading ? tr('Wird geladen...', 'Loading...') : tr('Aktualisieren', 'Refresh')}
                 </button>
@@ -3365,9 +3365,9 @@ export function CertificatesView({
 
           {/* Batch CA Signing Bar */}
           {selectedAdminIds.length > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200">
-              <div className="flex items-center gap-2 text-xs text-blue-950 font-medium">
-                <FileSignature className="w-4 h-4 text-blue-700 shrink-0" />
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70">
+              <div className="flex items-center gap-2 text-xs text-blue-950 dark:text-blue-200 font-medium">
+                <FileSignature className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
                 <span>
                   {tr(
                     `${selectedAdminIds.length} Zertifikat(e) für CA-Sammelsignierung ausgewählt`,
@@ -3379,7 +3379,7 @@ export function CertificatesView({
                 <button
                   type="button"
                   onClick={() => setSelectedAdminIds([])}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                  className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                 >
                   {tr('Auswahl aufheben', 'Clear selection')}
                 </button>
@@ -3408,7 +3408,7 @@ export function CertificatesView({
                           type="button"
                           disabled={batchRevokingAutoRenew}
                           onClick={() => void handleBatchRevokeAutoRenew(activeAutoRenewAdmin)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/70 rounded-md transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
                         >
                           <Ban className="w-3.5 h-3.5" />
                           {tr(
@@ -3425,24 +3425,24 @@ export function CertificatesView({
           )}
 
           {adminLoadError && (
-            <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+            <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
               {adminLoadError}
             </div>
           )}
 
           {adminLoading && adminCertificates.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-lg px-6 py-12 text-center text-sm text-slate-500">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
               {tr('Benutzer-Zertifikate werden geladen...', 'Loading user certificates...')}
             </div>
           ) : filteredAdminCertificates.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-lg px-6 py-12 text-center">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-6 py-12 text-center">
               <KeyRound className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-              <h3 className="text-sm font-semibold text-slate-900">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                 {adminCertificates.length === 0
                   ? tr('Keine Benutzer-Zertifikate vorhanden', 'No user certificates stored')
                   : tr('Keine passenden Zertifikate gefunden', 'No matching certificates found')}
               </h3>
-              <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
                 {adminCertificates.length === 0
                   ? tr(
                       'Es wurden bisher von keinem Benutzer SSH-Schlüssel oder Zertifikate hinterlegt.',
@@ -3472,8 +3472,8 @@ export function CertificatesView({
                 return (
                   <article
                     key={cert.id}
-                    className={`bg-white border rounded-lg p-6 space-y-4 transition-colors ${
-                      isSelectedAdmin ? 'border-blue-400 ring-1 ring-blue-100' : 'border-slate-200'
+                    className={`bg-white dark:bg-slate-900 border rounded-lg p-6 space-y-4 transition-colors ${
+                      isSelectedAdmin ? 'border-blue-400 ring-1 ring-blue-100 dark:ring-blue-900/40' : 'border-slate-200 dark:border-slate-800'
                     }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -3486,18 +3486,18 @@ export function CertificatesView({
                             `Zertifikat ${cert.name} für Sammelsignierung auswählen`,
                             `Select certificate ${cert.name} for batch signing`
                           )}
-                          className="mt-1 w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer shrink-0"
+                          className="mt-1 w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer shrink-0"
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2.5 flex-wrap">
-                            <h3 className="font-display text-base font-semibold text-slate-900">
+                            <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                               {cert.name}
                             </h3>
                           <span
                             className={`text-xs font-medium px-2 py-0.5 rounded border ${
                               isOwner
-                                ? 'bg-blue-50 text-blue-800 border-blue-200'
-                                : 'bg-slate-100 text-slate-800 border-slate-200'
+                                ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/70'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-800'
                             }`}
                           >
                             {isOwner
@@ -3512,18 +3512,18 @@ export function CertificatesView({
                           </span>
                           {hasCert ? (
                             m.isExpired ? (
-                              <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700">
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-400">
                                 <AlertTriangle className="w-3.5 h-3.5" />
                                 {tr('Abgelaufen', 'Expired')}
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 {tr('3-Dateien-Verbund', '3-file bundle')}
                               </span>
                             )
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               {tr('Schlüsselpaar (2 Dateien)', 'Keypair (2 files)')}
                             </span>
@@ -3532,8 +3532,8 @@ export function CertificatesView({
                           <span
                             className={`text-xs ${
                               cert.sharedWithAll || cert.sharedWithUserIds.length > 0
-                                ? 'text-blue-800 font-medium'
-                                : 'text-slate-500'
+                                ? 'text-blue-800 dark:text-blue-300 font-medium'
+                                : 'text-slate-500 dark:text-slate-400'
                             }`}
                           >
                             {shareLabel}
@@ -3543,7 +3543,7 @@ export function CertificatesView({
                               <span aria-hidden="true" className="text-slate-300">·</span>
                               <span
                                 className={`inline-flex items-center gap-1 text-xs font-medium ${
-                                  cert.hasStoredPassphrase ? 'text-emerald-700' : 'text-amber-800'
+                                  cert.hasStoredPassphrase ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-800 dark:text-amber-300'
                                 }`}
                               >
                                 <Lock className="w-3 h-3" />
@@ -3554,7 +3554,7 @@ export function CertificatesView({
                             </>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500 mt-1 font-mono">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
                           {cert.privateKeyFileName} · {cert.publicKeyFileName}
                           {hasCert
                             ? ` · ${cert.certFileName}`
@@ -3569,7 +3569,7 @@ export function CertificatesView({
                         <button
                           type="button"
                           onClick={() => openSignModal([cert])}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                         >
                           <FileSignature className="w-3.5 h-3.5" />
                           {tr('Mit CA signieren', 'Sign with CA')}
@@ -3583,7 +3583,7 @@ export function CertificatesView({
                                   setActiveViewTab('mine');
                                   startEdit(cert);
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                                 {tr('Bearbeiten', 'Edit')}
@@ -3593,7 +3593,7 @@ export function CertificatesView({
                               <button
                                 type="button"
                                 onClick={() => setSharingCert(cert)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                               >
                                 <Share2 className="w-3.5 h-3.5" />
                                 {tr('Teilen', 'Share')}
@@ -3601,7 +3601,7 @@ export function CertificatesView({
                             )}
                           </>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs text-slate-500 mr-1 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mr-1 whitespace-nowrap">
                             <Lock className="w-3 h-3 text-slate-400" />
                             {tr('Schreibgeschützt', 'Read-only')}
                           </span>
@@ -3624,7 +3624,7 @@ export function CertificatesView({
                               type="button"
                               onClick={() => setConfirmAdminDeleteId(null)}
                               disabled={isDeletingThis}
-                              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                             >
                               {tr('Abbrechen', 'Cancel')}
                             </button>
@@ -3634,7 +3634,7 @@ export function CertificatesView({
                             type="button"
                             onClick={() => setConfirmAdminDeleteId(cert.id)}
                             disabled={isDeletingThis}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             {tr('Löschen', 'Delete')}
@@ -3644,86 +3644,86 @@ export function CertificatesView({
                     </div>
 
                     {hasCert ? (
-                      <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 text-xs">
+                      <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 dark:border-slate-800 text-xs">
                         <div>
-                          <dt className="text-slate-500">{tr('Key-ID & Seriennummer', 'Key ID & Serial')}</dt>
-                          <dd className="font-mono text-slate-900 mt-0.5 tabular-nums">
+                          <dt className="text-slate-500 dark:text-slate-400">{tr('Key-ID & Seriennummer', 'Key ID & Serial')}</dt>
+                          <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5 tabular-nums">
                             {m.keyId || '—'} · #{m.serial}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">
+                          <dt className="text-slate-500 dark:text-slate-400">
                             {tr('Erlaubte Principals (SSH-User)', 'Allowed Principals (SSH Users)')}
                           </dt>
-                          <dd className="font-mono text-slate-900 mt-0.5">
+                          <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                             {m.principals.length > 0 ? m.principals.join(', ') : tr('(alle)', '(all)')}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">{tr('Gültig ab', 'Valid From')}</dt>
-                          <dd className="font-mono text-slate-900 mt-0.5 tabular-nums">
+                          <dt className="text-slate-500 dark:text-slate-400">{tr('Gültig ab', 'Valid From')}</dt>
+                          <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5 tabular-nums">
                             {formatDateTime(m.validAfter)}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">{tr('Gültig bis', 'Valid Until')}</dt>
+                          <dt className="text-slate-500 dark:text-slate-400">{tr('Gültig bis', 'Valid Until')}</dt>
                           <dd
                             className={`font-mono mt-0.5 tabular-nums ${
-                              m.isExpired ? 'text-red-700 font-semibold' : 'text-slate-900'
+                              m.isExpired ? 'text-red-700 dark:text-red-400 font-semibold' : 'text-slate-900 dark:text-slate-100'
                             }`}
                           >
                             {formatDateTime(m.validBefore)}
                           </dd>
                         </div>
                         <div className="sm:col-span-2">
-                          <dt className="text-slate-500">
+                          <dt className="text-slate-500 dark:text-slate-400">
                             {tr(
                               `Schlüssel-Fingerabdruck (${m.pubKeyAlgorithm})`,
                               `Key Fingerprint (${m.pubKeyAlgorithm})`
                             )}
                           </dt>
-                          <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.pubKeyFingerprint}>
+                          <dd className="font-mono text-slate-800 dark:text-slate-200 mt-0.5 truncate" title={m.pubKeyFingerprint}>
                             {m.pubKeyFingerprint}
                           </dd>
                         </div>
                         <div className="sm:col-span-2">
-                          <dt className="text-slate-500">
+                          <dt className="text-slate-500 dark:text-slate-400">
                             {tr('Signierende CA (TrustedUserCAKeys)', 'Signing CA (TrustedUserCAKeys)')}
                           </dt>
-                          <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.caFingerprint}>
+                          <dd className="font-mono text-slate-800 dark:text-slate-200 mt-0.5 truncate" title={m.caFingerprint}>
                             {m.caFingerprint}
                           </dd>
                         </div>
                       </dl>
                     ) : (
-                      <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 text-xs">
+                      <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pt-4 border-t border-slate-200 dark:border-slate-800 text-xs">
                         <div>
-                          <dt className="text-slate-500">{tr('Anmeldemodus', 'Auth Mode')}</dt>
-                          <dd className="font-mono text-slate-900 mt-0.5">
+                          <dt className="text-slate-500 dark:text-slate-400">{tr('Anmeldemodus', 'Auth Mode')}</dt>
+                          <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                             {tr('SSH-Schlüsselpaar (authorized_keys)', 'SSH Keypair (authorized_keys)')}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">{tr('Schlüsselkommentar', 'Key Comment')}</dt>
-                          <dd className="font-mono text-slate-900 mt-0.5">
+                          <dt className="text-slate-500 dark:text-slate-400">{tr('Schlüsselkommentar', 'Key Comment')}</dt>
+                          <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                             {m.keyId || '—'}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">{tr('Privatschlüssel-Format', 'Private Key Format')}</dt>
-                          <dd className="font-mono text-slate-900 mt-0.5">
+                          <dt className="text-slate-500 dark:text-slate-400">{tr('Privatschlüssel-Format', 'Private Key Format')}</dt>
+                          <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                             {m.privateKeyFormat}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">{tr('Algorithmus', 'Algorithm')}</dt>
-                          <dd className="font-mono text-slate-900 mt-0.5">
+                          <dt className="text-slate-500 dark:text-slate-400">{tr('Algorithmus', 'Algorithm')}</dt>
+                          <dd className="font-mono text-slate-900 dark:text-slate-100 mt-0.5">
                             {m.pubKeyAlgorithm}
                           </dd>
                         </div>
                         <div className="sm:col-span-4">
-                          <dt className="text-slate-500">{tr('Schlüssel-Fingerabdruck', 'Key Fingerprint')}</dt>
-                          <dd className="font-mono text-slate-800 mt-0.5 truncate" title={m.pubKeyFingerprint}>
+                          <dt className="text-slate-500 dark:text-slate-400">{tr('Schlüssel-Fingerabdruck', 'Key Fingerprint')}</dt>
+                          <dd className="font-mono text-slate-800 dark:text-slate-200 mt-0.5 truncate" title={m.pubKeyFingerprint}>
                             {m.pubKeyFingerprint}
                           </dd>
                         </div>
@@ -3733,9 +3733,9 @@ export function CertificatesView({
                     {renderAutoRenewBanner(cert, true)}
 
                     {m.warnings.length > 0 && (
-                      <div className="pt-3 border-t border-slate-200 space-y-1">
+                      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
                         {m.warnings.map((w, idx) => (
-                          <p key={idx} className="text-xs text-amber-800 flex items-start gap-1.5">
+                          <p key={idx} className="text-xs text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
                             <FileText className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                             <span>{w}</span>
                           </p>
@@ -3755,19 +3755,19 @@ export function CertificatesView({
           role="dialog"
           aria-modal="true"
           aria-labelledby="generate-cert-modal-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/70 backdrop-blur-[1px]"
           onClick={(e) => {
             if (e.target === e.currentTarget) closeGenerateModal();
           }}
         >
           <form
             onSubmit={handleGenerateCertificateSubmit}
-            className="w-full max-w-md bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
+            className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden"
           >
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <Wand2 className="w-4 h-4 text-blue-700 shrink-0" />
-                <h2 id="generate-cert-modal-title" className="font-display text-base font-semibold text-slate-900">
+                <Wand2 className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
+                <h2 id="generate-cert-modal-title" className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                   {tr('Zertifikat erzeugen (Ed25519)', 'Generate Certificate (Ed25519)')}
                 </h2>
               </div>
@@ -3776,14 +3776,14 @@ export function CertificatesView({
                 onClick={closeGenerateModal}
                 disabled={generating}
                 aria-label={tr('Schließen', 'Close')}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer disabled:opacity-50"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded cursor-pointer disabled:opacity-50"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="p-5 space-y-4">
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
                 {tr(
                   'Erzeugt ein neues Ed25519-Schlüsselpaar (zertifikat und zertifikat.pub).',
                   'Generates a new Ed25519 keypair (zertifikat and zertifikat.pub).'
@@ -3791,13 +3791,13 @@ export function CertificatesView({
               </p>
 
               {genError && (
-                <div role="alert" className="px-3 py-2 rounded-md bg-red-50 border border-red-200 text-xs text-red-800">
+                <div role="alert" className="px-3 py-2 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
                   {genError}
                 </div>
               )}
 
               <div>
-                <label htmlFor="gen-cert-name" className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="gen-cert-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   {tr('Bezeichnung', 'Label')}
                 </label>
                 <input
@@ -3813,13 +3813,13 @@ export function CertificatesView({
                   placeholder={`${user.username}-ed25519`}
                   className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 ${
                     matchingGenCert
-                      ? 'border-amber-400 bg-amber-50/40 focus:ring-amber-500'
-                      : 'border-slate-300 focus:ring-blue-600'
+                      ? 'border-amber-400 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/30 focus:ring-amber-500'
+                      : 'border-slate-300 dark:border-slate-700 focus:ring-blue-600'
                   }`}
                 />
                 {matchingGenCert && (
-                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                     <span>
                       {tr(
                         `Der Name „${matchingGenCert.name}“ ist bereits vergeben.`,
@@ -3831,7 +3831,7 @@ export function CertificatesView({
               </div>
 
               <div>
-                <label htmlFor="gen-cert-pass" className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="gen-cert-pass" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   {requireCertPassphrase
                     ? tr('Zertifikat-Passwort (erforderlich)', 'Certificate Passphrase (required)')
                     : tr('Zertifikat-Passwort (optional)', 'Certificate Passphrase (optional)')}
@@ -3855,9 +3855,9 @@ export function CertificatesView({
                       ? tr('Passwort für privaten Schlüssel eingeben...', 'Enter passphrase for private key...')
                       : tr('Leer lassen für Zertifikat ohne Passwort', 'Leave empty for certificate without passphrase')
                   }
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
-                <p className="text-[11px] text-slate-500 mt-1">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                   {requireCertPassphrase
                     ? tr(
                         'Ihre Benutzergruppe schreibt ein Passwort zum Schutz des privaten Schlüssels vor.',
@@ -3875,7 +3875,7 @@ export function CertificatesView({
 
               {genPassphrase.length > 0 && (
                 <div>
-                  <label htmlFor="gen-cert-pass-confirm" className="block text-xs font-medium text-slate-700 mb-1">
+                  <label htmlFor="gen-cert-pass-confirm" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                     {tr('Passwort bestätigen', 'Confirm Passphrase')}
                   </label>
                   <input
@@ -3886,28 +3886,28 @@ export function CertificatesView({
                     value={genPassphraseConfirm}
                     onChange={(e) => setGenPassphraseConfirm(e.target.value)}
                     placeholder={tr('Passwort erneut eingeben...', 'Re-enter passphrase...')}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                   />
                 </div>
               )}
 
               {canUpload && genPassphrase.length > 0 && (
                 canStoreCertPassphrase ? (
-                  <label className="flex items-start gap-2.5 p-3 rounded-md bg-slate-50 border border-slate-200 text-xs text-slate-700 cursor-pointer">
+                  <label className="flex items-start gap-2.5 p-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={genStorePassphrase}
                       onChange={(e) => setGenStorePassphrase(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                      className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                     />
                     <div>
-                      <span className="font-medium text-slate-900">
+                      <span className="font-medium text-slate-900 dark:text-slate-100">
                         {tr(
                           'Zertifikat-Passwort verschlüsselt auf dem Server speichern',
                           'Store certificate passphrase encrypted on server'
                         )}
                       </span>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                         {tr(
                           'Ohne Haken wird das Passwort nicht gespeichert und bei jeder SSH-Nutzung abgefragt.',
                           'If unchecked, the passphrase is not stored and will be prompted on each SSH use.'
@@ -3916,8 +3916,8 @@ export function CertificatesView({
                     </div>
                   </label>
                 ) : (
-                  <div className="px-3 py-2.5 rounded-md bg-slate-100 border border-slate-200 text-xs text-slate-600 flex items-start gap-2">
-                    <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-0.5" />
+                  <div className="px-3 py-2.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 flex items-start gap-2">
+                    <Lock className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0 mt-0.5" />
                     <span>
                       {tr(
                         'Das Speichern von Zertifikats-Passwörtern auf dem Server ist für Ihre Benutzergruppe deaktiviert. Das Passwort wird stattdessen bei jeder SSH-Nutzung abgefragt.',
@@ -3930,10 +3930,10 @@ export function CertificatesView({
               {genConfirmOverwrite && matchingGenCert && (
                 <div
                   role="alert"
-                  className="px-3.5 py-3 rounded-md bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-1"
+                  className="px-3.5 py-3 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 text-xs text-amber-950 dark:text-amber-200 space-y-1"
                 >
-                  <div className="flex items-center gap-2 font-semibold text-amber-900">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div className="flex items-center gap-2 font-semibold text-amber-900 dark:text-amber-200">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                     <span>
                       {tr(
                         `Bestehendes Zertifikat „${matchingGenCert.name}“ überschreiben?`,
@@ -3941,7 +3941,7 @@ export function CertificatesView({
                       )}
                     </span>
                   </div>
-                  <p className="text-amber-900/90 leading-relaxed">
+                  <p className="text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
                     {tr(
                       'Ein Zertifikat mit diesem Namen existiert bereits in Ihrem Konto. Soll es wirklich durch das neu erzeugte Zertifikat überschrieben werden?',
                       'A certificate with this name already exists in your account. Do you really want to overwrite it with the newly generated certificate?'
@@ -3951,7 +3951,7 @@ export function CertificatesView({
               )}
             </div>
 
-            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+            <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
               {genConfirmOverwrite && matchingGenCert ? (
                 <>
                   <button
@@ -3964,7 +3964,7 @@ export function CertificatesView({
                       }, 0);
                     }}
                     disabled={generating}
-                    className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {tr('Anderen Namen wählen', 'Choose Different Name')}
                   </button>
@@ -3985,7 +3985,7 @@ export function CertificatesView({
                     type="button"
                     onClick={closeGenerateModal}
                     disabled={generating}
-                    className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {tr('Abbrechen', 'Cancel')}
                   </button>
@@ -4011,18 +4011,18 @@ export function CertificatesView({
           role="dialog"
           aria-modal="true"
           aria-labelledby="overwrite-upload-cert-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/70 backdrop-blur-[1px]"
           onClick={(e) => {
             if (e.target === e.currentTarget && !saving) setConfirmUploadOverwriteCert(null);
           }}
         >
-          <div className="w-full max-w-md bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                 <h2
                   id="overwrite-upload-cert-title"
-                  className="font-display text-base font-semibold text-slate-900"
+                  className="font-display text-base font-semibold text-slate-900 dark:text-slate-100"
                 >
                   {tr('Bestehendes Zertifikat überschreiben?', 'Overwrite Existing Certificate?')}
                 </h2>
@@ -4032,20 +4032,20 @@ export function CertificatesView({
                 onClick={() => setConfirmUploadOverwriteCert(null)}
                 disabled={saving}
                 aria-label={tr('Schließen', 'Close')}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer disabled:opacity-50"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded cursor-pointer disabled:opacity-50"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-5 space-y-3 text-sm text-slate-700">
+            <div className="p-5 space-y-3 text-sm text-slate-700 dark:text-slate-300">
               <p>
                 {tr(
                   `Ein eigenes Zertifikatspaket mit dem Namen „${confirmUploadOverwriteCert.name}“ existiert bereits.`,
                   `You already have a certificate bundle named "${confirmUploadOverwriteCert.name}".`
                 )}
               </p>
-              <p className="text-xs text-slate-600 leading-relaxed">
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                 {tr(
                   'Möchten Sie das bestehende Zertifikat wirklich mit den neuen Dateien überschreiben? Der bisherige Schlüssel wird dabei dauerhaft ersetzt.',
                   'Do you really want to overwrite the existing certificate with the new files? The previous key will be permanently replaced.'
@@ -4053,7 +4053,7 @@ export function CertificatesView({
               </p>
             </div>
 
-            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+            <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
               <button
                 type="button"
                 disabled={saving}
@@ -4064,7 +4064,7 @@ export function CertificatesView({
                     bundleNameInputRef.current?.select();
                   }, 0);
                 }}
-                className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
               >
                 {tr('Anderen Namen wählen', 'Choose Different Name')}
               </button>
@@ -4094,21 +4094,21 @@ export function CertificatesView({
             role="dialog"
             aria-modal="true"
             aria-labelledby="ca-sign-modal-title"
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/70 backdrop-blur-[1px]"
             onClick={(e) => {
               if (e.target === e.currentTarget) closeSignModal();
             }}
           >
             <form
               onSubmit={handleSignSubmit}
-              className="w-full max-w-lg bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
+              className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden"
             >
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  <FileSignature className="w-4 h-4 text-blue-700 shrink-0" />
+                  <FileSignature className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
                   <h2
                     id="ca-sign-modal-title"
-                    className="font-display text-base font-semibold text-slate-900 truncate"
+                    className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 truncate"
                   >
                     {isBatch
                       ? tr(
@@ -4126,7 +4126,7 @@ export function CertificatesView({
                   onClick={closeSignModal}
                   disabled={signSubmitting}
                   aria-label={tr('Schließen', 'Close')}
-                  className="text-slate-400 hover:text-slate-700 cursor-pointer disabled:opacity-50"
+                  className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer disabled:opacity-50"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -4134,8 +4134,8 @@ export function CertificatesView({
 
               <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
                 {/* Target preview */}
-                <div className="rounded-md bg-slate-50 border border-slate-200 p-3 space-y-1.5">
-                  <p className="text-xs font-medium text-slate-800">
+                <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
+                  <p className="text-xs font-medium text-slate-800 dark:text-slate-200">
                     {isBatch
                       ? tr(
                           `Ausgewählte Ziel-Zertifikate (${signingTargets.length}):`,
@@ -4143,14 +4143,14 @@ export function CertificatesView({
                         )
                       : tr('Ziel-Zertifikat:', 'Target Certificate:')}
                   </p>
-                  <ul className="max-h-28 overflow-y-auto space-y-1 text-xs text-slate-600">
+                  <ul className="max-h-28 overflow-y-auto space-y-1 text-xs text-slate-600 dark:text-slate-400">
                     {signingTargets.map((t) => {
                       const isForeign = foreignCaConflictIdSet.has(t.id);
                       return (
                         <li key={t.id} className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-slate-900 truncate">
+                          <span className="font-medium text-slate-900 dark:text-slate-100 truncate">
                             {t.name}{' '}
-                            <span className="font-normal text-slate-500">
+                            <span className="font-normal text-slate-500 dark:text-slate-400">
                               ({t.ownerUsername || user.username})
                             </span>
                           </span>
@@ -4161,13 +4161,13 @@ export function CertificatesView({
                                   'Bestehende zertifikat-cert.pub stammt nicht von der gewählten CA',
                                   'Existing zertifikat-cert.pub was not signed by the selected CA'
                                 )}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-900 font-medium text-[10px]"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200 font-medium text-[10px]"
                               >
-                                <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
                                 {tr('Fremde CA', 'Foreign CA')}
                               </span>
                             )}
-                            <span className="font-mono text-[11px] text-slate-500">
+                            <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
                               {t.metadata.pubKeyAlgorithm}
                             </span>
                           </span>
@@ -4175,7 +4175,7 @@ export function CertificatesView({
                       );
                     })}
                   </ul>
-                  <p className="text-[11px] text-slate-500 pt-1 border-t border-slate-200">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-800">
                     {tr(
                       'Es wird ausschließlich der öffentliche Schlüssel signiert und das neue zertifikat-cert.pub beim jeweiligen Benutzerpaket hinterlegt. Private Benutzerschlüssel bleiben geschützt.',
                       'Only the public key is signed and the new zertifikat-cert.pub is attached to each user bundle. User private keys remain protected.'
@@ -4186,7 +4186,7 @@ export function CertificatesView({
                 {signError && (
                   <div
                     role="alert"
-                    className="px-3.5 py-2.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-800 space-y-1"
+                    className="px-3.5 py-2.5 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300 space-y-1"
                   >
                     <p className="font-medium">{signError}</p>
                     {signPartialErrors.length > 0 && (
@@ -4203,12 +4203,12 @@ export function CertificatesView({
                 )}
 
                 {casLoading && cas.length === 0 ? (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {tr('Zertifizierungsstellen werden geladen...', 'Loading Certificate Authorities...')}
                   </p>
                 ) : cas.length === 0 ? (
-                  <div className="px-4 py-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="px-4 py-3 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                     <span>
                       {tr(
                         'Es ist noch keine SSH-CA hinterlegt. Bitte erzeugen oder laden Sie zuerst unter „Administration → CA-Zertifikate“ eine CA (ca + ca.pub) hoch.',
@@ -4222,7 +4222,7 @@ export function CertificatesView({
                     <div>
                       <label
                         htmlFor="sign-ca-select"
-                        className="block text-xs font-medium text-slate-700 mb-1"
+                        className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                       >
                         {tr('Zertifizierungsstelle (CA) *', 'Certificate Authority (CA) *')}
                       </label>
@@ -4235,7 +4235,7 @@ export function CertificatesView({
                           setSignConfirmForeignCa(false);
                           setSignError(null);
                         }}
-                        className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                       >
                         {cas.map((ca) => (
                           <option key={ca.id} value={ca.id}>
@@ -4247,7 +4247,7 @@ export function CertificatesView({
                         ))}
                       </select>
                       {selectedCa && (
-                        <p className="mt-1 text-[11px] font-mono text-slate-500 truncate">
+                        <p className="mt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
                           {selectedCa.fingerprint}
                         </p>
                       )}
@@ -4257,12 +4257,12 @@ export function CertificatesView({
                     {selectedCa && foreignCaConflicts.length > 0 && (
                       <div
                         role="alert"
-                        className="rounded-md bg-amber-50 border border-amber-300 p-3.5 text-xs text-amber-950 space-y-2.5"
+                        className="rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 p-3.5 text-xs text-amber-950 dark:text-amber-200 space-y-2.5"
                       >
                         <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                           <div className="space-y-1 min-w-0">
-                            <p className="font-semibold text-amber-950">
+                            <p className="font-semibold text-amber-950 dark:text-amber-200">
                               {foreignCaConflicts.length === 1
                                 ? tr(
                                     'Achtung: Bestehende zertifikat-cert.pub stammt von einer anderen CA',
@@ -4273,7 +4273,7 @@ export function CertificatesView({
                                     `Warning: ${foreignCaConflicts.length} existing zertifikat-cert.pub files were signed by a different CA`
                                   )}
                             </p>
-                            <p className="text-amber-900/90 leading-relaxed">
+                            <p className="text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
                               {foreignCaConflicts.length === 1
                                 ? tr(
                                     `Das vorhandene Zertifikat wurde nicht von der gewählten CA „${selectedCa.name}“ signiert. Durch das Signieren wird die bestehende zertifikat-cert.pub-Datei dauerhaft überschrieben.`,
@@ -4287,21 +4287,21 @@ export function CertificatesView({
                           </div>
                         </div>
 
-                        <ul className="max-h-28 overflow-y-auto space-y-1 rounded bg-white/80 border border-amber-200 px-2.5 py-2 text-[11px]">
+                        <ul className="max-h-28 overflow-y-auto space-y-1 rounded bg-white/80 dark:bg-slate-900/80 border border-amber-200 dark:border-amber-800/70 px-2.5 py-2 text-[11px]">
                           {foreignCaConflicts.map(({ cert, existingFingerprint, matchedCaName }) => (
                             <li key={cert.id} className="flex flex-col gap-0.5">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-medium text-slate-900 truncate">
+                                <span className="font-medium text-slate-900 dark:text-slate-100 truncate">
                                   {cert.name}{' '}
-                                  <span className="font-normal text-slate-500">
+                                  <span className="font-normal text-slate-500 dark:text-slate-400">
                                     ({cert.ownerUsername || user.username})
                                   </span>
                                 </span>
-                                <span className="font-mono text-[10px] text-amber-900 shrink-0">
+                                <span className="font-mono text-[10px] text-amber-900 dark:text-amber-200 shrink-0">
                                   {cert.certFileName || 'zertifikat-cert.pub'}
                                 </span>
                               </div>
-                              <span className="text-[10px] text-amber-900/80 font-mono truncate">
+                              <span className="text-[10px] text-amber-900/80 dark:text-amber-200/80 font-mono truncate">
                                 {tr('Bisherige CA: ', 'Current CA: ')}
                                 {matchedCaName
                                   ? `${matchedCaName}${existingFingerprint ? ` (${existingFingerprint})` : ''}`
@@ -4321,9 +4321,9 @@ export function CertificatesView({
                               setSignConfirmForeignCa(e.target.checked);
                               setSignError(null);
                             }}
-                            className="mt-0.5 w-3.5 h-3.5 rounded border-amber-400 text-amber-700 focus:ring-amber-600 cursor-pointer"
+                            className="mt-0.5 w-3.5 h-3.5 rounded border-amber-400 dark:border-amber-700/80 text-amber-700 dark:text-amber-400 focus:ring-amber-600 cursor-pointer"
                           />
-                          <span className="font-medium text-amber-950 leading-snug">
+                          <span className="font-medium text-amber-950 dark:text-amber-200 leading-snug">
                             {foreignCaConflicts.length === 1
                               ? tr(
                                   `Ich bestätige, dass die bestehende zertifikat-cert.pub-Datei trotz abweichender CA mit „${selectedCa.name}“ überschrieben werden soll.`,
@@ -4343,7 +4343,7 @@ export function CertificatesView({
                       <div>
                         <label
                           htmlFor="sign-ca-passphrase"
-                          className="block text-xs font-medium text-slate-700 mb-1"
+                          className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                         >
                           {selectedCa.hasStoredPassphrase
                             ? tr(
@@ -4353,7 +4353,7 @@ export function CertificatesView({
                             : tr('CA-Passwort *', 'CA Passphrase *')}
                         </label>
                         {selectedCa.hasStoredPassphrase && (
-                          <p className="mb-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                          <p className="mb-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             {tr(
                               'Passwort ist verschlüsselt bei dieser CA hinterlegt.',
@@ -4376,7 +4376,7 @@ export function CertificatesView({
                                 )
                               : tr('CA-Passwort eingeben...', 'Enter CA passphrase...')
                           }
-                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     )}
@@ -4385,7 +4385,7 @@ export function CertificatesView({
                     <div>
                       <label
                         htmlFor="sign-principals-input"
-                        className="block text-xs font-medium text-slate-700 mb-1"
+                        className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                       >
                         {tr(
                           'Principals (-n · erlaubte SSH-Benutzer, kommagetrennt) *',
@@ -4399,16 +4399,16 @@ export function CertificatesView({
                         value={signPrincipals}
                         onChange={(e) => setSignPrincipals(e.target.value)}
                         placeholder="root, admin, debian"
-                        className="w-full px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        className="w-full px-3 py-2 text-sm font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <span className="text-slate-500">{tr('Schnellwahl:', 'Quick add:')}</span>
+                        <span className="text-slate-500 dark:text-slate-400">{tr('Schnellwahl:', 'Quick add:')}</span>
                         {['root', 'admin', 'debian', 'ubuntu'].map((tok) => (
                           <button
                             key={tok}
                             type="button"
                             onClick={() => addPrincipalSuggestion(tok)}
-                            className="px-2 py-0.5 font-mono text-slate-700 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 cursor-pointer"
+                            className="px-2 py-0.5 font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded border border-slate-200 dark:border-slate-800 cursor-pointer"
                           >
                             + {tok}
                           </button>
@@ -4420,19 +4420,19 @@ export function CertificatesView({
                             <button
                               type="button"
                               onClick={() => addPrincipalSuggestion(singleTarget.ownerUsername!)}
-                              className="px-2 py-0.5 font-mono text-blue-800 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 cursor-pointer"
+                              className="px-2 py-0.5 font-mono text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded border border-blue-200 dark:border-blue-800/70 cursor-pointer"
                             >
                               + {singleTarget.ownerUsername}
                             </button>
                           )}
                       </div>
                       {isBatch && (
-                        <label className="mt-2.5 flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                        <label className="mt-2.5 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={signIncludeOwnerPrincipal}
                             onChange={(e) => setSignIncludeOwnerPrincipal(e.target.checked)}
-                            className="w-3.5 h-3.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                            className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
                           />
                           <span>
                             {tr(
@@ -4449,7 +4449,7 @@ export function CertificatesView({
                       <div>
                         <label
                           htmlFor="sign-validity-select"
-                          className="block text-xs font-medium text-slate-700 mb-1"
+                          className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                         >
                           {tr('Gültigkeitsdauer (-V)', 'Validity Period (-V)')}
                         </label>
@@ -4457,7 +4457,7 @@ export function CertificatesView({
                           id="sign-validity-select"
                           value={signValidityPreset}
                           onChange={(e) => setSignValidityPreset(e.target.value)}
-                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                         >
                           <option value="+8h">{tr('8 Stunden (+8h)', '8 Hours (+8h)')}</option>
                           <option value="+24h">{tr('24 Stunden (+24h)', '24 Hours (+24h)')}</option>
@@ -4474,7 +4474,7 @@ export function CertificatesView({
                             value={signValidityCustom}
                             onChange={(e) => setSignValidityCustom(e.target.value)}
                             placeholder="+180d"
-                            className="mt-2 w-full px-3 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            className="mt-2 w-full px-3 py-1.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                           />
                         )}
                       </div>
@@ -4482,7 +4482,7 @@ export function CertificatesView({
                       <div>
                         <label
                           htmlFor="sign-keyid-input"
-                          className="block text-xs font-medium text-slate-700 mb-1"
+                          className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                         >
                           {isBatch
                             ? tr('Key-ID Präfix (-I, optional)', 'Key ID Prefix (-I, optional)')
@@ -4498,7 +4498,7 @@ export function CertificatesView({
                               ? tr('leer = <benutzer>-<name>', 'empty = <user>-<name>')
                               : `${singleTarget?.ownerUsername || user.username}-${singleTarget?.name || 'cert'}`
                           }
-                          className="w-full px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 text-sm font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     </div>
@@ -4512,7 +4512,7 @@ export function CertificatesView({
                       const canEnableAdminAutoRenew =
                         selectedCa.hasStoredPassphrase && effVal !== 'forever';
                       return (
-                        <div className="rounded-md bg-emerald-50/50 border border-emerald-200 p-3.5 space-y-2.5 text-xs">
+                        <div className="rounded-md bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70 p-3.5 space-y-2.5 text-xs">
                           <label
                             className={`flex items-start gap-2.5 select-none ${
                               canEnableAdminAutoRenew ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'
@@ -4523,17 +4523,17 @@ export function CertificatesView({
                               checked={canEnableAdminAutoRenew && signAutoRenew}
                               disabled={!canEnableAdminAutoRenew}
                               onChange={(e) => setSignAutoRenew(e.target.checked)}
-                              className="mt-0.5 w-4 h-4 rounded border-emerald-400 text-emerald-700 focus:ring-emerald-600 cursor-pointer disabled:cursor-not-allowed"
+                              className="mt-0.5 w-4 h-4 rounded border-emerald-400 text-emerald-700 dark:text-emerald-400 focus:ring-emerald-600 cursor-pointer disabled:cursor-not-allowed"
                             />
                             <div className="space-y-0.5 min-w-0">
-                              <span className="font-semibold text-slate-900 flex items-center gap-1.5">
-                                <RefreshCw className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                              <span className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                                <RefreshCw className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                                 {tr(
                                   'Automatische Neuzertifizierung aktivieren (bis auf Widerruf oder Rechteentzug)',
                                   'Enable automatic re-certification (until revoked or rights removed)'
                                 )}
                               </span>
-                              <p className="text-[11px] text-slate-600 leading-relaxed">
+                              <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
                                 {tr(
                                   'Der Server erneuert die Signatur (zertifikat-cert.pub) automatisch vor Ablauf mit dieser CA, bis sie widerrufen oder das Konto/Recht entzogen wird.',
                                   'The server automatically renews the signature (zertifikat-cert.pub) before expiry using this CA until revoked or the account/rights are removed.'
@@ -4543,7 +4543,7 @@ export function CertificatesView({
                           </label>
 
                           {!selectedCa.hasStoredPassphrase && (
-                            <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
+                            <p className="text-[11px] text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 rounded px-2.5 py-1.5">
                               {tr(
                                 'Für die automatische Neuzertifizierung muss das CA-Passwort unter Administration → CA-Verwaltung auf dem Server gespeichert sein.',
                                 'Automatic re-certification requires the CA passphrase to be stored on the server under Administration → CA Management.'
@@ -4551,7 +4551,7 @@ export function CertificatesView({
                             </p>
                           )}
                           {selectedCa.hasStoredPassphrase && effVal === 'forever' && (
-                            <p className="text-[11px] text-slate-600">
+                            <p className="text-[11px] text-slate-600 dark:text-slate-400">
                               {tr(
                                 'Bei unbegrenzter Gültigkeit (forever) ist keine automatische Neuzertifizierung erforderlich.',
                                 'Automatic re-certification is not needed for unlimited validity (forever).'
@@ -4559,10 +4559,10 @@ export function CertificatesView({
                             </p>
                           )}
                           {canEnableAdminAutoRenew && signAutoRenew && (
-                            <div className="pt-2 border-t border-emerald-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="pt-2 border-t border-emerald-200/80 dark:border-emerald-800/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                               <label
                                 htmlFor="sign-autorenew-lead"
-                                className="text-[11px] font-medium text-slate-700"
+                                className="text-[11px] font-medium text-slate-700 dark:text-slate-300"
                               >
                                 {tr('Erneuerungszeitpunkt:', 'Renewal lead time:')}
                               </label>
@@ -4570,7 +4570,7 @@ export function CertificatesView({
                                 id="sign-autorenew-lead"
                                 value={signAutoRenewBeforeSec}
                                 onChange={(e) => setSignAutoRenewBeforeSec(Number(e.target.value))}
-                                className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                                className="px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-600"
                               >
                                 <option value={0}>
                                   {tr('Automatisch (20 % vor Ablauf)', 'Automatic (20% before expiry)')}
@@ -4600,12 +4600,12 @@ export function CertificatesView({
                 )}
               </div>
 
-              <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={closeSignModal}
                   disabled={signSubmitting}
-                  className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                 >
                   {tr('Abbrechen', 'Cancel')}
                 </button>
@@ -4664,21 +4664,21 @@ export function CertificatesView({
             role="dialog"
             aria-modal="true"
             aria-labelledby="self-sign-modal-title"
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/70 backdrop-blur-[1px]"
             onClick={(e) => {
               if (e.target === e.currentTarget) closeSelfSignModal();
             }}
           >
             <form
               onSubmit={handleSelfSignSubmit}
-              className="w-full max-w-lg bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
+              className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden"
             >
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  <FileSignature className="w-4 h-4 text-blue-700 shrink-0" />
+                  <FileSignature className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
                   <h2
                     id="self-sign-modal-title"
-                    className="font-display text-base font-semibold text-slate-900 truncate"
+                    className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 truncate"
                   >
                     {isBatch
                       ? tr(
@@ -4696,7 +4696,7 @@ export function CertificatesView({
                   onClick={closeSelfSignModal}
                   disabled={selfSignSubmitting}
                   aria-label={tr('Schließen', 'Close')}
-                  className="text-slate-400 hover:text-slate-700 cursor-pointer disabled:opacity-50"
+                  className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer disabled:opacity-50"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -4704,8 +4704,8 @@ export function CertificatesView({
 
               <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
                 {/* Target preview */}
-                <div className="rounded-md bg-slate-50 border border-slate-200 p-3 space-y-1.5">
-                  <p className="text-xs font-medium text-slate-800">
+                <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
+                  <p className="text-xs font-medium text-slate-800 dark:text-slate-200">
                     {isBatch
                       ? tr(
                           `Ausgewählte eigene Zertifikate (${selfSignTargets.length}):`,
@@ -4713,12 +4713,12 @@ export function CertificatesView({
                         )
                       : tr('Ausgewähltes Zertifikat:', 'Selected Certificate:')}
                   </p>
-                  <ul className="max-h-28 overflow-y-auto space-y-1 text-xs text-slate-600">
+                  <ul className="max-h-28 overflow-y-auto space-y-1 text-xs text-slate-600 dark:text-slate-400">
                     {selfSignTargets.map((t) => {
                       const isForeign = conflictIdSet.has(t.id);
                       return (
                         <li key={t.id} className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-slate-900 truncate">{t.name}</span>
+                          <span className="font-medium text-slate-900 dark:text-slate-100 truncate">{t.name}</span>
                           <span className="inline-flex items-center gap-1.5 shrink-0">
                             {isForeign && (
                               <span
@@ -4726,13 +4726,13 @@ export function CertificatesView({
                                   'Bestehende zertifikat-cert.pub stammt nicht von der gewählten CA',
                                   'Existing zertifikat-cert.pub was not signed by the selected CA'
                                 )}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-900 font-medium text-[10px]"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200 font-medium text-[10px]"
                               >
-                                <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
                                 {tr('Fremde CA', 'Foreign CA')}
                               </span>
                             )}
-                            <span className="font-mono text-[11px] text-slate-500">
+                            <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
                               {t.metadata.pubKeyAlgorithm}
                             </span>
                           </span>
@@ -4740,7 +4740,7 @@ export function CertificatesView({
                       );
                     })}
                   </ul>
-                  <p className="text-[11px] text-slate-500 pt-1 border-t border-slate-200">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-800">
                     {tr(
                       'Der Server signiert Ihren öffentlichen Schlüssel mit der gewählten CA und hinterlegt die neue zertifikat-cert.pub automatisch in Ihrem Paket.',
                       'The server signs your public key with the chosen CA and attaches the new zertifikat-cert.pub automatically to your bundle.'
@@ -4751,7 +4751,7 @@ export function CertificatesView({
                 {selfSignError && (
                   <div
                     role="alert"
-                    className="px-3.5 py-2.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-800 space-y-1"
+                    className="px-3.5 py-2.5 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300 space-y-1"
                   >
                     <p className="font-medium">{selfSignError}</p>
                     {selfSignPartialErrors.length > 0 && (
@@ -4768,12 +4768,12 @@ export function CertificatesView({
                 )}
 
                 {assignedCasLoading && assignedCas.length === 0 ? (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {tr('Zugewiesene CAs werden geladen...', 'Loading assigned CAs...')}
                   </p>
                 ) : assignedCas.length === 0 ? (
-                  <div className="px-4 py-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="px-4 py-3 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                     <span>
                       {tr(
                         'Ihrer Benutzergruppe wurde noch keine CA zur Selbstsignierung zugewiesen. Bitte wenden Sie sich an einen Administrator.',
@@ -4787,7 +4787,7 @@ export function CertificatesView({
                     <div>
                       <label
                         htmlFor="self-sign-ca-select"
-                        className="block text-xs font-medium text-slate-700 mb-1"
+                        className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                       >
                         {tr('Zugewiesene Zertifizierungsstelle (CA)', 'Assigned Certificate Authority (CA)')}
                       </label>
@@ -4799,7 +4799,7 @@ export function CertificatesView({
                           setSelfSignConfirmForeignCa(false);
                           setSelfSignError(null);
                         }}
-                        className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                       >
                         {assignedCas.map((ca) => (
                           <option key={ca.id} value={ca.id}>
@@ -4811,7 +4811,7 @@ export function CertificatesView({
                         ))}
                       </select>
                       {selectedCa && (
-                        <p className="mt-1 text-[11px] font-mono text-slate-500 truncate">
+                        <p className="mt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
                           {selectedCa.fingerprint}
                         </p>
                       )}
@@ -4819,45 +4819,45 @@ export function CertificatesView({
 
                     {/* Group-enforced signing policy summary */}
                     {selectedCa && (
-                      <div className="rounded-md bg-slate-50 border border-slate-200 p-3.5 text-xs space-y-2">
+                      <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 p-3.5 text-xs space-y-2">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-slate-800">
+                          <span className="font-medium text-slate-800 dark:text-slate-200">
                             {tr('Vorgegebene Gruppenparameter', 'Group-Enforced Signing Policy')}
                           </span>
                           {selectedCa.hasStoredPassphrase ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               {tr('CA bereit', 'CA ready')}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-800">
-                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-800 dark:text-amber-300">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                               {tr('CA-Passwort nicht hinterlegt', 'CA passphrase missing')}
                             </span>
                           )}
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-slate-200">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-slate-200 dark:border-slate-800">
                           <div>
-                            <span className="block text-[11px] text-slate-500">
+                            <span className="block text-[11px] text-slate-500 dark:text-slate-400">
                               {tr('Principals (-n)', 'Principals (-n)')}
                             </span>
-                            <span className="font-mono font-medium text-slate-900 break-all">
+                            <span className="font-mono font-medium text-slate-900 dark:text-slate-100 break-all">
                               {selectedCa.effectivePrincipals.join(', ') || '—'}
                             </span>
                           </div>
                           <div>
-                            <span className="block text-[11px] text-slate-500">
+                            <span className="block text-[11px] text-slate-500 dark:text-slate-400">
                               {tr('Gültigkeitsdauer (-V)', 'Validity (-V)')}
                             </span>
-                            <span className="font-mono font-medium text-slate-900">
+                            <span className="font-mono font-medium text-slate-900 dark:text-slate-100">
                               {selectedCa.validity}
                             </span>
                           </div>
                           <div>
-                            <span className="block text-[11px] text-slate-500">
+                            <span className="block text-[11px] text-slate-500 dark:text-slate-400">
                               {tr('Auto-Neusignierung ab', 'Auto re-sign from')}
                             </span>
-                            <span className="font-medium text-slate-900">
+                            <span className="font-medium text-slate-900 dark:text-slate-100">
                               {['forever', 'always', 'always:forever'].includes(
                                 (selectedCa.validity || '').trim().toLowerCase()
                               )
@@ -4867,7 +4867,7 @@ export function CertificatesView({
                           </div>
                         </div>
                         {!selectedCa.hasStoredPassphrase && (
-                          <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
+                          <p className="text-[11px] text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 rounded px-2.5 py-1.5">
                             {tr(
                               'Für diese CA ist noch kein Passwort auf dem Server hinterlegt. Bitte bitten Sie einen Administrator, das CA-Passwort zu hinterlegen.',
                               'No passphrase is stored on the server for this CA yet. Please ask an administrator to store the CA passphrase.'
@@ -4881,12 +4881,12 @@ export function CertificatesView({
                     {selectedCa && selfForeignCaConflicts.length > 0 && (
                       <div
                         role="alert"
-                        className="rounded-md bg-amber-50 border border-amber-300 p-3.5 text-xs text-amber-950 space-y-2.5"
+                        className="rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 p-3.5 text-xs text-amber-950 dark:text-amber-200 space-y-2.5"
                       >
                         <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                           <div className="space-y-1 min-w-0">
-                            <p className="font-semibold text-amber-950">
+                            <p className="font-semibold text-amber-950 dark:text-amber-200">
                               {selfForeignCaConflicts.length === 1
                                 ? tr(
                                     'Achtung: Bestehende zertifikat-cert.pub stammt von einer anderen CA',
@@ -4897,7 +4897,7 @@ export function CertificatesView({
                                     `Warning: ${selfForeignCaConflicts.length} existing zertifikat-cert.pub files were signed by a different CA`
                                   )}
                             </p>
-                            <p className="text-amber-900/90 leading-relaxed">
+                            <p className="text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
                               {selfForeignCaConflicts.length === 1
                                 ? tr(
                                     `Das vorhandene Zertifikat wurde nicht von der gewählten CA „${selectedCa.name}“ signiert. Durch das Signieren wird die bestehende zertifikat-cert.pub-Datei dauerhaft überschrieben.`,
@@ -4911,18 +4911,18 @@ export function CertificatesView({
                           </div>
                         </div>
 
-                        <ul className="max-h-28 overflow-y-auto space-y-1 rounded bg-white/80 border border-amber-200 px-2.5 py-2 text-[11px]">
+                        <ul className="max-h-28 overflow-y-auto space-y-1 rounded bg-white/80 dark:bg-slate-900/80 border border-amber-200 dark:border-amber-800/70 px-2.5 py-2 text-[11px]">
                           {selfForeignCaConflicts.map(({ cert, existingFingerprint, matchedCaName }) => (
                             <li key={cert.id} className="flex flex-col gap-0.5">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-medium text-slate-900 truncate">
+                                <span className="font-medium text-slate-900 dark:text-slate-100 truncate">
                                   {cert.name}
                                 </span>
-                                <span className="font-mono text-[10px] text-amber-900 shrink-0">
+                                <span className="font-mono text-[10px] text-amber-900 dark:text-amber-200 shrink-0">
                                   {cert.certFileName || 'zertifikat-cert.pub'}
                                 </span>
                               </div>
-                              <span className="text-[10px] text-amber-900/80 font-mono truncate">
+                              <span className="text-[10px] text-amber-900/80 dark:text-amber-200/80 font-mono truncate">
                                 {tr('Bisherige CA: ', 'Current CA: ')}
                                 {matchedCaName
                                   ? `${matchedCaName}${existingFingerprint ? ` (${existingFingerprint})` : ''}`
@@ -4942,9 +4942,9 @@ export function CertificatesView({
                               setSelfSignConfirmForeignCa(e.target.checked);
                               setSelfSignError(null);
                             }}
-                            className="mt-0.5 w-3.5 h-3.5 rounded border-amber-400 text-amber-700 focus:ring-amber-600 cursor-pointer"
+                            className="mt-0.5 w-3.5 h-3.5 rounded border-amber-400 dark:border-amber-700/80 text-amber-700 dark:text-amber-400 focus:ring-amber-600 cursor-pointer"
                           />
-                          <span className="font-medium text-amber-950 leading-snug">
+                          <span className="font-medium text-amber-950 dark:text-amber-200 leading-snug">
                             {selfForeignCaConflicts.length === 1
                               ? tr(
                                   `Ich bestätige, dass die bestehende zertifikat-cert.pub-Datei trotz abweichender CA mit „${selectedCa.name}“ überschrieben werden soll.`,
@@ -4968,7 +4968,7 @@ export function CertificatesView({
                         const canEnableUserAutoRenew =
                           selectedCa.hasStoredPassphrase && !isForeverValidity;
                         return (
-                          <div className="rounded-md bg-emerald-50/50 border border-emerald-200 p-3.5 space-y-2.5 text-xs">
+                          <div className="rounded-md bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70 p-3.5 space-y-2.5 text-xs">
                             <label
                               className={`flex items-start gap-2.5 select-none ${
                                 canEnableUserAutoRenew ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'
@@ -4979,17 +4979,17 @@ export function CertificatesView({
                                 checked={canEnableUserAutoRenew && selfSignAutoRenew}
                                 disabled={!canEnableUserAutoRenew}
                                 onChange={(e) => setSelfSignAutoRenew(e.target.checked)}
-                                className="mt-0.5 w-4 h-4 rounded border-emerald-400 text-emerald-700 focus:ring-emerald-600 cursor-pointer disabled:cursor-not-allowed"
+                                className="mt-0.5 w-4 h-4 rounded border-emerald-400 text-emerald-700 dark:text-emerald-400 focus:ring-emerald-600 cursor-pointer disabled:cursor-not-allowed"
                               />
                               <div className="space-y-0.5 min-w-0">
-                                <span className="font-semibold text-slate-900 flex items-center gap-1.5">
-                                  <RefreshCw className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                                <span className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                                  <RefreshCw className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                                   {tr(
                                     'Automatische Neuzertifizierung aktivieren (bis auf Widerruf oder Rechteentzug)',
                                     'Enable automatic re-certification (until revoked or rights removed)'
                                   )}
                                 </span>
-                                <p className="text-[11px] text-slate-600 leading-relaxed">
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
                                   {isForeverValidity
                                     ? tr(
                                         'Für diese CA ist eine unbegrenzte Gültigkeit (forever) vorgegeben – eine automatische Neuzertifizierung ist daher nicht erforderlich.',
@@ -5004,14 +5004,14 @@ export function CertificatesView({
                             </label>
 
                             {canEnableUserAutoRenew && selfSignAutoRenew && (
-                              <div className="pt-2 border-t border-emerald-200/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                                <span className="font-medium text-slate-700">
+                              <div className="pt-2 border-t border-emerald-200/80 dark:border-emerald-800/70 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                <span className="font-medium text-slate-700 dark:text-slate-300">
                                   {tr(
                                     'Erneuerungszeitpunkt (Gruppen-/CA-Vorgabe):',
                                     'Renewal start time (group/CA policy):'
                                   )}
                                 </span>
-                                <span className="px-2 py-0.5 rounded bg-white border border-emerald-200 font-medium text-emerald-900">
+                                <span className="px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800/70 font-medium text-emerald-900 dark:text-emerald-200">
                                   {formatAutoRenewLeadLabel(selectedCa.autoRenewBeforeSeconds || 0)}
                                 </span>
                               </div>
@@ -5019,7 +5019,7 @@ export function CertificatesView({
                           </div>
                         );
                       })() : (
-                        <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2.5 text-[11px] text-slate-600 flex items-start gap-2">
+                        <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 px-3 py-2.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-start gap-2">
                           <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
                           <span>
                             {tr(
@@ -5034,12 +5034,12 @@ export function CertificatesView({
                 )}
               </div>
 
-              <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={closeSelfSignModal}
                   disabled={selfSignSubmitting}
-                  className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                 >
                   {tr('Abbrechen', 'Cancel')}
                 </button>

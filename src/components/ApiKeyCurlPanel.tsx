@@ -213,14 +213,14 @@ export function ApiKeyCurlPanel({
         : `curl -X PATCH "${effectiveOrigin}/api/v1/certificates/${encodeURIComponent(defaultCertName)}" \\\n  -H "X-API-Key: ${displayedApiKey}" \\\n  -F "cert=@./zertifikat-cert.pub"`;
 
   return (
-    <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-slate-200">
+    <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
-          <h2 className="font-display text-base font-semibold text-slate-900 flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-blue-700" />
+          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-blue-700 dark:text-blue-400" />
             {tr('API-Schlüssel & automatischer curl-Upload', 'API Keys & Automated curl Upload')}
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             {tr(
               'Laden Sie komplette Schlüssel-/Zertifikatspakete per ',
               'Upload complete key/certificate bundles via '
@@ -243,13 +243,13 @@ export function ApiKeyCurlPanel({
       </div>
 
       {error && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {domainNotice && (
-        <div role="status" className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+        <div role="status" className="px-4 py-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-800 dark:text-emerald-300">
           {domainNotice}
         </div>
       )}
@@ -265,7 +265,7 @@ export function ApiKeyCurlPanel({
             'Label for this API key (e.g. Laptop Script, Cronjob)'
           )}
           maxLength={64}
-          className="flex-1 px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+          className="flex-1 px-3.5 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
         />
         <button
           type="submit"
@@ -281,9 +281,9 @@ export function ApiKeyCurlPanel({
 
       {/* One-time reveal of freshly generated API key */}
       {newlyCreatedKey && (
-        <div className="p-4 rounded-md bg-emerald-50 border border-emerald-200 space-y-2.5">
+        <div className="p-4 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-emerald-900">
+            <span className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
               {tr(
                 `Neuer API-Schlüssel „${newlyCreatedKey.name}“ — wird nur einmalig vollständig angezeigt:`,
                 `New API key "${newlyCreatedKey.name}" — displayed in full only once:`
@@ -292,11 +292,11 @@ export function ApiKeyCurlPanel({
             <button
               type="button"
               onClick={() => copyText(newlyCreatedKey.plainKey, 'key')}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-100 rounded-md transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-900 dark:text-emerald-200 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700/80 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded-md transition-colors cursor-pointer"
             >
               {copiedTarget === 'key' ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-emerald-700" />
+                  <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
                   {tr('Kopiert', 'Copied')}
                 </>
               ) : (
@@ -307,20 +307,20 @@ export function ApiKeyCurlPanel({
               )}
             </button>
           </div>
-          <code className="block px-3 py-2 text-xs font-mono text-emerald-950 bg-white border border-emerald-200 rounded break-all select-all">
+          <code className="block px-3 py-2 text-xs font-mono text-emerald-950 dark:text-emerald-200 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800/70 rounded break-all select-all">
             {newlyCreatedKey.plainKey}
           </code>
         </div>
       )}
 
       {/* Configurable Public Domain / Base URL for curl */}
-      <div className="p-3.5 rounded-md bg-slate-50 border border-slate-200 space-y-2">
+      <div className="p-3.5 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
           <label
             htmlFor="curl-public-domain"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap shrink-0"
           >
-            <Globe className="w-3.5 h-3.5 text-slate-500" />
+            <Globe className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             {tr('Domain / Basis-URL für curl:', 'Domain / Base URL for curl:')}
           </label>
           <input
@@ -329,7 +329,7 @@ export function ApiKeyCurlPanel({
             value={domainInput}
             onChange={(e) => handleDomainInputChange(e.target.value)}
             placeholder="https://ssh.example.net"
-            className="flex-1 px-3 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+            className="flex-1 px-3 py-1.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
           />
           <div className="flex items-center gap-2 shrink-0">
             {isAdmin && (
@@ -353,7 +353,7 @@ export function ApiKeyCurlPanel({
               <button
                 type="button"
                 onClick={handleResetLocalDomain}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 hover:bg-slate-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 {tr('Zurücksetzen', 'Reset')}
@@ -365,7 +365,7 @@ export function ApiKeyCurlPanel({
                 onClick={() => {
                   setDomainInput('');
                 }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 hover:bg-slate-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                 title={tr(
                   'Feld leeren – anschließend „Global speichern“ klicken, um wieder die Browser-Adresse zu verwenden',
                   'Clear field — then click "Save Globally" to fall back to the browser address'
@@ -377,7 +377,7 @@ export function ApiKeyCurlPanel({
             )}
           </div>
         </div>
-        <p className="text-[11px] text-slate-500">
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
           {isAdmin
             ? tr(
                 'Hinterlegen Sie Ihre öffentliche Domain (z. B. https://ssh.example.net), damit bei curl nicht die interne Server-IP angezeigt wird. Mit „Global speichern“ gilt die Domain sofort für alle Benutzer.',
@@ -398,14 +398,14 @@ export function ApiKeyCurlPanel({
       {/* Ready-to-run curl command */}
       <div className="space-y-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 text-xs">
+          <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 p-0.5 text-xs">
             <button
               type="button"
               onClick={() => setCurlMode('cert')}
               className={`px-3 py-1 rounded font-medium transition-colors cursor-pointer ${
                 curlMode === 'cert'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               {tr('3 Dateien (mit CA-Zertifikat)', '3 Files (with CA Certificate)')}
@@ -415,8 +415,8 @@ export function ApiKeyCurlPanel({
               onClick={() => setCurlMode('keypair')}
               className={`px-3 py-1 rounded font-medium transition-colors cursor-pointer ${
                 curlMode === 'keypair'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               {tr('2 Dateien (ohne CA-Zertifikat)', '2 Files (without CA Certificate)')}
@@ -426,8 +426,8 @@ export function ApiKeyCurlPanel({
               onClick={() => setCurlMode('replace-cert')}
               className={`px-3 py-1 rounded font-medium transition-colors cursor-pointer ${
                 curlMode === 'replace-cert'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               {tr('Nur cert.pub tauschen', 'Replace cert.pub only')}
@@ -437,11 +437,11 @@ export function ApiKeyCurlPanel({
           <button
             type="button"
             onClick={() => copyText(curlSnippet, 'curl')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
           >
             {copiedTarget === 'curl' ? (
               <>
-                <Check className="w-3.5 h-3.5 text-emerald-700" />
+                <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
                 {tr('Befehl kopiert', 'Command Copied')}
               </>
             ) : (
@@ -453,37 +453,37 @@ export function ApiKeyCurlPanel({
           </button>
         </div>
 
-        <pre className="p-4 rounded-md bg-slate-900 text-slate-100 text-xs font-mono overflow-x-auto leading-relaxed">
+        <pre className="p-4 rounded-md bg-slate-900 dark:bg-slate-950 dark:border dark:border-slate-800 text-slate-100 text-xs font-mono overflow-x-auto leading-relaxed">
           <code>{curlSnippet}</code>
         </pre>
 
-        <p className="text-[11px] text-slate-500">
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
           {tr('Akzeptierte Header:', 'Accepted headers:')}{' '}
-          <code className="font-mono text-slate-700">X-API-Key: sshc_...</code> {tr('oder', 'or')}{' '}
-          <code className="font-mono text-slate-700">Authorization: Bearer sshc_...</code> ·{' '}
+          <code className="font-mono text-slate-700 dark:text-slate-300">X-API-Key: sshc_...</code> {tr('oder', 'or')}{' '}
+          <code className="font-mono text-slate-700 dark:text-slate-300">Authorization: Bearer sshc_...</code> ·{' '}
           {tr('Felder:', 'Fields:')}{' '}
-          <code className="font-mono text-slate-700">private_key</code>,{' '}
-          <code className="font-mono text-slate-700">public_key</code>,{' '}
-          <code className="font-mono text-slate-700">cert</code>,{' '}
-          <code className="font-mono text-slate-700">name</code>,{' '}
-          <code className="font-mono text-slate-700">remove_cert=true</code> ·{' '}
+          <code className="font-mono text-slate-700 dark:text-slate-300">private_key</code>,{' '}
+          <code className="font-mono text-slate-700 dark:text-slate-300">public_key</code>,{' '}
+          <code className="font-mono text-slate-700 dark:text-slate-300">cert</code>,{' '}
+          <code className="font-mono text-slate-700 dark:text-slate-300">name</code>,{' '}
+          <code className="font-mono text-slate-700 dark:text-slate-300">remove_cert=true</code> ·{' '}
           {tr('Auflisten:', 'List:')}{' '}
-          <code className="font-mono text-slate-700">GET /api/v1/certificates</code>.
+          <code className="font-mono text-slate-700 dark:text-slate-300">GET /api/v1/certificates</code>.
         </p>
       </div>
 
       {/* Active API Keys list */}
-      <div className="pt-2 border-t border-slate-200 space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           {tr(`Aktive API-Schlüssel (${apiKeys.length})`, `Active API Keys (${apiKeys.length})`)}
         </h3>
 
         {loading ? (
-          <p className="text-xs text-slate-500 py-2">
+          <p className="text-xs text-slate-500 dark:text-slate-400 py-2">
             {tr('Lade API-Schlüssel...', 'Loading API keys...')}
           </p>
         ) : apiKeys.length === 0 ? (
-          <div className="flex items-center gap-2.5 text-xs text-slate-500 py-2">
+          <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400 py-2">
             <KeyRound className="w-4 h-4 text-slate-400 shrink-0" />
             <span>
               {tr(
@@ -496,7 +496,7 @@ export function ApiKeyCurlPanel({
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
                   <th className="py-2 pr-4 font-medium">{tr('Bezeichnung', 'Label')}</th>
                   <th className="py-2 pr-4 font-medium">{tr('Präfix', 'Prefix')}</th>
                   <th className="py-2 pr-4 font-medium">{tr('Erstellt', 'Created')}</th>
@@ -504,15 +504,15 @@ export function ApiKeyCurlPanel({
                   <th className="py-2 text-right font-medium">{tr('Aktion', 'Action')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
                 {apiKeys.map((k) => (
                   <tr key={k.id}>
-                    <td className="py-2.5 pr-4 font-medium text-slate-900">{k.name}</td>
-                    <td className="py-2.5 pr-4 font-mono text-slate-600">{k.keyPrefix}</td>
-                    <td className="py-2.5 pr-4 font-mono text-slate-600 tabular-nums">
+                    <td className="py-2.5 pr-4 font-medium text-slate-900 dark:text-slate-100">{k.name}</td>
+                    <td className="py-2.5 pr-4 font-mono text-slate-600 dark:text-slate-400">{k.keyPrefix}</td>
+                    <td className="py-2.5 pr-4 font-mono text-slate-600 dark:text-slate-400 tabular-nums">
                       {formatDateTime(k.createdAt)}
                     </td>
-                    <td className="py-2.5 pr-4 font-mono text-slate-600 tabular-nums">
+                    <td className="py-2.5 pr-4 font-mono text-slate-600 dark:text-slate-400 tabular-nums">
                       {formatDateTime(k.lastUsedAt, { emptyText: tr('Noch nie', 'Never') })}
                     </td>
                     <td className="py-2.5 text-right">
@@ -520,7 +520,7 @@ export function ApiKeyCurlPanel({
                         type="button"
                         onClick={() => handleDelete(k.id)}
                         disabled={deletingId === k.id}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         {deletingId === k.id

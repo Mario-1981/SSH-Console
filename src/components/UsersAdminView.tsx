@@ -917,10 +917,10 @@ export function UsersAdminView({
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {tr('Benutzer & Benutzergruppen', 'Users & User Groups')}
           </h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             {tr(
               'Verwalten Sie Benutzerkonten, legen Sie eigene Benutzergruppen an und steuern Sie feingranulare Rechte pro Gruppe.',
               'Manage user accounts, create custom user groups, and configure granular permissions per group.'
@@ -929,7 +929,7 @@ export function UsersAdminView({
         </div>
 
         {/* Sub-tab switcher */}
-        <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md self-start shrink-0">
+        <div className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-md self-start shrink-0">
           <button
             type="button"
             onClick={() => {
@@ -938,8 +938,8 @@ export function UsersAdminView({
             }}
             className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
               activeSubTab === 'users'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
@@ -953,8 +953,8 @@ export function UsersAdminView({
             }}
             className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
               activeSubTab === 'groups'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }`}
           >
             <Shield className="w-3.5 h-3.5" />
@@ -964,18 +964,18 @@ export function UsersAdminView({
       </div>
 
       {error && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-900 flex items-center justify-between gap-3">
+        <div className="px-4 py-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-3">
           <span>{success}</span>
           <button
             type="button"
             onClick={() => setSuccess(null)}
-            className="text-emerald-700 hover:text-emerald-950 cursor-pointer shrink-0"
+            className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-950 dark:hover:text-emerald-200 cursor-pointer shrink-0"
             aria-label={tr('Meldung schließen', 'Dismiss')}
           >
             <X className="w-4 h-4" />
@@ -986,14 +986,14 @@ export function UsersAdminView({
       {activeSubTab === 'users' ? (
         <div className="space-y-8">
           {/* Create User Form */}
-          <form onSubmit={handleCreateUser} className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
-            <h2 className="font-display text-base font-semibold text-slate-900">
+          <form onSubmit={handleCreateUser} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-4">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr('Neuen Benutzer anlegen', 'Create New User')}
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
               <div className="lg:col-span-2">
-                <label htmlFor="usr-name" className="block text-xs font-medium text-slate-700 mb-1.5">
+                <label htmlFor="usr-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   {tr('Benutzername', 'Username')}
                 </label>
                 <input
@@ -1002,13 +1002,13 @@ export function UsersAdminView({
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="m.mueller"
-                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                   required
                 />
               </div>
 
               <div className="lg:col-span-3">
-                <label htmlFor="usr-display" className="block text-xs font-medium text-slate-700 mb-1.5">
+                <label htmlFor="usr-display" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   {tr('Anzeigename', 'Display Name')}
                 </label>
                 <input
@@ -1017,12 +1017,12 @@ export function UsersAdminView({
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder={tr('Max Müller', 'Jane Doe')}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
 
               <div className="lg:col-span-3">
-                <label htmlFor="usr-pass" className="block text-xs font-medium text-slate-700 mb-1.5">
+                <label htmlFor="usr-pass" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   {tr('Initialpasswort (min. 8 Zeichen)', 'Initial Password (min. 8 chars)')}
                 </label>
                 <input
@@ -1031,20 +1031,20 @@ export function UsersAdminView({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   minLength={8}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                   required
                 />
               </div>
 
               <div className="lg:col-span-2">
-                <label htmlFor="usr-group" className="block text-xs font-medium text-slate-700 mb-1.5">
+                <label htmlFor="usr-group" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   {tr('Benutzergruppe', 'User Group')}
                 </label>
                 <select
                   id="usr-group"
                   value={groupId}
                   onChange={(e) => setGroupId(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
                   {sortedGroups.length > 0 ? (
                     sortedGroups.map((g) => (
@@ -1063,7 +1063,7 @@ export function UsersAdminView({
               </div>
 
               <div className="lg:col-span-2">
-                <label htmlFor="usr-ssh" className="block text-xs font-medium text-slate-700 mb-1.5">
+                <label htmlFor="usr-ssh" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   {tr('Standard-SSH-User', 'Default SSH User')}
                 </label>
                 <input
@@ -1072,7 +1072,7 @@ export function UsersAdminView({
                   value={defaultSshUser}
                   onChange={(e) => setDefaultSshUser(e.target.value)}
                   placeholder="root"
-                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
             </div>
@@ -1086,7 +1086,7 @@ export function UsersAdminView({
                   setActiveSubTab('groups');
                   startCreateGroup();
                 }}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer"
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
                 {tr('Neue Benutzergruppe & Rechte definieren', 'Define new user group & permissions')}
@@ -1103,9 +1103,9 @@ export function UsersAdminView({
           </form>
 
           {/* Users Table */}
-          <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200">
-              <h2 className="font-display text-base font-semibold text-slate-900">
+          <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+              <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                 {tr(`Angelegte Konten (${users.length})`, `Existing Accounts (${users.length})`)}
               </h2>
             </div>
@@ -1113,7 +1113,7 @@ export function UsersAdminView({
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-xs font-medium text-slate-500 dark:text-slate-400">
                     <th className="py-2.5 px-6">{tr('Benutzer', 'User')}</th>
                     <th className="py-2.5 px-4">{tr('Benutzergruppe', 'User Group')}</th>
                     <th className="py-2.5 px-4">{tr('Anmeldung & 2FA', 'Auth & 2FA')}</th>
@@ -1123,7 +1123,7 @@ export function UsersAdminView({
                     <th className="py-2.5 px-6 text-right">{tr('Aktionen', 'Actions')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-sm">
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-sm">
                   {users.map((u) => {
                     const isSelf = u.id === currentUser.id;
                     const isResetting = resetUserId === u.id;
@@ -1131,18 +1131,18 @@ export function UsersAdminView({
                     const currentGid = u.groupId || (u.role === 'admin' ? 'admin' : 'user');
                     const isUpdatingGroup = updatingGroupUserId === u.id;
                     return (
-                      <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
+                      <tr key={u.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
                         <td className="py-3 px-6">
-                          <p className="font-medium text-slate-900">
+                          <p className="font-medium text-slate-900 dark:text-slate-100">
                             {u.displayName}
                             {isSelf && (
-                              <span className="text-xs text-slate-500 font-normal">
+                              <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">
                                 {' '}
                                 {tr('(Sie)', '(You)')}
                               </span>
                             )}
                           </p>
-                          <p className="text-xs font-mono text-slate-500">
+                          <p className="text-xs font-mono text-slate-500 dark:text-slate-400">
                             {u.username}
                             {u.email ? ` · ${u.email}` : ''}
                           </p>
@@ -1150,13 +1150,13 @@ export function UsersAdminView({
                         <td className="py-3 px-4 whitespace-nowrap">
                           {isSelf ? (
                             <span
-                              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-800"
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
                               title={tr(
                                 'Sie können Ihre eigene Administrator-Gruppe nicht herabstufen.',
                                 'You cannot change your own administrator group.'
                               )}
                             >
-                              <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              <Lock className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
                               {u.groupName || 'Administratoren'}
                             </span>
                           ) : (
@@ -1168,7 +1168,7 @@ export function UsersAdminView({
                               value={currentGid}
                               disabled={isUpdatingGroup}
                               onChange={(e) => handleChangeUserGroup(u, e.target.value)}
-                              className="px-2.5 py-1 text-xs bg-white border border-slate-300 rounded-md text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 cursor-pointer"
+                              className="px-2.5 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 cursor-pointer"
                             >
                               {sortedGroups.map((g) => (
                                 <option key={g.id} value={g.id}>
@@ -1179,24 +1179,24 @@ export function UsersAdminView({
                             </select>
                           )}
                         </td>
-                        <td className="py-3 px-4 text-xs text-slate-600 whitespace-nowrap">
+                        <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-medium text-slate-800">
+                            <span className="font-medium text-slate-800 dark:text-slate-200">
                               {u.authProvider === 'sso' ? 'SSO' : tr('Lokal', 'Local')}
                             </span>
-                            {u.totpEnabled && <span className="text-emerald-700">· App-2FA</span>}
+                            {u.totpEnabled && <span className="text-emerald-700 dark:text-emerald-400">· App-2FA</span>}
                             {u.securityKeyCount > 0 && (
-                              <span className="text-emerald-700">· Key ({u.securityKeyCount})</span>
+                              <span className="text-emerald-700 dark:text-emerald-400">· Key ({u.securityKeyCount})</span>
                             )}
                             {u.passkeyCount > 0 && (
-                              <span className="text-blue-700">· Passkey ({u.passkeyCount})</span>
+                              <span className="text-blue-700 dark:text-blue-400">· Passkey ({u.passkeyCount})</span>
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-4 font-mono text-xs text-slate-700 whitespace-nowrap">
+                        <td className="py-3 px-4 font-mono text-xs text-slate-700 dark:text-slate-300 whitespace-nowrap">
                           {u.defaultSshUser}
                         </td>
-                        <td className="py-3 px-4 font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                        <td className="py-3 px-4 font-mono text-xs text-slate-600 dark:text-slate-400 tabular-nums whitespace-nowrap">
                           {formatDateTime(u.lastLoginAt, { emptyText: tr('Noch nie', 'Never') })}
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap">
@@ -1206,10 +1206,10 @@ export function UsersAdminView({
                             onClick={() => handleToggleActive(u)}
                             className={`text-xs font-medium ${
                               isSelf
-                                ? 'text-emerald-700 cursor-default'
+                                ? 'text-emerald-700 dark:text-emerald-400 cursor-default'
                                 : u.active
-                                ? 'text-emerald-700 hover:text-emerald-900 cursor-pointer'
-                                : 'text-red-700 hover:text-red-900 cursor-pointer'
+                                ? 'text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-200 cursor-pointer'
+                                : 'text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 cursor-pointer'
                             }`}
                           >
                             {u.active ? tr('Aktiv', 'Active') : tr('Gesperrt', 'Disabled')}
@@ -1224,12 +1224,12 @@ export function UsersAdminView({
                                   value={resetPasswordVal}
                                   onChange={(e) => setResetPasswordVal(e.target.value)}
                                   placeholder={tr('Neues Passwort...', 'New password...')}
-                                  className="px-2.5 py-1 text-xs border border-slate-300 rounded w-44 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                  className="px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded w-44 focus:outline-none focus:ring-2 focus:ring-blue-600"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => handleResetPassword(u.id)}
-                                  className="p-1 text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer"
+                                  className="p-1 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded cursor-pointer"
                                   title={tr('Speichern', 'Save')}
                                 >
                                   <Check className="w-4 h-4" />
@@ -1240,7 +1240,7 @@ export function UsersAdminView({
                                     setResetUserId(null);
                                     setResetPasswordVal('');
                                   }}
-                                  className="p-1 text-slate-500 hover:bg-slate-100 rounded cursor-pointer"
+                                  className="p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded cursor-pointer"
                                   title={tr('Abbrechen', 'Cancel')}
                                 >
                                   <X className="w-4 h-4" />
@@ -1259,7 +1259,7 @@ export function UsersAdminView({
                                     setResetUserId(u.id);
                                     setResetPasswordVal('');
                                   }}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-700 cursor-pointer"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer"
                                 >
                                   <KeyRound className="w-3.5 h-3.5" />
                                   {tr('Passwort', 'Password')}
@@ -1269,7 +1269,7 @@ export function UsersAdminView({
                                 <button
                                   type="button"
                                   onClick={() => handleResetAuth(u)}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 hover:text-amber-950 cursor-pointer"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 dark:text-amber-300 hover:text-amber-950 dark:hover:text-amber-200 cursor-pointer"
                                   title={tr('2FA und Passkeys zurücksetzen', 'Reset 2FA and Passkeys')}
                                 >
                                   <ShieldOff className="w-3.5 h-3.5" />
@@ -1280,7 +1280,7 @@ export function UsersAdminView({
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteUser(u)}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 cursor-pointer"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                   {tr('Löschen', 'Delete')}
@@ -1301,7 +1301,7 @@ export function UsersAdminView({
         <div className="space-y-6">
           {/* Toolbar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
               {tr(
                 'Änderungen an Gruppenrechten wirken sofort für alle zugewiesenen Benutzer. Die Systemgruppe „Administratoren“ ist aus Sicherheitsgründen fest gesperrt.',
                 'Permission changes take effect immediately for all assigned users. The system group "Administratoren" is permanently locked for security.'
@@ -1323,11 +1323,11 @@ export function UsersAdminView({
           {showGroupForm && (
             <form
               onSubmit={handleSaveGroup}
-              className="bg-white border border-blue-200 rounded-lg p-6 space-y-6 shadow-xs"
+              className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800/70 rounded-lg p-6 space-y-6 shadow-xs"
             >
-              <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-200">
+              <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
                 <div>
-                  <h2 className="font-display text-base font-semibold text-slate-900">
+                  <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                     {editingGroupId
                       ? tr(
                           `Benutzergruppe „${editingGroupObj?.name || grpName}“ bearbeiten`,
@@ -1335,7 +1335,7 @@ export function UsersAdminView({
                         )
                       : tr('Neue benutzerdefinierte Gruppe anlegen', 'Create Custom User Group')}
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {editingGroupObj?.isSystem
                       ? tr(
                           'Sie können die Rechte und Beschreibung der Standardgruppe „Benutzer“ anpassen.',
@@ -1350,7 +1350,7 @@ export function UsersAdminView({
                 <button
                   type="button"
                   onClick={cancelGroupForm}
-                  className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md cursor-pointer"
+                  className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md cursor-pointer"
                   aria-label={tr('Schließen', 'Close')}
                 >
                   <X className="w-4 h-4" />
@@ -1359,7 +1359,7 @@ export function UsersAdminView({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="grp-name" className="block text-xs font-medium text-slate-700 mb-1.5">
+                  <label htmlFor="grp-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                     {tr('Gruppenname', 'Group Name')}
                   </label>
                   <input
@@ -1370,12 +1370,12 @@ export function UsersAdminView({
                     disabled={Boolean(editingGroupObj?.isSystem)}
                     maxLength={60}
                     placeholder={tr('z. B. Operatoren, Entwickler, Read-Only', 'e.g. Operators, Developers, Read-Only')}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-500 dark:disabled:text-slate-500"
                     required
                   />
                 </div>
                 <div>
-                  <label htmlFor="grp-desc" className="block text-xs font-medium text-slate-700 mb-1.5">
+                  <label htmlFor="grp-desc" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                     {tr('Beschreibung (optional)', 'Description (optional)')}
                   </label>
                   <input
@@ -1388,15 +1388,15 @@ export function UsersAdminView({
                       'z. B. Darf Befehle ausführen und Protokolle lesen, aber keine eigenen IPs anlegen.',
                       'e.g. May run commands and view logs, but cannot add own IPs.'
                     )}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                   />
                 </div>
               </div>
 
               {/* Quick permission presets */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                  <CheckSquare className="w-3.5 h-3.5 text-blue-700" />
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <CheckSquare className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
                   {tr(
                     `Berechtigungen (${countEnabledPermissions(grpPermissions)} / ${CAPABILITY_PERMISSION_KEYS.length} Rechte aktiv)`,
                     `Permissions (${countEnabledPermissions(grpPermissions)} / ${CAPABILITY_PERMISSION_KEYS.length} rights enabled)`
@@ -1411,7 +1411,7 @@ export function UsersAdminView({
                         caSigningAssignments: prev.caSigningAssignments,
                       }))
                     }
-                    className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition-colors cursor-pointer"
+                    className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors cursor-pointer"
                   >
                     {tr('Alle Rechte', 'All Rights')}
                   </button>
@@ -1423,7 +1423,7 @@ export function UsersAdminView({
                         caSigningAssignments: prev.caSigningAssignments,
                       }))
                     }
-                    className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition-colors cursor-pointer"
+                    className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors cursor-pointer"
                   >
                     {tr('Standard-Benutzer', 'Default User')}
                   </button>
@@ -1433,7 +1433,7 @@ export function UsersAdminView({
                       setGrpPermissions({ ...MINIMAL_OPERATOR_PERMISSIONS, caSigningAssignments: [] });
                       setGrpCaPrincipalsDrafts({});
                     }}
-                    className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition-colors cursor-pointer"
+                    className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors cursor-pointer"
                   >
                     {tr('Minimal (Nur Ausführen)', 'Minimal (Execute Only)')}
                   </button>
@@ -1445,9 +1445,9 @@ export function UsersAdminView({
                 {PERMISSION_SECTIONS.map((section) => (
                   <div
                     key={section.titleEn}
-                    className="border border-slate-200 rounded-md p-4 space-y-3 bg-slate-50/40"
+                    className="border border-slate-200 dark:border-slate-800 rounded-md p-4 space-y-3 bg-slate-50/40 dark:bg-slate-800/30"
                   >
-                    <h3 className="text-xs font-semibold text-slate-900 pb-2 border-b border-slate-200">
+                    <h3 className="text-xs font-semibold text-slate-900 dark:text-slate-100 pb-2 border-b border-slate-200 dark:border-slate-800">
                       {tr(section.titleDe, section.titleEn)}
                     </h3>
                     <div className="space-y-2.5">
@@ -1462,13 +1462,13 @@ export function UsersAdminView({
                               type="checkbox"
                               checked={checked}
                               onChange={() => togglePermission(item.key)}
-                              className="mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                              className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                             />
                             <div className="min-w-0">
-                              <p className="text-xs font-medium text-slate-900 group-hover:text-blue-800">
+                              <p className="text-xs font-medium text-slate-900 dark:text-slate-100 group-hover:text-blue-800">
                                 {tr(item.labelDe, item.labelEn)}
                               </p>
-                              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
                                 {tr(item.descDe, item.descEn)}
                               </p>
                             </div>
@@ -1484,21 +1484,21 @@ export function UsersAdminView({
               <div
                 className={`border rounded-md p-4 space-y-3 ${
                   grpPermissions.selfSignCertificates
-                    ? 'border-blue-200 bg-blue-50/30'
-                    : 'border-slate-200 bg-slate-50/40'
+                    ? 'border-blue-200 dark:border-blue-800/70 bg-blue-50/30 dark:bg-blue-950/25'
+                    : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/30'
                 }`}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-2">
-                    <FileSignature className="w-4 h-4 text-blue-700 shrink-0" />
+                    <FileSignature className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
                     <div>
-                        <h3 className="text-xs font-semibold text-slate-900">
+                        <h3 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
                         {tr(
                           `Zugewiesene CAs, Principals (-n), Gültigkeit (-V) & Auto-Neusignierung (${grpPermissions.caSigningAssignments.length})`,
                           `Assigned CAs, Principals (-n), Validity (-V) & Auto-Renewal (${grpPermissions.caSigningAssignments.length})`
                         )}
                       </h3>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
                         {tr(
                           'Wählen Sie eine oder mehrere CAs und legen Sie pro CA die erlaubten Principals (-n), die Signatur-Gültigkeit (-V) und den Zeitpunkt für die automatische Neusignierung fest. Benutzer können diese Werte nicht eigenständig überschreiben.',
                           'Select one or more CAs and define allowed principals (-n), signature validity (-V), and when automatic re-signing may start per CA. Users cannot override these values.'
@@ -1507,7 +1507,7 @@ export function UsersAdminView({
                     </div>
                   </div>
                   {!grpPermissions.selfSignCertificates && (
-                    <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-slate-200 text-slate-700">
+                    <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
                       {tr(
                         'Selbstsignierung derzeit deaktiviert',
                         'Self-signing currently disabled'
@@ -1517,12 +1517,12 @@ export function UsersAdminView({
                 </div>
 
                 {casLoading && availableCas.length === 0 ? (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {tr('CAs werden geladen...', 'Loading CAs...')}
                   </p>
                 ) : availableCas.length === 0 ? (
-                  <div className="px-3 py-2.5 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="px-3 py-2.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                     <span>
                       {tr(
                         'Noch keine SSH-CAs vorhanden. Legen Sie zuerst unter „Administration → CA-Zertifikate“ eine CA mit hinterlegtem Passwort an.',
@@ -1569,8 +1569,8 @@ export function UsersAdminView({
                           key={ca.id}
                           className={`rounded-md border p-3.5 space-y-3 transition-colors ${
                             isAssigned
-                              ? 'bg-white border-blue-300 shadow-2xs'
-                              : 'bg-white/60 border-slate-200'
+                              ? 'bg-white dark:bg-slate-900 border-blue-300 dark:border-blue-700/80 shadow-2xs'
+                              : 'bg-white/60 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800'
                           }`}
                         >
                           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1579,29 +1579,29 @@ export function UsersAdminView({
                                 type="checkbox"
                                 checked={isAssigned}
                                 onChange={() => toggleGroupCaAssignment(ca.id)}
-                                className="mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                                className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                               />
                               <div className="min-w-0">
-                                <p className="text-xs font-semibold text-slate-900">
+                                <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">
                                   {ca.name}{' '}
-                                  <span className="font-mono font-normal text-slate-500">
+                                  <span className="font-mono font-normal text-slate-500 dark:text-slate-400">
                                     ({ca.keyType})
                                   </span>
                                 </p>
-                                <p className="text-[11px] font-mono text-slate-500 truncate">
+                                <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
                                   {ca.fingerprint}
                                 </p>
                               </div>
                             </label>
 
                             {ca.hasStoredPassphrase ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-800 shrink-0">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-[11px] font-medium text-emerald-800 dark:text-emerald-300 shrink-0">
                                 <CheckCircle2 className="w-3 h-3" />
                                 {tr('CA-Passwort hinterlegt', 'CA passphrase stored')}
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 border border-amber-300 text-[11px] font-medium text-amber-900 shrink-0">
-                                <AlertTriangle className="w-3 h-3 text-amber-600" />
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 text-[11px] font-medium text-amber-900 dark:text-amber-200 shrink-0">
+                                <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                                 {tr(
                                   'Passwort nicht hinterlegt (für Selbstsignierung nötig)',
                                   'Passphrase not stored (required for self-signing)'
@@ -1611,11 +1611,11 @@ export function UsersAdminView({
                           </div>
 
                           {isAssigned && assignment && (
-                            <div className="pt-2.5 border-t border-slate-200 space-y-3">
+                            <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 space-y-3">
                               <div className="space-y-1.5">
                                 <label
                                   htmlFor={`grp-ca-principals-${ca.id}`}
-                                  className="block text-[11px] font-medium text-slate-700"
+                                  className="block text-[11px] font-medium text-slate-700 dark:text-slate-300"
                                 >
                                   {tr(
                                     'Principals (-n · erlaubte SSH-Benutzer, kommagetrennt)',
@@ -1630,10 +1630,10 @@ export function UsersAdminView({
                                     updateGroupCaPrincipalsDraft(ca.id, e.target.value)
                                   }
                                   placeholder="deploy, admin, debian"
-                                  className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                  className="w-full px-2.5 py-1.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                                 />
                                 <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                                  <span className="text-slate-500">
+                                  <span className="text-slate-500 dark:text-slate-400">
                                     {tr('Schnellwahl:', 'Quick add:')}
                                   </span>
                                   {['root', 'admin', 'debian', 'ubuntu'].map((tok) => (
@@ -1641,13 +1641,13 @@ export function UsersAdminView({
                                       key={tok}
                                       type="button"
                                       onClick={() => appendGroupCaPrincipalToken(ca.id, tok)}
-                                      className="px-1.5 py-0.5 font-mono text-slate-700 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 cursor-pointer"
+                                      className="px-1.5 py-0.5 font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded border border-slate-200 dark:border-slate-800 cursor-pointer"
                                     >
                                       + {tok}
                                     </button>
                                   ))}
                                 </div>
-                                <label className="flex items-center gap-2 pt-1 text-[11px] text-slate-700 cursor-pointer">
+                                <label className="flex items-center gap-2 pt-1 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer">
                                   <input
                                     type="checkbox"
                                     checked={assignment.includeOwnerPrincipal}
@@ -1656,7 +1656,7 @@ export function UsersAdminView({
                                         includeOwnerPrincipal: e.target.checked,
                                       })
                                     }
-                                    className="w-3.5 h-3.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                                    className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                                   />
                                   <span>
                                     {tr(
@@ -1667,12 +1667,12 @@ export function UsersAdminView({
                                 </label>
                               </div>
 
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800/70">
                                 {/* Per-CA & Per-Group Signature Validity (-V) */}
                                 <div className="space-y-1.5">
                                   <label
                                     htmlFor={`grp-ca-validity-${ca.id}`}
-                                    className="block text-[11px] font-medium text-slate-700"
+                                    className="block text-[11px] font-medium text-slate-700 dark:text-slate-300"
                                   >
                                     {tr(
                                       'Gültigkeit der Signatur (-V · pro CA & Gruppe)',
@@ -1702,7 +1702,7 @@ export function UsersAdminView({
                                         });
                                       }
                                     }}
-                                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                    className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                                   >
                                     <option value="+1h">{tr('1 Stunde (+1h)', '1 Hour (+1h)')}</option>
                                     <option value="+8h">{tr('8 Stunden (+8h)', '8 Hours (+8h)')}</option>
@@ -1731,10 +1731,10 @@ export function UsersAdminView({
                                           })
                                         }
                                         placeholder="+12h, +45d, +2w"
-                                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                                       />
                                       {validityFwdSec !== null && Number.isNaN(validityFwdSec) && (
-                                        <p className="text-[11px] text-red-700">
+                                        <p className="text-[11px] text-red-700 dark:text-red-400">
                                           {tr(
                                             'Ungültiges Format. Beispiel: +30m, +12h, +14d, +4w.',
                                             'Invalid format. Example: +30m, +12h, +14d, +4w.'
@@ -1749,7 +1749,7 @@ export function UsersAdminView({
                                 <div className="space-y-1.5">
                                   <label
                                     htmlFor={`grp-ca-autorenew-${ca.id}`}
-                                    className="block text-[11px] font-medium text-slate-700"
+                                    className="block text-[11px] font-medium text-slate-700 dark:text-slate-300"
                                   >
                                     {tr(
                                       'Automatisch neusignieren ab (pro CA & Gruppe)',
@@ -1787,7 +1787,7 @@ export function UsersAdminView({
                                         });
                                       }
                                     }}
-                                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-400"
+                                    className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-400 dark:disabled:text-slate-600"
                                   >
                                     <option value="0">
                                       {tr(
@@ -1854,7 +1854,7 @@ export function UsersAdminView({
                                               splitLeadSecondsToCustom(currentLead).unit
                                           )
                                         }
-                                        className="w-24 px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                        className="w-24 px-2.5 py-1.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                                       />
                                       <select
                                         value={
@@ -1869,7 +1869,7 @@ export function UsersAdminView({
                                             e.target.value as 'm' | 'h' | 'd'
                                           )
                                         }
-                                        className="flex-1 px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                        className="flex-1 px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                                       >
                                         <option value="m">
                                           {tr('Minuten vor Ablauf', 'Minutes before expiry')}
@@ -1885,21 +1885,21 @@ export function UsersAdminView({
                                   )}
 
                                   {validityForever ? (
-                                    <p className="text-[11px] text-slate-500">
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
                                       {tr(
                                         'Bei unbegrenzter Gültigkeit (forever) nicht erforderlich.',
                                         'Not applicable for unlimited validity (forever).'
                                       )}
                                     </p>
                                   ) : leadTooLong ? (
-                                    <p className="text-[11px] text-red-700 font-medium">
+                                    <p className="text-[11px] text-red-700 dark:text-red-400 font-medium">
                                       {tr(
                                         `Muss kürzer als die Gültigkeit (${currentValidity}) sein.`,
                                         `Must be shorter than the validity (${currentValidity}).`
                                       )}
                                     </p>
                                   ) : !grpPermissions.autoRenewCertificates ? (
-                                    <p className="text-[11px] text-slate-500">
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
                                       {tr(
                                         'Greift, sobald „Automatische Neuzertifizierung erlauben“ aktiv ist.',
                                         'Applies once "Allow automatic re-certification" is enabled.'
@@ -1917,11 +1917,11 @@ export function UsersAdminView({
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={cancelGroupForm}
-                  className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+                  className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer"
                 >
                   {tr('Abbrechen', 'Cancel')}
                 </button>
@@ -1950,43 +1950,43 @@ export function UsersAdminView({
               return (
                 <article
                   key={g.id}
-                  className={`bg-white border rounded-lg p-5 space-y-4 ${
-                    g.isImmutable ? 'border-slate-300 bg-slate-50/30' : 'border-slate-200'
+                  className={`bg-white dark:bg-slate-900 border rounded-lg p-5 space-y-4 ${
+                    g.isImmutable ? 'border-slate-300 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30' : 'border-slate-200 dark:border-slate-800'
                   }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-display text-base font-semibold text-slate-900 flex items-center gap-1.5">
-                          {g.isImmutable && <Lock className="w-4 h-4 text-slate-600 shrink-0" />}
+                        <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          {g.isImmutable && <Lock className="w-4 h-4 text-slate-600 dark:text-slate-400 shrink-0" />}
                           <span>{g.name}</span>
                         </h3>
                         {g.isImmutable ? (
-                          <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-slate-800 text-white">
+                          <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-slate-800 dark:bg-slate-700 text-white">
                             {tr('System · Geschützt', 'System · Locked')}
                           </span>
                         ) : g.isSystem ? (
-                          <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-blue-50 text-blue-800 border border-blue-200">
+                          <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800/70">
                             {tr('Standardgruppe', 'Default Group')}
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-slate-100 text-slate-700 border border-slate-200">
+                          <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
                             {tr('Benutzerdefiniert', 'Custom')}
                           </span>
                         )}
-                        <span className="text-xs font-mono text-slate-500 tabular-nums">
+                        <span className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">
                           · {memberCount}{' '}
                           {memberCount === 1 ? tr('Mitglied', 'member') : tr('Mitglieder', 'members')}
                         </span>
-                        <span className="text-xs font-mono text-slate-500 tabular-nums">
+                        <span className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">
                           · {enabledCount}/{CAPABILITY_PERMISSION_KEYS.length} {tr('Rechte', 'rights')}
                         </span>
                       </div>
                       {g.description && (
-                        <p className="text-xs text-slate-600">{g.description}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">{g.description}</p>
                       )}
                       {g.isImmutable && (
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
                           {tr(
                             'Aus Sicherheitsgründen kann die Gruppe „Administratoren“ weder bearbeitet noch gelöscht werden. Mitglieder erhalten immer vollen administrativen Zugriff.',
                             'For security reasons, the "Administratoren" group cannot be edited or deleted. Members always have full administrative access.'
@@ -1997,7 +1997,7 @@ export function UsersAdminView({
 
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
                       {g.isImmutable ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 bg-slate-100 border border-slate-200 rounded-md">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-md">
                           <Lock className="w-3.5 h-3.5" />
                           {tr('Nicht veränderbar', 'Immutable')}
                         </span>
@@ -2006,7 +2006,7 @@ export function UsersAdminView({
                           <button
                             type="button"
                             onClick={() => startEditGroup(g)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                             {tr('Rechte bearbeiten', 'Edit Permissions')}
@@ -2035,7 +2035,7 @@ export function UsersAdminView({
                                   type="button"
                                   disabled={deletingGroupId === g.id}
                                   onClick={() => setConfirmDeleteGroupId(null)}
-                                  className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md cursor-pointer"
+                                  className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md cursor-pointer"
                                 >
                                   {tr('Abbrechen', 'Cancel')}
                                 </button>
@@ -2044,7 +2044,7 @@ export function UsersAdminView({
                               <button
                                 type="button"
                                 onClick={() => setConfirmDeleteGroupId(g.id)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/70 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                                 {tr('Löschen', 'Delete')}
@@ -2056,7 +2056,7 @@ export function UsersAdminView({
                   </div>
 
                   {/* Compact permissions overview grid */}
-                  <div className="pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5 text-xs">
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5 text-xs">
                     {PERMISSION_SECTIONS.flatMap((s) => s.items).map((item) => {
                       if (item.isPolicy) {
                         const activePolicy = !g.isAdmin && Boolean(g.permissions[item.key]);
@@ -2064,12 +2064,12 @@ export function UsersAdminView({
                           <div
                             key={item.key}
                             className={`flex items-center gap-1.5 ${
-                              activePolicy ? 'text-amber-900 font-medium' : 'text-slate-400'
+                              activePolicy ? 'text-amber-900 dark:text-amber-200 font-medium' : 'text-slate-400'
                             }`}
                           >
                             <Lock
                               className={`w-3.5 h-3.5 shrink-0 ${
-                                activePolicy ? 'text-amber-700' : 'text-slate-300'
+                                activePolicy ? 'text-amber-700 dark:text-amber-400' : 'text-slate-300'
                               }`}
                             />
                             <span className="truncate">
@@ -2085,11 +2085,11 @@ export function UsersAdminView({
                         <div
                           key={item.key}
                           className={`flex items-center gap-1.5 ${
-                            granted ? 'text-slate-800' : 'text-slate-400 line-through'
+                            granted ? 'text-slate-800 dark:text-slate-200' : 'text-slate-400 line-through'
                           }`}
                         >
                           {granted ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                            <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                           ) : (
                             <X className="w-3.5 h-3.5 text-slate-300 shrink-0" />
                           )}
@@ -2103,9 +2103,9 @@ export function UsersAdminView({
                   {!g.isAdmin &&
                     Array.isArray(g.permissions?.caSigningAssignments) &&
                     g.permissions.caSigningAssignments.length > 0 && (
-                      <div className="pt-2.5 border-t border-slate-200 space-y-1.5">
-                        <p className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
-                          <FileSignature className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                      <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
+                        <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                          <FileSignature className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400 shrink-0" />
                           {tr(
                             `Zugewiesene CAs für Selbstsignierung (${g.permissions.caSigningAssignments.length}):`,
                             `Assigned CAs for Self-Signing (${g.permissions.caSigningAssignments.length}):`
@@ -2123,19 +2123,19 @@ export function UsersAdminView({
                             return (
                               <div
                                 key={a.caId}
-                                className="inline-flex flex-wrap items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50/70 border border-blue-200 text-[11px] text-slate-800"
+                                className="inline-flex flex-wrap items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50/70 dark:bg-blue-950/35 border border-blue-200 dark:border-blue-800/70 text-[11px] text-slate-800 dark:text-slate-200"
                               >
-                                <span className="font-semibold text-blue-950">
+                                <span className="font-semibold text-blue-950 dark:text-blue-200">
                                   {caObj ? caObj.name : a.caId}
                                 </span>
-                                <span className="font-mono text-slate-600">
+                                <span className="font-mono text-slate-600 dark:text-slate-400">
                                   -n {principalParts.join(', ') || '—'}
                                 </span>
-                                <span className="font-mono text-slate-500">
+                                <span className="font-mono text-slate-500 dark:text-slate-400">
                                   · -V {a.validity || '+30d'}
                                 </span>
                                 {!isForeverValidity(a.validity || '+30d') && (
-                                  <span className="text-emerald-800">
+                                  <span className="text-emerald-800 dark:text-emerald-300">
                                     · {tr('Auto-Erneuerung:', 'Auto-renew:')}{' '}
                                     {formatLeadLabel(a.autoRenewBeforeSeconds || 0)}
                                   </span>

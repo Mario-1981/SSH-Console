@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useStat
 import { Menu } from 'lucide-react';
 import { api, setUnauthorizedHandler } from './api';
 import { LanguageSwitcher, useI18n } from './i18n';
+import { ThemeSwitcher } from './theme';
 import { BackgroundJobsBell } from './components/BackgroundJobsBell';
 import { DashboardView } from './components/DashboardView';
 import { LoginView } from './components/LoginView';
@@ -419,8 +420,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-sm text-slate-500">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           {tr('Initialisiere SSH Console...', 'Initializing SSH Console...')}
         </p>
       </div>
@@ -473,7 +474,7 @@ export default function App() {
   const crumb = breadcrumbs[effectiveTab];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex">
       <Sidebar
         instanceName={settings.instanceName}
         user={user}
@@ -488,20 +489,20 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-4 shrink-0">
+        <header className="h-14 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-1.5 -ml-1.5 text-slate-600 hover:text-slate-900 rounded-md"
+              className="lg:hidden p-1.5 -ml-1.5 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 rounded-md"
               aria-label={tr('Menü öffnen', 'Open menu')}
             >
               <Menu className="w-5 h-5" />
             </button>
             <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm truncate">
-              <span className="text-slate-500 whitespace-nowrap">{crumb.group}</span>
-              <span className="text-slate-300" aria-hidden="true">/</span>
-              <span className="font-medium text-slate-900 truncate">{crumb.title}</span>
+              <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">{crumb.group}</span>
+              <span className="text-slate-300 dark:text-slate-600" aria-hidden="true">/</span>
+              <span className="font-medium text-slate-900 dark:text-slate-100 truncate">{crumb.title}</span>
             </nav>
           </div>
 
@@ -523,13 +524,14 @@ export default function App() {
                 onNavigateLogs={setActiveTab}
               />
             )}
+            <ThemeSwitcher />
             <LanguageSwitcher />
             {!securitySetupRequired &&
               (effectiveTab !== 'dashboard' ? (
                 <button
                   type="button"
                   onClick={() => setActiveTab('dashboard')}
-                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 >
                   {tr('Zum Dashboard', 'Go to Dashboard')}
                 </button>
@@ -537,7 +539,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('servers')}
-                  className="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-3.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 >
                   {tr(`Server verwalten (${servers.length})`, `Manage Servers (${servers.length})`)}
                 </button>
@@ -549,7 +551,7 @@ export default function App() {
           <div className="max-w-6xl mx-auto">
             <Suspense
               fallback={
-                <div className="py-12 text-center text-sm text-slate-500">
+                <div className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">
                   {tr('Lade Ansicht...', 'Loading view...')}
                 </div>
               }

@@ -528,16 +528,16 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {tr('CA-Zertifikate (ca & ca.pub)', 'CA Certificates (ca & ca.pub)')}
           </h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             {tr(
               'Erzeugen und verwalten Sie passwortgeschützte OpenSSH Certificate Authorities (',
               'Generate and manage passphrase-protected OpenSSH Certificate Authorities ('
             )}
-            <code className="font-mono text-xs text-slate-800">ca</code> +{' '}
-            <code className="font-mono text-xs text-slate-800">ca.pub</code>
+            <code className="font-mono text-xs text-slate-800 dark:text-slate-200">ca</code> +{' '}
+            <code className="font-mono text-xs text-slate-800 dark:text-slate-200">ca.pub</code>
             {tr(
               ') für das künftige Signieren von SSH-Benutzerzertifikaten.',
               ') for signing SSH user certificates.'
@@ -558,31 +558,31 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
       {error && (
         <div
           role="alert"
-          className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800 flex items-start gap-2"
+          className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300 flex items-start gap-2"
         >
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
           <span>{error}</span>
         </div>
       )}
 
       {success && (
-        <div className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-900 flex items-start gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700" />
+        <div className="px-4 py-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-900 dark:text-emerald-200 flex items-start gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700 dark:text-emerald-400" />
           <span>{success}</span>
         </div>
       )}
 
       {lastGeneratedCa && (
-        <section className="bg-blue-50/70 border border-blue-200 rounded-lg p-5 space-y-3">
+        <section className="bg-blue-50/70 dark:bg-blue-950/35 border border-blue-200 dark:border-blue-800/70 rounded-lg p-5 space-y-3">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-sm font-semibold text-blue-950">
+              <h2 className="text-sm font-semibold text-blue-950 dark:text-blue-200">
                 {tr(
                   `Neu erzeugte CA „${lastGeneratedCa.name}“ — Einmaliger Backup-Download`,
                   `Newly generated CA "${lastGeneratedCa.name}" — One-Time Backup Download`
                 )}
               </h2>
-              <p className="text-xs text-blue-900/80 mt-0.5">
+              <p className="text-xs text-blue-900/80 dark:text-blue-300/90 mt-0.5">
                 {tr(
                   'Der private CA-Schlüssel (ca) wird verschlüsselt gespeichert und steht nur jetzt direkt nach der Erzeugung als Download bereit. Der öffentliche Schlüssel (ca.pub) kann jederzeit unten kopiert oder heruntergeladen werden.',
                   'The CA private key (ca) is stored encrypted and is only available for download right now after generation. The public key (ca.pub) remains available below at any time.'
@@ -593,7 +593,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
               type="button"
               onClick={() => setLastGeneratedCa(null)}
               aria-label={tr('Hinweis schließen', 'Dismiss notice')}
-              className="p-1 text-blue-700 hover:text-blue-950 rounded cursor-pointer shrink-0"
+              className="p-1 text-blue-700 dark:text-blue-400 hover:text-blue-950 dark:hover:text-blue-200 rounded cursor-pointer shrink-0"
             >
               <X className="w-4 h-4" />
             </button>
@@ -602,7 +602,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
             <button
               type="button"
               onClick={() => downloadTextFile('ca', lastGeneratedCa.privateKey)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-blue-900 bg-white border border-blue-300 hover:bg-blue-100/60 rounded-md cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-blue-900 dark:text-blue-200 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700/80 hover:bg-blue-100/60 dark:hover:bg-blue-900/50 rounded-md cursor-pointer whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5" />
               {tr('ca (Privatschlüssel, verschlüsselt) laden', 'Download ca (encrypted private key)')}
@@ -610,7 +610,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
             <button
               type="button"
               onClick={() => downloadTextFile('ca.pub', lastGeneratedCa.publicKey)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-blue-900 bg-white border border-blue-300 hover:bg-blue-100/60 rounded-md cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-blue-900 dark:text-blue-200 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700/80 hover:bg-blue-100/60 dark:hover:bg-blue-900/50 rounded-md cursor-pointer whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5" />
               {tr('ca.pub (Öffentlicher Schlüssel) laden', 'Download ca.pub (public key)')}
@@ -622,14 +622,14 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
       {/* Upload Existing CA Form */}
       <form
         onSubmit={handleUploadSubmit}
-        className="bg-white border border-slate-200 rounded-lg p-6 space-y-5"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr('Bestehende CA hochladen (ca & ca.pub)', 'Upload Existing CA (ca & ca.pub)')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Der private CA-Schlüssel (ca) muss zwingend passwortgeschützt sein und kryptografisch zu ca.pub passen.',
                 'The CA private key (ca) must be passphrase-protected and cryptographically match ca.pub.'
@@ -639,7 +639,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
           <button
             type="button"
             onClick={() => setShowTextEditors((v) => !v)}
-            className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap shrink-0 self-start sm:self-auto"
+            className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer whitespace-nowrap shrink-0 self-start sm:self-auto"
           >
             {showTextEditors
               ? tr('Textfelder ausblenden', 'Hide text fields')
@@ -664,8 +664,8 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
           onClick={() => multiInputRef.current?.click()}
           className={`border-2 border-dashed rounded-lg px-6 py-7 text-center cursor-pointer transition-colors ${
             isDragging
-              ? 'border-blue-600 bg-blue-50/70'
-              : 'border-slate-300 bg-slate-50/60 hover:border-slate-400 hover:bg-slate-50'
+              ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/35'
+              : 'border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 hover:border-slate-400 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800/60'
           }`}
         >
           <input
@@ -680,14 +680,14 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
               }
             }}
           />
-          <Upload className="w-6 h-6 text-slate-500 mx-auto mb-2" />
-          <p className="text-sm font-medium text-slate-900">
+          <Upload className="w-6 h-6 text-slate-500 dark:text-slate-400 mx-auto mb-2" />
+          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
             {tr(
               'ca und ca.pub gemeinsam hierher ziehen oder auswählen',
               'Drag & drop or select ca and ca.pub together'
             )}
           </p>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             {tr(
               'Automatische Erkennung von privatem (verschlüsseltem) und öffentlichem CA-Schlüssel.',
               'Automatically classifies the encrypted CA private key and public key.'
@@ -700,22 +700,22 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
           <div
             className={`rounded-md border p-4 flex items-center justify-between gap-3 ${
               privContent.trim()
-                ? 'border-emerald-300 bg-emerald-50/50'
-                : 'border-slate-200 bg-slate-50/40'
+                ? 'border-emerald-300 dark:border-emerald-700/80 bg-emerald-50/50 dark:bg-emerald-950/30'
+                : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/30'
             }`}
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <Lock
                   className={`w-4 h-4 shrink-0 ${
-                    privContent.trim() ? 'text-emerald-700' : 'text-slate-400'
+                    privContent.trim() ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'
                   }`}
                 />
-                <span className="font-mono text-xs font-semibold text-slate-900 truncate">
+                <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
                   {privFile}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                 {privContent.trim()
                   ? tr('Geladen (muss passwortgeschützt sein)', 'Loaded (must be encrypted)')
                   : tr('Privater CA-Schlüssel (Pflicht, verschlüsselt)', 'CA private key (required, encrypted)')}
@@ -730,7 +730,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
             <button
               type="button"
               onClick={() => privInputRef.current?.click()}
-              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md cursor-pointer whitespace-nowrap shrink-0"
             >
               {privContent.trim() ? tr('Ändern', 'Change') : tr('Wählen', 'Select')}
             </button>
@@ -739,22 +739,22 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
           <div
             className={`rounded-md border p-4 flex items-center justify-between gap-3 ${
               pubContent.trim()
-                ? 'border-emerald-300 bg-emerald-50/50'
-                : 'border-slate-200 bg-slate-50/40'
+                ? 'border-emerald-300 dark:border-emerald-700/80 bg-emerald-50/50 dark:bg-emerald-950/30'
+                : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/30'
             }`}
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <FileText
                   className={`w-4 h-4 shrink-0 ${
-                    pubContent.trim() ? 'text-emerald-700' : 'text-slate-400'
+                    pubContent.trim() ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'
                   }`}
                 />
-                <span className="font-mono text-xs font-semibold text-slate-900 truncate">
+                <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
                   {pubFile}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                 {pubContent.trim()
                   ? tr('Geladen (Öffentlicher CA-Schlüssel)', 'Loaded (CA public key)')
                   : tr('Öffentlicher CA-Schlüssel (Pflicht)', 'CA public key (required)')}
@@ -769,7 +769,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
             <button
               type="button"
               onClick={() => pubInputRef.current?.click()}
-              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md cursor-pointer whitespace-nowrap shrink-0"
             >
               {pubContent.trim() ? tr('Ändern', 'Change') : tr('Wählen', 'Select')}
             </button>
@@ -777,9 +777,9 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
         </div>
 
         {showTextEditors && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200 dark:border-slate-800">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Inhalt von ca (verschlüsselter Privatschlüssel)', 'Contents of ca (encrypted private key)')}
               </label>
               <textarea
@@ -787,11 +787,11 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                 value={privContent}
                 onChange={(e) => setPrivContent(e.target.value)}
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Inhalt von ca.pub (Öffentlicher CA-Schlüssel)', 'Contents of ca.pub (CA public key)')}
               </label>
               <textarea
@@ -799,16 +799,16 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                 value={pubContent}
                 onChange={(e) => setPubContent(e.target.value)}
                 placeholder="ssh-ed25519 AAAA... prod-user-ca"
-                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
           </div>
         )}
 
-        <div className="space-y-4 pt-2 border-t border-slate-200">
+        <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-slate-800">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="ca-upload-name" className="block text-xs font-medium text-slate-700 mb-1.5">
+              <label htmlFor="ca-upload-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 {tr('Bezeichnung der CA', 'CA Label')}
               </label>
               <input
@@ -821,13 +821,13 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                 placeholder={tr('z. B. prod-user-ca', 'e.g. prod-user-ca')}
                 className={`w-full px-3.5 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 ${
                   matchingUploadCa
-                    ? 'border-amber-400 bg-amber-50/40 focus:ring-amber-500'
-                    : 'border-slate-300 focus:ring-blue-600'
+                    ? 'border-amber-400 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/30 focus:ring-amber-500'
+                    : 'border-slate-300 dark:border-slate-700 focus:ring-blue-600'
                 }`}
               />
               {matchingUploadCa && (
-                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                   <span>
                     {tr(
                       `Der Name „${matchingUploadCa.name}“ ist bereits vergeben. Beim Speichern werden Sie gefragt, ob die bestehende CA überschrieben werden soll.`,
@@ -839,7 +839,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
             </div>
 
             <div>
-              <label htmlFor="ca-upload-desc" className="block text-xs font-medium text-slate-700 mb-1.5">
+              <label htmlFor="ca-upload-desc" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 {tr('Beschreibung / Zweck (optional)', 'Description / Purpose (optional)')}
               </label>
               <input
@@ -852,13 +852,13 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                   'z. B. Benutzer-CA für Produktionsserver',
                   'e.g. User CA for production servers'
                 )}
-                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="ca-upload-pass" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="ca-upload-pass" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr(
                 'CA-Passwort auf dem Server speichern (optional)',
                 'Store CA Passphrase on Server (optional)'
@@ -874,9 +874,9 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                 'Leer lassen für manuelle Eingabe beim späteren Signieren',
                 'Leave blank to enter manually when signing certificates later'
               )}
-              className="w-full md:w-1/2 px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full md:w-1/2 px-3.5 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
-            <p className="text-[11px] text-slate-500 mt-1">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
               {tr(
                 'Der CA-Privatschlüssel muss zwingend passwortgeschützt sein. Optional können Sie das Passwort hier AES-256-GCM-verschlüsselt hinterlegen — oder leer lassen, um es später bei jeder Signierung einzugeben.',
                 'The CA private key must always be passphrase-protected. Optionally store the passphrase AES-256-GCM encrypted here, or leave empty to prompt on each signing operation.'
@@ -906,7 +906,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
       {/* Saved CAs List */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-base font-semibold text-slate-900">
+          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
             {tr(
               `Hinterlegte Certificate Authorities (${cas.length})`,
               `Stored Certificate Authorities (${cas.length})`
@@ -915,16 +915,16 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
         </div>
 
         {loading ? (
-          <div className="bg-white border border-slate-200 rounded-lg px-6 py-10 text-center text-sm text-slate-500">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
             {tr('Lade CA-Zertifikate...', 'Loading CA certificates...')}
           </div>
         ) : cas.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-lg px-6 py-12 text-center">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-6 py-12 text-center">
             <FileKey2 className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-slate-900">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {tr('Noch keine CA-Zertifikate hinterlegt', 'No CA certificates stored yet')}
             </h3>
-            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
               {tr(
                 'Erzeugen Sie oben über „CA erzeugen“ eine neue passwortgeschützte Ed25519-CA oder laden Sie ein bestehendes Schlüsselpaar (ca & ca.pub) hoch.',
                 'Click "Generate CA" above to create a new passphrase-protected Ed25519 CA or upload an existing keypair (ca & ca.pub).'
@@ -939,19 +939,19 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
               return (
                 <article
                   key={ca.id}
-                  className="bg-white border border-slate-200 rounded-lg p-5 space-y-4"
+                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0" />
-                        <h3 className="font-display text-base font-semibold text-slate-900 truncate">
+                        <ShieldCheck className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
+                        <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 truncate">
                           {ca.name}
                         </h3>
-                        <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                        <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
                           {ca.keyType}
                         </span>
-                        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70">
                           <Lock className="w-3 h-3" />
                           {ca.hasStoredPassphrase
                             ? tr('Passwortgeschützt · Passwort gespeichert', 'Encrypted · Passphrase stored')
@@ -960,22 +960,22 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                       </div>
 
                       {ca.description && (
-                        <p className="text-xs text-slate-600">{ca.description}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">{ca.description}</p>
                       )}
 
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 pt-0.5">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400 pt-0.5">
                         <span className="font-mono tabular-nums">
                           {tr('Dateien:', 'Files:')} {ca.privateKeyFileName}, {ca.publicKeyFileName}
                         </span>
                         {ca.fingerprint && (
-                          <span className="font-mono text-[11px] text-slate-600 break-all">
+                          <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400 break-all">
                             {ca.fingerprint}
                           </span>
                         )}
                       </div>
                       <p className="text-[11px] text-slate-400 tabular-nums">
                         {tr('Erstellt von', 'Created by')}{' '}
-                        <span className="font-mono text-slate-600">{ca.createdByUsername || 'admin'}</span>{' '}
+                        <span className="font-mono text-slate-600 dark:text-slate-400">{ca.createdByUsername || 'admin'}</span>{' '}
                         · {formatDateTime(ca.createdAt)}
                         {ca.updatedAt && ca.updatedAt !== ca.createdAt
                           ? ` · ${tr('Aktualisiert', 'Updated')} ${formatDateTime(ca.updatedAt)}`
@@ -987,11 +987,11 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                       <button
                         type="button"
                         onClick={() => void handleCopyPubKey(ca)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md cursor-pointer whitespace-nowrap"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md cursor-pointer whitespace-nowrap"
                       >
                         {copiedId === ca.id ? (
                           <>
-                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                             {tr('Kopiert', 'Copied')}
                           </>
                         ) : (
@@ -1006,7 +1006,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                         onClick={() =>
                           downloadTextFile(ca.publicKeyFileName || 'ca.pub', `${ca.publicKey}\n`)
                         }
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md cursor-pointer whitespace-nowrap"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md cursor-pointer whitespace-nowrap"
                       >
                         <Download className="w-3.5 h-3.5" />
                         ca.pub
@@ -1016,8 +1016,8 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                         onClick={() => (isEditing ? cancelEdit() : startEdit(ca))}
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-md cursor-pointer whitespace-nowrap ${
                           isEditing
-                            ? 'text-blue-800 bg-blue-50 border-blue-300'
-                            : 'text-slate-700 bg-white border-slate-300 hover:bg-slate-50'
+                            ? 'text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700/80'
+                            : 'text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                         }`}
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -1040,7 +1040,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                             type="button"
                             disabled={deletingId === ca.id}
                             onClick={() => setConfirmDeleteId(null)}
-                            className="px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 rounded-md cursor-pointer"
+                            className="px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md cursor-pointer"
                           >
                             {tr('Abbrechen', 'Cancel')}
                           </button>
@@ -1049,7 +1049,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteId(ca.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-md transition-colors cursor-pointer"
                           title={tr('CA löschen', 'Delete CA')}
                           aria-label={tr('CA löschen', 'Delete CA')}
                         >
@@ -1060,16 +1060,16 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                   </div>
 
                   {/* Public Key Preview for TrustedUserCAKeys */}
-                  <div className="rounded-md bg-slate-50 border border-slate-200 px-3.5 py-2.5 space-y-1">
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                      <span className="font-medium text-slate-700">
+                  <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="font-medium text-slate-700 dark:text-slate-300">
                         {tr('Öffentlicher CA-Schlüssel (ca.pub)', 'CA Public Key (ca.pub)')}
                       </span>
-                      <span className="font-mono text-slate-500">
+                      <span className="font-mono text-slate-500 dark:text-slate-400">
                         sshd_config: TrustedUserCAKeys /etc/ssh/ca.pub
                       </span>
                     </div>
-                    <pre className="font-mono text-[11px] text-slate-800 whitespace-pre-wrap break-all select-all">
+                    <pre className="font-mono text-[11px] text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-all select-all">
                       {ca.publicKey}
                     </pre>
                   </div>
@@ -1078,14 +1078,14 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                   {isEditing && (
                     <form
                       onSubmit={(e) => void handleSaveEdit(e, ca)}
-                      className="rounded-md border border-blue-200 bg-slate-50/70 p-4 space-y-4"
+                      className="rounded-md border border-blue-200 dark:border-blue-800/70 bg-slate-50/70 dark:bg-slate-800/50 p-4 space-y-4"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
                         <div>
-                          <h4 className="text-xs font-semibold text-slate-900">
+                          <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
                             {tr('CA bearbeiten', 'Edit CA')}
                           </h4>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                             {tr(
                               'Passen Sie Bezeichnung, Beschreibung, gespeichertes CA-Passwort oder optional die Schlüsseldateien (ca / ca.pub) an.',
                               'Update label, description, stored CA passphrase, or optionally replace the key files (ca / ca.pub).'
@@ -1095,7 +1095,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                         <button
                           type="button"
                           onClick={() => setEditShowText((v) => !v)}
-                          className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap self-start sm:self-auto"
+                          className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer whitespace-nowrap self-start sm:self-auto"
                         >
                           {editShowText
                             ? tr('Schlüssel-Textfelder ausblenden', 'Hide key text fields')
@@ -1107,7 +1107,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                         <div>
                           <label
                             htmlFor={`edit-ca-name-${ca.id}`}
-                            className="block text-xs font-medium text-slate-700 mb-1"
+                            className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                           >
                             {tr('Bezeichnung', 'Label')}
                           </label>
@@ -1126,15 +1126,15 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                                   maxLength={64}
                                   value={editName}
                                   onChange={(e) => setEditName(e.target.value)}
-                                  className={`w-full px-3 py-1.5 text-sm bg-white border rounded-md focus:outline-none focus:ring-2 ${
+                                  className={`w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border rounded-md focus:outline-none focus:ring-2 ${
                                     otherMatch
-                                      ? 'border-amber-400 bg-amber-50/40 focus:ring-amber-500'
-                                      : 'border-slate-300 focus:ring-blue-600'
+                                      ? 'border-amber-400 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/30 focus:ring-amber-500'
+                                      : 'border-slate-300 dark:border-slate-700 focus:ring-blue-600'
                                   }`}
                                 />
                                 {otherMatch && (
-                                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800">
-                                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                                     <span>
                                       {tr(
                                         `Der Name „${otherMatch.name}“ ist bereits an eine andere CA vergeben.`,
@@ -1151,7 +1151,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                         <div>
                           <label
                             htmlFor={`edit-ca-desc-${ca.id}`}
-                            className="block text-xs font-medium text-slate-700 mb-1"
+                            className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                           >
                             {tr('Beschreibung', 'Description')}
                           </label>
@@ -1161,7 +1161,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                             maxLength={300}
                             value={editDescription}
                             onChange={(e) => setEditDescription(e.target.value)}
-                            className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            className="w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                           />
                         </div>
                       </div>
@@ -1169,7 +1169,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                       <div className="space-y-1.5">
                         <label
                           htmlFor={`edit-ca-pass-${ca.id}`}
-                          className="block text-xs font-medium text-slate-700"
+                          className="block text-xs font-medium text-slate-700 dark:text-slate-300"
                         >
                           {tr('Gespeichertes CA-Passwort', 'Stored CA Passphrase')}
                         </label>
@@ -1191,7 +1191,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                                   'Store optionally (blank = enter when signing)'
                                 )
                           }
-                          className="w-full md:w-1/2 px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-400"
+                          className="w-full md:w-1/2 px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-400 dark:disabled:text-slate-600"
                         />
                         {!editClearPassphrase && editPassphrase.length > 0 && (
                           <div className="md:w-1/2">
@@ -1199,7 +1199,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                           </div>
                         )}
                         {ca.hasStoredPassphrase && (
-                          <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer pt-1">
+                          <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer pt-1">
                             <input
                               type="checkbox"
                               checked={editClearPassphrase}
@@ -1207,7 +1207,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                                 setEditClearPassphrase(e.target.checked);
                                 if (e.target.checked) setEditPassphrase('');
                               }}
-                              className="rounded border-slate-300 text-red-600 focus:ring-red-600"
+                              className="rounded border-slate-300 dark:border-slate-700 text-red-600 dark:text-red-400 focus:ring-red-600"
                             />
                             <span>
                               {tr(
@@ -1220,9 +1220,9 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                       </div>
 
                       {/* Optional key file replacement */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-200">
-                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white border border-slate-200 rounded-md">
-                          <span className="font-mono text-xs text-slate-700 truncate">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md">
+                          <span className="font-mono text-xs text-slate-700 dark:text-slate-300 truncate">
                             {editPrivContent.trim()
                               ? `${editPrivFile} (${tr('neu gewählt', 'new file selected')})`
                               : `${ca.privateKeyFileName} (${tr('unverändert', 'unchanged')})`}
@@ -1236,14 +1236,14 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                           <button
                             type="button"
                             onClick={() => editPrivInputRef.current?.click()}
-                            className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-300 hover:bg-slate-100 rounded cursor-pointer whitespace-nowrap shrink-0"
+                            className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded cursor-pointer whitespace-nowrap shrink-0"
                           >
                             {tr('ca tauschen', 'Replace ca')}
                           </button>
                         </div>
 
-                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white border border-slate-200 rounded-md">
-                          <span className="font-mono text-xs text-slate-700 truncate">
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md">
+                          <span className="font-mono text-xs text-slate-700 dark:text-slate-300 truncate">
                             {editPubContent.trim()
                               ? `${editPubFile} (${tr('neu gewählt', 'new file selected')})`
                               : `${ca.publicKeyFileName} (${tr('unverändert', 'unchanged')})`}
@@ -1257,7 +1257,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                           <button
                             type="button"
                             onClick={() => editPubInputRef.current?.click()}
-                            className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-300 hover:bg-slate-100 rounded cursor-pointer whitespace-nowrap shrink-0"
+                            className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded cursor-pointer whitespace-nowrap shrink-0"
                           >
                             {tr('ca.pub tauschen', 'Replace ca.pub')}
                           </button>
@@ -1274,7 +1274,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                               'Optional neuer Inhalt für ca (verschlüsselt)...',
                               'Optional new contents for ca (encrypted)...'
                             )}
-                            className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            className="w-full px-3 py-2 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                           />
                           <textarea
                             rows={3}
@@ -1284,7 +1284,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                               'Optional neuer Inhalt für ca.pub...',
                               'Optional new contents for ca.pub...'
                             )}
-                            className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                            className="w-full px-3 py-2 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                           />
                         </div>
                       )}
@@ -1294,7 +1294,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                           type="button"
                           onClick={cancelEdit}
                           disabled={editSaving}
-                          className="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md cursor-pointer"
+                          className="px-3.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md cursor-pointer"
                         >
                           {tr('Abbrechen', 'Cancel')}
                         </button>
@@ -1323,21 +1323,21 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
           role="dialog"
           aria-modal="true"
           aria-labelledby="generate-ca-modal-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/70 backdrop-blur-[1px]"
           onClick={(e) => {
             if (e.target === e.currentTarget) closeGenerateModal();
           }}
         >
           <form
             onSubmit={handleGenerateSubmit}
-            className="w-full max-w-md bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
+            className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden"
           >
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <Wand2 className="w-4 h-4 text-blue-700 shrink-0" />
+                <Wand2 className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
                 <h2
                   id="generate-ca-modal-title"
-                  className="font-display text-base font-semibold text-slate-900"
+                  className="font-display text-base font-semibold text-slate-900 dark:text-slate-100"
                 >
                   {tr('CA-Zertifikat erzeugen (Ed25519)', 'Generate CA Certificate (Ed25519)')}
                 </h2>
@@ -1347,14 +1347,14 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                 onClick={closeGenerateModal}
                 disabled={generating}
                 aria-label={tr('Schließen', 'Close')}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer disabled:opacity-50"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded cursor-pointer disabled:opacity-50"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="p-5 space-y-4">
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
                 {tr(
                   'Erzeugt ein neues passwortgeschütztes Ed25519-CA-Schlüsselpaar (ca und ca.pub) zum Signieren von SSH-Benutzerzertifikaten.',
                   'Generates a new passphrase-protected Ed25519 CA keypair (ca and ca.pub) for signing SSH user certificates.'
@@ -1364,14 +1364,14 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
               {genError && (
                 <div
                   role="alert"
-                  className="px-3 py-2 rounded-md bg-red-50 border border-red-200 text-xs text-red-800"
+                  className="px-3 py-2 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300"
                 >
                   {genError}
                 </div>
               )}
 
               <div>
-                <label htmlFor="gen-ca-name" className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="gen-ca-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   {tr('Bezeichnung', 'Label')}
                 </label>
                 <input
@@ -1387,13 +1387,13 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                   placeholder={`${currentUser.username}-ca`}
                   className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 ${
                     matchingGenCa
-                      ? 'border-amber-400 bg-amber-50/40 focus:ring-amber-500'
-                      : 'border-slate-300 focus:ring-blue-600'
+                      ? 'border-amber-400 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/30 focus:ring-amber-500'
+                      : 'border-slate-300 dark:border-slate-700 focus:ring-blue-600'
                   }`}
                 />
                 {matchingGenCa && (
-                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                     <span>
                       {tr(
                         `Der Name „${matchingGenCa.name}“ ist bereits vergeben.`,
@@ -1405,7 +1405,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
               </div>
 
               <div>
-                <label htmlFor="gen-ca-desc" className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="gen-ca-desc" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   {tr('Beschreibung (optional)', 'Description (optional)')}
                 </label>
                 <input
@@ -1415,12 +1415,12 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                   value={genDescription}
                   onChange={(e) => setGenDescription(e.target.value)}
                   placeholder={tr('z. B. User-CA Produktion', 'e.g. Production User CA')}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
 
               <div>
-                <label htmlFor="gen-ca-pass" className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="gen-ca-pass" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   {tr('CA-Passwort (erforderlich)', 'CA Passphrase (required)')}
                 </label>
                 <input
@@ -1432,13 +1432,13 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                   value={genPassphrase}
                   onChange={(e) => setGenPassphrase(e.target.value)}
                   placeholder={tr('Starkes Passwort für CA-Privatschlüssel...', 'Strong passphrase for CA private key...')}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
                 <PasswordStrengthHint password={genPassphrase} compact />
               </div>
 
               <div>
-                <label htmlFor="gen-ca-pass-confirm" className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="gen-ca-pass-confirm" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   {tr('CA-Passwort bestätigen', 'Confirm CA Passphrase')}
                 </label>
                 <input
@@ -1449,25 +1449,25 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                   value={genPassphraseConfirm}
                   onChange={(e) => setGenPassphraseConfirm(e.target.value)}
                   placeholder={tr('Passwort erneut eingeben...', 'Re-enter passphrase...')}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
 
-              <label className="flex items-start gap-2.5 p-3 rounded-md bg-slate-50 border border-slate-200 text-xs text-slate-700 cursor-pointer">
+              <label className="flex items-start gap-2.5 p-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={genStorePassphrase}
                   onChange={(e) => setGenStorePassphrase(e.target.checked)}
-                  className="mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                  className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600 cursor-pointer"
                 />
                 <div>
-                  <span className="font-medium text-slate-900">
+                  <span className="font-medium text-slate-900 dark:text-slate-100">
                     {tr(
                       'CA-Passwort verschlüsselt auf dem Server speichern',
                       'Store CA passphrase encrypted on server'
                     )}
                   </span>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     {tr(
                       'Optional: Ermöglicht späteres Signieren ohne erneute Passworteingabe. Ohne Haken wird das Passwort bei jeder Signierung abgefragt.',
                       'Optional: Allows future signing without re-entering the passphrase. If unchecked, you will be prompted on each signing.'
@@ -1479,10 +1479,10 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
               {genConfirmOverwrite && matchingGenCa && (
                 <div
                   role="alert"
-                  className="px-3.5 py-3 rounded-md bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-1"
+                  className="px-3.5 py-3 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 text-xs text-amber-950 dark:text-amber-200 space-y-1"
                 >
-                  <div className="flex items-center gap-2 font-semibold text-amber-900">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div className="flex items-center gap-2 font-semibold text-amber-900 dark:text-amber-200">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                     <span>
                       {tr(
                         `Bestehende CA „${matchingGenCa.name}“ überschreiben?`,
@@ -1490,7 +1490,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                       )}
                     </span>
                   </div>
-                  <p className="text-amber-900/90 leading-relaxed">
+                  <p className="text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
                     {tr(
                       'Eine CA mit diesem Namen existiert bereits. Soll sie wirklich durch die neu erzeugte CA ersetzt werden?',
                       'A CA with this name already exists. Do you really want to replace it with the newly generated CA?'
@@ -1500,7 +1500,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
               )}
             </div>
 
-            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+            <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
               {genConfirmOverwrite && matchingGenCa ? (
                 <>
                   <button
@@ -1513,7 +1513,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                       }, 0);
                     }}
                     disabled={generating}
-                    className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {tr('Anderen Namen wählen', 'Choose Different Name')}
                   </button>
@@ -1534,7 +1534,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                     type="button"
                     onClick={closeGenerateModal}
                     disabled={generating}
-                    className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {tr('Abbrechen', 'Cancel')}
                   </button>
@@ -1561,18 +1561,18 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
           role="dialog"
           aria-modal="true"
           aria-labelledby="overwrite-upload-ca-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/70 backdrop-blur-[1px]"
           onClick={(e) => {
             if (e.target === e.currentTarget && !savingUpload) setConfirmUploadOverwriteCa(null);
           }}
         >
-          <div className="w-full max-w-md bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                 <h2
                   id="overwrite-upload-ca-title"
-                  className="font-display text-base font-semibold text-slate-900"
+                  className="font-display text-base font-semibold text-slate-900 dark:text-slate-100"
                 >
                   {tr('Bestehende CA überschreiben?', 'Overwrite Existing CA?')}
                 </h2>
@@ -1582,20 +1582,20 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                 onClick={() => setConfirmUploadOverwriteCa(null)}
                 disabled={savingUpload}
                 aria-label={tr('Schließen', 'Close')}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer disabled:opacity-50"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded cursor-pointer disabled:opacity-50"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-5 space-y-3 text-sm text-slate-700">
+            <div className="p-5 space-y-3 text-sm text-slate-700 dark:text-slate-300">
               <p>
                 {tr(
                   `Eine Certificate Authority mit dem Namen „${confirmUploadOverwriteCa.name}“ existiert bereits.`,
                   `A Certificate Authority named "${confirmUploadOverwriteCa.name}" already exists.`
                 )}
               </p>
-              <p className="text-xs text-slate-600 leading-relaxed">
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                 {tr(
                   'Möchten Sie diese CA wirklich mit den neuen Schlüsseldateien überschreiben? Der bisherige CA-Schlüssel wird dauerhaft ersetzt.',
                   'Do you really want to overwrite this CA with the new key files? The previous CA key will be permanently replaced.'
@@ -1603,7 +1603,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
               </p>
             </div>
 
-            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+            <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
               <button
                 type="button"
                 disabled={savingUpload}
@@ -1614,7 +1614,7 @@ export function CaAdminView({ currentUser }: CaAdminViewProps) {
                     uploadNameInputRef.current?.select();
                   }, 0);
                 }}
-                className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
               >
                 {tr('Anderen Namen wählen', 'Choose Different Name')}
               </button>

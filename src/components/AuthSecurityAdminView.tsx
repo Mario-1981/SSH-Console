@@ -317,7 +317,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
 
   if (loading) {
     return (
-      <div className="bg-white border border-slate-200 rounded-lg p-8 text-sm text-slate-500">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-8 text-sm text-slate-500 dark:text-slate-400">
         {tr('Lade Authentifizierungseinstellungen...', 'Loading authentication settings...')}
       </div>
     );
@@ -327,10 +327,10 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
     <form onSubmit={handleSave} className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {tr('Authentifizierung, SSO, 2FA & Passkeys', 'Authentication, SSO, 2FA & Passkeys')}
           </h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             {tr(
               'Konfigurieren Sie OpenID Connect / OAuth 2.0 Single Sign-On sowie systemweite Richtlinien für 2FA und Passkeys.',
               'Configure OpenID Connect / OAuth 2.0 Single Sign-On as well as system-wide policies for 2FA and Passkeys.'
@@ -349,27 +349,27 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
       </div>
 
       {error && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-900 flex items-start gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700" />
+        <div className="px-4 py-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-900 dark:text-emerald-200 flex items-start gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700 dark:text-emerald-400" />
           <span>{success}</span>
         </div>
       )}
 
       {/* Public Domain / Base URL for curl API */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
-        <div className="flex items-start gap-3 pb-4 border-b border-slate-200">
-          <Globe className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-4">
+        <div className="flex items-start gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <Globe className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr('Öffentliche Domain / Basis-URL (API & curl)', 'Public Domain / Base URL (API & curl)')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Wird in den curl-Upload-Beispielen (Zertifikate & Konto) statt der internen Server-IP angezeigt, z. B. hinter einem Reverse-Proxy.',
                 'Used in curl upload examples (Certificates & Account) instead of the internal server IP, e.g. behind a reverse proxy.'
@@ -379,7 +379,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
         </div>
 
         <div className="max-w-xl">
-          <label htmlFor="admin-public-url" className="block text-xs font-medium text-slate-700 mb-1.5">
+          <label htmlFor="admin-public-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
             {tr('Öffentliche Basis-URL (optional)', 'Public Base URL (optional)')}
           </label>
           <input
@@ -388,9 +388,9 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
             value={publicUrl}
             onChange={(e) => setPublicUrl(e.target.value)}
             placeholder="https://ssh.example.net"
-            className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+            className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
           />
-          <p className="text-[11px] text-slate-500 mt-1.5">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
             {tr(
               'Beispiel: https://ssh.example.net (ohne abschließenden Schrägstrich). Bleibt das Feld leer, wird automatisch die aktuelle Browser-Adresse verwendet.',
               'Example: https://ssh.example.net (without a trailing slash). Leave empty to automatically use the current browser address.'
@@ -400,15 +400,15 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
       </section>
 
       {/* Section 1: SSO / OpenID Connect */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-start gap-3">
-            <Globe className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+            <Globe className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
             <div>
-              <h2 className="font-display text-base font-semibold text-slate-900">
+              <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                 {tr('Single Sign-On (OIDC / OAuth 2.0)', 'Single Sign-On (OIDC / OAuth 2.0)')}
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Unterstützt Keycloak, Authentik, Microsoft Entra ID, Google Workspace, GitLab, Okta und jeden OIDC-Anbieter (mit PKCE S256).',
                   'Supports Keycloak, Authentik, Microsoft Entra ID, Google Workspace, GitLab, Okta, and any OIDC provider (with PKCE S256).'
@@ -426,37 +426,37 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                 setSsoEnabled(next);
                 if (!next) setLocalLoginDisabled(false);
               }}
-              className="w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
             />
-            <span className="text-sm font-medium text-slate-800">
+            <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
               {tr('SSO aktivieren', 'Enable SSO')}
             </span>
           </label>
         </div>
 
         {/* Callback URL Box */}
-        <div className="p-4 rounded-md bg-slate-50 border border-slate-200 space-y-2">
+        <div className="p-4 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-700">
+            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
               {tr('Redirect / Callback-URL (beim SSO-Anbieter eintragen)', 'Redirect / Callback URL (register at your IdP)')}
             </span>
             <button
               type="button"
               onClick={copyCallback}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5" />
               {copiedCallback ? tr('Kopiert', 'Copied') : tr('Kopieren', 'Copy')}
             </button>
           </div>
-          <code className="block text-xs font-mono text-slate-900 bg-white border border-slate-200 rounded px-3 py-2 break-all">
+          <code className="block text-xs font-mono text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-3 py-2 break-all">
             {callbackUrl || `${window.location.origin}/api/auth/sso/callback`}
           </code>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sso-provider" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="sso-provider" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Anzeigename des SSO-Buttons', 'SSO Button Display Name')}
             </label>
             <input
@@ -465,12 +465,12 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               value={ssoProviderName}
               onChange={(e) => setSsoProviderName(e.target.value)}
               placeholder="Keycloak / Firmen-SSO"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <div>
-            <label htmlFor="sso-scopes" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="sso-scopes" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('OAuth Scopes', 'OAuth Scopes')}
             </label>
             <input
@@ -479,12 +479,12 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               value={ssoScopes}
               onChange={(e) => setSsoScopes(e.target.value)}
               placeholder="openid profile email"
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="sso-issuer" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="sso-issuer" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('OIDC Issuer-URL (für Auto-Discovery)', 'OIDC Issuer URL (for Auto-Discovery)')}
             </label>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -494,13 +494,13 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                 value={ssoIssuerUrl}
                 onChange={(e) => setSsoIssuerUrl(e.target.value)}
                 placeholder="https://idp.example.com/realms/main"
-                className="flex-1 px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="flex-1 px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
               <button
                 type="button"
                 onClick={handleDiscover}
                 disabled={discovering}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 {discovering
@@ -511,7 +511,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
           </div>
 
           <div>
-            <label htmlFor="sso-auth-url" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="sso-auth-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Authorization-URL *', 'Authorization URL *')}
             </label>
             <input
@@ -520,12 +520,12 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               value={ssoAuthUrl}
               onChange={(e) => setSsoAuthUrl(e.target.value)}
               placeholder="https://idp.example.com/.../auth"
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <div>
-            <label htmlFor="sso-token-url" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="sso-token-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Token-URL *', 'Token URL *')}
             </label>
             <input
@@ -534,12 +534,12 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               value={ssoTokenUrl}
               onChange={(e) => setSsoTokenUrl(e.target.value)}
               placeholder="https://idp.example.com/.../token"
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="sso-userinfo-url" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="sso-userinfo-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('UserInfo-URL (empfohlen)', 'UserInfo URL (recommended)')}
             </label>
             <input
@@ -548,12 +548,12 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               value={ssoUserinfoUrl}
               onChange={(e) => setSsoUserinfoUrl(e.target.value)}
               placeholder="https://idp.example.com/.../userinfo"
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <div>
-            <label htmlFor="sso-client-id" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="sso-client-id" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Client ID *', 'Client ID *')}
             </label>
             <input
@@ -562,20 +562,20 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               value={ssoClientId}
               onChange={(e) => setSsoClientId(e.target.value)}
               placeholder="ssh-console"
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="sso-client-secret" className="block text-xs font-medium text-slate-700">
+              <label htmlFor="sso-client-secret" className="block text-xs font-medium text-slate-700 dark:text-slate-300">
                 {tr('Client Secret (verschlüsselt gespeichert)', 'Client Secret (stored encrypted)')}
               </label>
               {ssoHasClientSecret && !clearSsoClientSecret && (
                 <button
                   type="button"
                   onClick={() => setClearSsoClientSecret(true)}
-                  className="text-xs text-red-700 hover:underline cursor-pointer"
+                  className="text-xs text-red-700 dark:text-red-400 hover:underline cursor-pointer"
                 >
                   {tr('Entfernen', 'Clear')}
                 </button>
@@ -596,28 +596,28 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                     ? tr('•••••••• (hinterlegt – leer lassen zum Beibehalten)', '•••••••• (configured – leave blank to keep)')
                     : tr('Optional bei PKCE Public Clients', 'Optional for PKCE public clients')
               }
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
         </div>
 
         {/* Auto-create users option */}
-        <div className="pt-2 border-t border-slate-100 space-y-4">
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/70 space-y-4">
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
               checked={ssoAutoCreateUsers}
               onChange={(e) => setSsoAutoCreateUsers(e.target.checked)}
-              className="w-4 h-4 mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              className="w-4 h-4 mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
             />
             <div>
-              <span className="block text-sm font-medium text-slate-900">
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
                 {tr(
                   'Unbekannte SSO-Benutzer automatisch als Benutzer anlegen',
                   'Automatically create new SSO users with User role'
                 )}
               </span>
-              <span className="block text-xs text-slate-500 mt-0.5">
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Meldet sich eine Person erstmals per SSO an und existiert noch kein passendes Konto, wird automatisch ein neues Konto mit der Rolle „Benutzer“ erstellt.',
                   'When someone signs in via SSO for the first time without an existing account, a new account with the "User" role is created automatically.'
@@ -627,15 +627,15 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
           </label>
 
           {/* SSO Test Gate & Local Login Disable */}
-          <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 space-y-4">
+          <div className="p-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {tr('SSO-Verbindungstest (Voraussetzung zum Abschalten der lokalen Anmeldung)', 'SSO Connection Test (required before disabling local login)')}
                 </h3>
-                <p className="text-xs text-slate-600 mt-0.5">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                   {ssoTestedAt ? (
-                    <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
+                    <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       {tr(
                         `Erfolgreich getestet am ${formatDateTime(ssoTestedAt)}`,
@@ -655,7 +655,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                 type="button"
                 onClick={handleTestSso}
                 disabled={testingSso || !ssoAuthUrl.trim() || !ssoTokenUrl.trim() || !ssoClientId.trim()}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/70 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
                 {testingSso ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -668,7 +668,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               </button>
             </div>
 
-            <div className="pt-3 border-t border-slate-200">
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800">
               <label
                 className={`flex items-start gap-3 ${
                   canDisableLocalLogin ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'
@@ -679,13 +679,13 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                   checked={localLoginDisabled}
                   disabled={!canDisableLocalLogin}
                   onChange={(e) => setLocalLoginDisabled(e.target.checked)}
-                  className="w-4 h-4 mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                  className="w-4 h-4 mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
                 />
                 <div>
-                  <span className="block text-sm font-medium text-slate-900">
+                  <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
                     {tr('Lokale Anmeldung abschalten (nur SSO erlauben)', 'Disable local login (SSO only)')}
                   </span>
-                  <span className="block text-xs text-slate-500 mt-0.5">
+                  <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {canDisableLocalLogin
                       ? tr(
                           'Blendet Benutzername/Passwort und Passkey auf der Anmeldeseite aus und sperrt lokale Logins serverseitig.',
@@ -704,14 +704,14 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
       </section>
 
       {/* Section 2: 2FA Policy for Local Login */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-        <div className="flex items-start gap-3 pb-4 border-b border-slate-200">
-          <KeyRound className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5">
+        <div className="flex items-start gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <KeyRound className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr('2-Faktor-Authentifizierung (2FA) für lokale Anmeldung', 'Two-Factor Authentication (2FA) for Local Login')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Unterstützt Authenticator-Apps (TOTP mit QR-Code & Wiederherstellungscodes) sowie Hardware-Sicherheitsschlüssel (FIDO2 / WebAuthn, z. B. YubiKey).',
                 'Supports Authenticator Apps (TOTP with QR code & recovery codes) and Hardware Security Keys (FIDO2 / WebAuthn, e.g. YubiKey).'
@@ -730,13 +730,13 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                 setTwoFactorEnabled(next);
                 if (!next) setTwoFactorEnforced(false);
               }}
-              className="w-4 h-4 mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              className="w-4 h-4 mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
             />
             <div>
-              <span className="block text-sm font-medium text-slate-900">
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
                 {tr('2FA für lokale Konten einschalten (App & Sicherheitsschlüssel)', 'Enable 2FA for local accounts (App & Security Key)')}
               </span>
-              <span className="block text-xs text-slate-500 mt-0.5">
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Benutzer können unter „Konto & Sicherheit“ eine Authenticator-App und/oder Hardware-Sicherheitsschlüssel einrichten.',
                   'Users can enroll an Authenticator App and/or Hardware Security Keys under "Account & Security".'
@@ -755,13 +755,13 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               checked={twoFactorEnforced}
               disabled={!twoFactorEnabled}
               onChange={(e) => setTwoFactorEnforced(e.target.checked)}
-              className="w-4 h-4 mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              className="w-4 h-4 mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
             />
             <div>
-              <span className="block text-sm font-medium text-slate-900">
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
                 {tr('2FA für alle lokalen Konten erzwingen', 'Enforce 2FA for all local accounts')}
               </span>
-              <span className="block text-xs text-slate-500 mt-0.5">
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Lokale Benutzer ohne aktives 2FA werden nach dem Login automatisch zur Einrichtung geleitet, bevor sie auf Dashboard, Server, Befehle oder SSH-Shell zugreifen dürfen.',
                   'Local users without active 2FA are guided directly to security setup after sign-in before accessing Dashboard, Servers, Commands, or SSH Shell.'
@@ -773,14 +773,14 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
       </section>
 
       {/* Section 3: Passkey Policy */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-        <div className="flex items-start gap-3 pb-4 border-b border-slate-200">
-          <Fingerprint className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5">
+        <div className="flex items-start gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <Fingerprint className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr('Passkeys (Passwortlose WebAuthn-Anmeldung)', 'Passkeys (Passwordless WebAuthn Sign-In)')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Ermöglicht sichere Anmeldung per Touch ID, Face ID, Windows Hello, Passwortmanager oder FIDO2-Stick mit Benutzerverifizierung.',
                 'Enables secure sign-in with Touch ID, Face ID, Windows Hello, password managers, or FIDO2 keys with user verification.'
@@ -799,13 +799,13 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                 setPasskeyEnabled(next);
                 if (!next) setPasskeyEnforced(false);
               }}
-              className="w-4 h-4 mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              className="w-4 h-4 mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
             />
             <div>
-              <span className="block text-sm font-medium text-slate-900">
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
                 {tr('Passkeys einschalten', 'Enable Passkeys')}
               </span>
-              <span className="block text-xs text-slate-500 mt-0.5">
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Zeigt „Mit Passkey anmelden“ auf der Anmeldeseite an und erlaubt Benutzern die Registrierung eigener Passkeys.',
                   'Shows "Sign in with Passkey" on the login screen and allows users to register their own Passkeys.'
@@ -824,13 +824,13 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               checked={passkeyEnforced}
               disabled={!passkeyEnabled}
               onChange={(e) => setPasskeyEnforced(e.target.checked)}
-              className="w-4 h-4 mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              className="w-4 h-4 mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
             />
             <div>
-              <span className="block text-sm font-medium text-slate-900">
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
                 {tr('Passkeys für alle lokalen Konten erzwingen', 'Enforce Passkeys for all local accounts')}
               </span>
-              <span className="block text-xs text-slate-500 mt-0.5">
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Lokale Benutzer ohne Passkey müssen sofort nach dem Login einen Passkey registrieren. Sobald ein Passkey hinterlegt ist, ist die Passwort-Anmeldung für dieses Konto gesperrt.',
                   'Local users without a Passkey must enroll one immediately after sign-in. Once a Passkey is registered, password login is blocked for that account.'
@@ -839,8 +839,8 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
             </div>
           </label>
 
-          <div className="p-3.5 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
-            <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
+          <div className="p-3.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+            <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-700 dark:text-amber-400" />
             <span>
               {tr(
                 'Hinweis: Passkeys und Hardware-Sicherheitsschlüssel erfordern im Browser eine sichere Umgebung (HTTPS oder localhost). Bei Geräteverlust können Administratoren 2FA und Passkeys eines Benutzers unter „Benutzerverwaltung“ zurücksetzen.',
@@ -852,14 +852,14 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
       </section>
 
       {/* Section 4: SSH Host-Key Checking Policy */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-        <div className="flex items-start gap-3 pb-4 border-b border-slate-200">
-          <ShieldAlert className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5">
+        <div className="flex items-start gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <ShieldAlert className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr('SSH-Sicherheit: Host-Key-Prüfung (pro IP)', 'SSH Security: Host Key Checking (per IP)')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Steuert global, ob Benutzer für einzelne Ziel-IPs die OpenSSH-Optionen StrictHostKeyChecking=no und UserKnownHostsFile=/dev/null aktivieren dürfen.',
                 'Globally controls whether users are allowed to enable StrictHostKeyChecking=no and UserKnownHostsFile=/dev/null on individual target IPs.'
@@ -874,16 +874,16 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               type="checkbox"
               checked={allowInsecureHostKey}
               onChange={(e) => setAllowInsecureHostKey(e.target.checked)}
-              className="w-4 h-4 mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+              className="w-4 h-4 mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700 dark:text-blue-400 focus:ring-blue-600"
             />
             <div>
-              <span className="block text-sm font-medium text-slate-900">
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
                 {tr(
                   'Deaktivieren der Host-Key-Prüfung pro IP erlauben',
                   'Allow disabling Host Key Checking per IP'
                 )}
               </span>
-              <span className="block text-xs text-slate-500 mt-0.5">
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Wenn aktiviert, können Benutzer unter „Meine Server (IPs)“ und in der „SSH-Shell“ pro Ziel-IP auswählen, ob OpenSSH mit -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null verbinden soll (z. B. für Labor-, Test- oder neu provisionierte Systeme). Ist dieser Schalter aus, wird die Host-Key-Prüfung serverseitig für alle Verbindungen erzwungen.',
                   'When enabled, users can choose per target IP under "My Servers (IPs)" and in "SSH Shell" to connect with -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null (e.g. for lab, staging, or frequently reimaged hosts). When disabled, host key verification is enforced server-side for all connections.'
@@ -892,15 +892,15 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
             </div>
           </label>
 
-          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-medium text-slate-900">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                 {tr(
                   'Gespeicherte SSH Host-Keys (known_hosts) global zurücksetzen',
                   'Globally Reset Stored SSH Host Keys (known_hosts)'
                 )}
               </p>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {hostKeyStats !== null
                   ? tr(
                       `Aktuell gespeichert: ${hostKeyStats.totalEntries} Host-Key-Einträge (${hostKeyStats.userFiles} Benutzer). Bei erneutem Verbinden werden neue Host-Keys automatisch per accept-new akzeptiert.`,
@@ -930,7 +930,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                   type="button"
                   onClick={() => setConfirmClearHostKeys(false)}
                   disabled={clearingHostKeys}
-                  className="px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                  className="px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                 >
                   {tr('Abbrechen', 'Cancel')}
                 </button>
@@ -939,7 +939,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
               <button
                 type="button"
                 onClick={() => setConfirmClearHostKeys(true)}
-                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/70 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 {tr('Alle Host-Keys global löschen', 'Delete All Host Keys Globally')}
@@ -950,14 +950,14 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
       </section>
 
       {/* Section 5: Background Quick-Command Concurrency Limit (per User) */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-        <div className="flex items-start gap-3 pb-4 border-b border-slate-200">
-          <Bell className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5">
+        <div className="flex items-start gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <Bell className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               {tr('Hintergrundprozesse pro Benutzer (Kurzbefehle)', 'Background Processes per User (Quick Commands)')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {tr(
                 'Legt global fest, wie viele Kurzbefehl-/Sammelaufträge jeder Benutzer gleichzeitig im Hintergrund ausführen darf. Das Limit gilt jeweils eigenständig pro Benutzerkonto.',
                 'Globally sets how many quick-command/batch jobs each user may run concurrently in the background. The limit applies independently to every user account.'
@@ -970,7 +970,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
           <div className="space-y-1.5 max-w-md">
             <label
               htmlFor="admin-max-bg-jobs"
-              className="block text-xs font-medium text-slate-700"
+              className="block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               {tr(
                 'Maximale Anzahl gleichzeitiger Hintergrundprozesse pro Benutzer (1–50)',
@@ -987,7 +987,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                 value={maxBackgroundJobsInput}
                 onChange={(e) => setMaxBackgroundJobsInput(e.target.value)}
                 disabled={savingBgLimit}
-                className="w-24 px-3 py-2 text-sm font-mono tabular-nums bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-24 px-3 py-2 text-sm font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
               <button
                 type="button"
@@ -1034,7 +1034,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
                 {savingBgLimit ? tr('Speichert...', 'Saving...') : tr('Limit speichern', 'Save Limit')}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {tr(
                 'Standardwert: 5 pro Benutzer. Kann auch direkt unter „Hintergrundprozesse“ oder über das Einstellungs-Symbol in der Glocke oben rechts geändert werden.',
                 'Default: 5 per user. Can also be adjusted directly under "Background Jobs" or via the settings icon inside the top-right bell.'
@@ -1045,7 +1045,7 @@ export function AuthSecurityAdminView({ onSettingsUpdated }: AuthSecurityAdminVi
       </section>
 
       <div className="flex items-center justify-between pt-2">
-        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <Lock className="w-3.5 h-3.5" />
           {tr(
             'Alle Geheimnisse (SSO Client Secret, TOTP-Schlüssel) werden serverseitig mit AES-256-GCM verschlüsselt gespeichert.',

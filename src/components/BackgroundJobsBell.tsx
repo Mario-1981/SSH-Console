@@ -173,15 +173,15 @@ export function BackgroundJobsBell({
 
   function renderStatusIcon(status: BackgroundJob['status'], className = 'w-4 h-4 shrink-0') {
     if (status === 'running') {
-      return <Loader2 className={`${className} text-blue-600 animate-spin`} />;
+      return <Loader2 className={`${className} text-blue-600 dark:text-blue-400 animate-spin`} />;
     }
     if (status === 'completed') {
-      return <CheckCircle2 className={`${className} text-emerald-600`} />;
+      return <CheckCircle2 className={`${className} text-emerald-600 dark:text-emerald-400`} />;
     }
     if (status === 'partial') {
-      return <AlertTriangle className={`${className} text-amber-600`} />;
+      return <AlertTriangle className={`${className} text-amber-600 dark:text-amber-400`} />;
     }
-    return <XCircle className={`${className} text-red-600`} />;
+    return <XCircle className={`${className} text-red-600 dark:text-red-400`} />;
   }
 
   function renderStatusLabel(status: BackgroundJob['status']) {
@@ -211,10 +211,10 @@ export function BackgroundJobsBell({
           )}
           className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
             open
-              ? 'bg-slate-100 border-slate-300 text-slate-900'
+              ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100'
               : activeCount > 0
-              ? 'bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100'
-              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+              ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/70 text-blue-800 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50'
+              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
           }`}
         >
           <span className="relative inline-flex items-center justify-center">
@@ -242,21 +242,21 @@ export function BackgroundJobsBell({
 
         {/* Dropdown Panel */}
         {open && (
-          <div className="absolute right-0 mt-2 w-[23rem] sm:w-[27rem] bg-white border border-slate-200 rounded-lg shadow-xl z-40 overflow-hidden">
+          <div className="absolute right-0 mt-2 w-[23rem] sm:w-[27rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-40 overflow-hidden">
             {/* Panel Header */}
-            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between gap-2">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="font-display text-sm font-semibold text-slate-900">
+                  <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100">
                     {tr('Hintergrundaufträge', 'Background Jobs')}
                   </h3>
                   <span
                     className={`px-1.5 py-0.5 text-[11px] font-mono tabular-nums rounded border ${
                       atCapacity
-                        ? 'bg-amber-50 text-amber-800 border-amber-200 font-semibold'
+                        ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/70 font-semibold'
                         : activeCount > 0
-                        ? 'bg-blue-50 text-blue-800 border-blue-200'
-                        : 'bg-white text-slate-600 border-slate-200'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/70'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
                     }`}
                   >
                     {tr('Aktiv', 'Active')}: {activeCount}/{maxBackgroundJobs}
@@ -270,7 +270,7 @@ export function BackgroundJobsBell({
                     type="button"
                     onClick={() => void onMarkAllRead()}
                     title={tr('Alle als gelesen markieren', 'Mark all as read')}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded transition-colors cursor-pointer"
                   >
                     <CheckCheck className="w-3.5 h-3.5" />
                     <span>{tr('Alle gelesen', 'Mark all read')}</span>
@@ -286,8 +286,8 @@ export function BackgroundJobsBell({
                     title={tr('Admin: Limit für Hintergrundprozesse anpassen', 'Admin: Adjust background job limit')}
                     className={`p-1.5 rounded transition-colors cursor-pointer ${
                       showAdminLimit
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/70'
+                        ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-700/70'
                     }`}
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -300,10 +300,10 @@ export function BackgroundJobsBell({
             {isAdmin && showAdminLimit && (
               <form
                 onSubmit={handleSaveLimit}
-                className="px-4 py-2.5 bg-blue-50/60 border-b border-blue-100 space-y-1.5"
+                className="px-4 py-2.5 bg-blue-50/60 dark:bg-blue-950/30 border-b border-blue-100 dark:border-blue-900/60 space-y-1.5"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <label htmlFor="bell-max-bg-jobs" className="text-xs font-medium text-slate-800">
+                  <label htmlFor="bell-max-bg-jobs" className="text-xs font-medium text-slate-800 dark:text-slate-200">
                     {tr('Max. Prozesse pro Benutzer (Admin):', 'Max jobs per user (Admin):')}
                   </label>
                   <div className="flex items-center gap-1.5">
@@ -315,7 +315,7 @@ export function BackgroundJobsBell({
                       value={limitInput}
                       onChange={(e) => setLimitInput(e.target.value)}
                       disabled={savingLimit}
-                      className="w-16 px-2 py-1 text-xs font-mono tabular-nums bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="w-16 px-2 py-1 text-xs font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
                     />
                     <button
                       type="submit"
@@ -326,9 +326,9 @@ export function BackgroundJobsBell({
                     </button>
                   </div>
                 </div>
-                {limitError && <p className="text-[11px] text-red-700">{limitError}</p>}
+                {limitError && <p className="text-[11px] text-red-700 dark:text-red-400">{limitError}</p>}
                 {limitSaved && (
-                  <p className="text-[11px] text-emerald-700 font-medium">
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
                     {tr('Limit gespeichert.', 'Limit saved.')}
                   </p>
                 )}
@@ -336,14 +336,14 @@ export function BackgroundJobsBell({
             )}
 
             {/* Job List */}
-            <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+            <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/70">
               {jobs.length === 0 ? (
                 <div className="px-5 py-10 text-center space-y-1.5">
                   <Bell className="w-6 h-6 text-slate-300 mx-auto" />
-                  <p className="text-xs font-medium text-slate-700">
+                  <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
                     {tr('Noch keine Hintergrundaufträge', 'No background jobs yet')}
                   </p>
-                  <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
                     {tr(
                       'Starten Sie einen Kurzbefehl im Dashboard – er läuft hier im Hintergrund weiter, auch wenn Sie in die SSH-Shell wechseln.',
                       'Dispatch a quick command from the Dashboard—it continues running here even if you switch to the SSH Shell.'
@@ -362,7 +362,7 @@ export function BackgroundJobsBell({
                     <div
                       key={job.id}
                       className={`px-4 py-3 transition-colors ${
-                        isUnread ? 'bg-blue-50/40' : 'bg-white hover:bg-slate-50/70'
+                        isUnread ? 'bg-blue-50/40 dark:bg-blue-950/30' : 'bg-white dark:bg-slate-900 hover:bg-slate-50/70 dark:hover:bg-slate-800/60'
                       }`}
                     >
                       <div className="flex items-start gap-2.5">
@@ -371,7 +371,7 @@ export function BackgroundJobsBell({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="text-xs font-semibold text-slate-900 truncate">
+                              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
                                 {job.title}
                               </span>
                               {isUnread && (
@@ -386,7 +386,7 @@ export function BackgroundJobsBell({
                             </span>
                           </div>
 
-                          <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
                             {previewTargets}
                             {extraTargets > 0 && ` (+${extraTargets})`}
                           </p>
@@ -394,19 +394,19 @@ export function BackgroundJobsBell({
                           {isRunning ? (
                             <div className="mt-2 space-y-1">
                               <div className="flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums">
-                                <span className="text-blue-800 font-medium">
+                                <span className="text-blue-800 dark:text-blue-300 font-medium">
                                   {progress.percent}% · {job.completedTargets}/{job.totalTargets}
                                 </span>
                                 <span
                                   className={
-                                    progress.nearTimeout ? 'text-amber-700 font-medium' : 'text-slate-500'
+                                    progress.nearTimeout ? 'text-amber-700 dark:text-amber-400 font-medium' : 'text-slate-500 dark:text-slate-400'
                                   }
                                 >
                                   {formatSecondsCompact(progress.elapsedSec)} / ~
                                   {formatSecondsCompact(progress.timeoutSec)}
                                 </span>
                               </div>
-                              <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                              <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                                 <div
                                   className={`h-full transition-all duration-500 ${
                                     progress.nearTimeout ? 'bg-amber-500' : 'bg-blue-600'
@@ -417,14 +417,14 @@ export function BackgroundJobsBell({
                             </div>
                           ) : (
                             <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-mono tabular-nums">
-                              <span className="text-emerald-700 font-medium">{job.successCount} OK</span>
+                              <span className="text-emerald-700 dark:text-emerald-400 font-medium">{job.successCount} OK</span>
                               {job.failedCount > 0 && (
-                                <span className="text-red-700 font-medium">
+                                <span className="text-red-700 dark:text-red-400 font-medium">
                                   {job.failedCount} {tr('Fehler', 'Failed')}
                                 </span>
                               )}
                               <span className="text-slate-400">·</span>
-                              <span className="text-slate-500">{formatDurationShort(job.durationMs)}</span>
+                              <span className="text-slate-500 dark:text-slate-400">{formatDurationShort(job.durationMs)}</span>
                             </div>
                           )}
 
@@ -435,7 +435,7 @@ export function BackgroundJobsBell({
                                 setOpen(false);
                                 onSelectJob(job);
                               }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded transition-colors cursor-pointer"
                             >
                               <Eye className="w-3 h-3" />
                               {isRunning
@@ -449,7 +449,7 @@ export function BackgroundJobsBell({
                                 onClick={() => void onDeleteJob(job.id)}
                                 title={tr('Benachrichtigung entfernen', 'Dismiss notification')}
                                 aria-label={tr('Benachrichtigung entfernen', 'Dismiss notification')}
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                className="p-1 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded transition-colors cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -464,14 +464,14 @@ export function BackgroundJobsBell({
             </div>
 
             {/* Panel Footer */}
-            <div className="px-4 py-2.5 border-t border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
+            <div className="px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 flex items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={() => {
                   setOpen(false);
                   onNavigateLogs('jobs');
                 }}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 hover:text-blue-900 whitespace-nowrap cursor-pointer"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 whitespace-nowrap cursor-pointer"
               >
                 <Activity className="w-3 h-3" />
                 {tr('Alle Prozesse öffnen', 'Open All Processes')}
@@ -482,7 +482,7 @@ export function BackgroundJobsBell({
                   setOpen(false);
                   onNavigateLogs('logs');
                 }}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap cursor-pointer"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 whitespace-nowrap cursor-pointer"
               >
                 <FileText className="w-3 h-3" />
                 {tr('Protokoll', 'Logs')}
@@ -496,36 +496,36 @@ export function BackgroundJobsBell({
       {toastJob && !selectedJob && (
         <div
           role="status"
-          className="fixed bottom-5 right-5 z-40 w-[22rem] max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-lg shadow-xl p-4 flex items-start gap-3"
+          className="fixed bottom-5 right-5 z-40 w-[22rem] max-w-[calc(100vw-2rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl p-4 flex items-start gap-3"
         >
           <div className="mt-0.5">{renderStatusIcon(toastJob.status, 'w-5 h-5 shrink-0')}</div>
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-xs font-semibold text-slate-900 truncate">
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
                 {toastJob.title}
               </p>
               <button
                 type="button"
                 onClick={onDismissToast}
                 aria-label={tr('Schließen', 'Close')}
-                className="p-0.5 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
+                className="p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
-            <p className="text-xs text-slate-600 mt-0.5">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
               {renderStatusLabel(toastJob.status)} ·{' '}
-              <span className="font-mono tabular-nums text-emerald-700">{toastJob.successCount} OK</span>
+              <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400">{toastJob.successCount} OK</span>
               {toastJob.failedCount > 0 && (
                 <>
                   {' · '}
-                  <span className="font-mono tabular-nums text-red-700">
+                  <span className="font-mono tabular-nums text-red-700 dark:text-red-400">
                     {toastJob.failedCount} {tr('Fehler', 'Failed')}
                   </span>
                 </>
               )}
               {' · '}
-              <span className="font-mono tabular-nums text-slate-500">
+              <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400">
                 {formatDurationShort(toastJob.durationMs)}
               </span>
             </p>
@@ -544,7 +544,7 @@ export function BackgroundJobsBell({
               <button
                 type="button"
                 onClick={onDismissToast}
-                className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 rounded-md cursor-pointer"
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 rounded-md cursor-pointer"
               >
                 {tr('Später', 'Later')}
               </button>
@@ -556,7 +556,7 @@ export function BackgroundJobsBell({
       {/* Detailed Job Result Modal (overlays current tab without disconnecting SSH-Shell) */}
       {selectedJob && (
         <div
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-[1px] flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 dark:bg-black/75 backdrop-blur-[1px] flex items-center justify-center p-4"
           onClick={() => onSelectJob(null)}
         >
           <div
@@ -564,38 +564,38 @@ export function BackgroundJobsBell({
             aria-modal="true"
             aria-label={selectedJob.title}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-4xl max-h-[88vh] bg-white border border-slate-200 rounded-xl shadow-2xl flex flex-col overflow-hidden"
+            className="w-full max-w-4xl max-h-[88vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden"
           >
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-start justify-between gap-4 shrink-0">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex items-start justify-between gap-4 shrink-0">
               <div className="flex items-start gap-3 min-w-0">
                 <div className="mt-0.5">{renderStatusIcon(selectedJob.status, 'w-5 h-5 shrink-0')}</div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-display text-base font-bold text-slate-900 truncate">
+                    <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 truncate">
                       {selectedJob.title}
                     </h2>
                     <span
                       className={`px-2 py-0.5 text-[11px] font-medium rounded border ${
                         selectedJob.status === 'running'
-                          ? 'bg-blue-50 text-blue-800 border-blue-200'
+                          ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/70'
                           : selectedJob.status === 'completed'
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/70'
                           : selectedJob.status === 'partial'
-                          ? 'bg-amber-50 text-amber-800 border-amber-200'
-                          : 'bg-red-50 text-red-800 border-red-200'
+                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/70'
+                          : 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800/70'
                       }`}
                     >
                       {renderStatusLabel(selectedJob.status)}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-mono tabular-nums">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                     <span>
                       {selectedJob.completedTargets}/{selectedJob.totalTargets}{' '}
                       {tr('Server', 'Servers')}
                     </span>
-                    <span className="text-emerald-700 font-medium">{selectedJob.successCount} OK</span>
-                    <span className={selectedJob.failedCount > 0 ? 'text-red-700 font-medium' : ''}>
+                    <span className="text-emerald-700 dark:text-emerald-400 font-medium">{selectedJob.successCount} OK</span>
+                    <span className={selectedJob.failedCount > 0 ? 'text-red-700 dark:text-red-400 font-medium' : ''}>
                       {selectedJob.failedCount} {tr('Fehler', 'Failed')}
                     </span>
                     {selectedJob.durationMs !== null && (
@@ -615,7 +615,7 @@ export function BackgroundJobsBell({
                     onSelectJob(null);
                     onNavigateLogs('logs');
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer"
                 >
                   <FileText className="w-3.5 h-3.5" />
                   {tr('Im Protokoll öffnen', 'Open in Log')}
@@ -624,7 +624,7 @@ export function BackgroundJobsBell({
                   type="button"
                   onClick={() => onSelectJob(null)}
                   aria-label={tr('Schließen', 'Close')}
-                  className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 rounded-md transition-colors cursor-pointer"
+                  className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 rounded-md transition-colors cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -636,10 +636,10 @@ export function BackgroundJobsBell({
               (() => {
                 const modalProgress = computeJobProgress(selectedJob, nowMs);
                 return (
-                  <div className="px-6 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center gap-3 shrink-0">
-                    <Loader2 className="w-4 h-4 text-blue-700 animate-spin shrink-0" />
+                  <div className="px-6 py-2.5 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/60 flex items-center gap-3 shrink-0">
+                    <Loader2 className="w-4 h-4 text-blue-700 dark:text-blue-400 animate-spin shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-blue-900 font-medium mb-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-blue-900 dark:text-blue-200 font-medium mb-1">
                         <span>
                           {tr(
                             `Fortschritt ${modalProgress.percent}% (${selectedJob.completedTargets}/${selectedJob.totalTargets} Server) – orientiert am Timeout`,
@@ -648,14 +648,14 @@ export function BackgroundJobsBell({
                         </span>
                         <span
                           className={`font-mono tabular-nums ${
-                            modalProgress.nearTimeout ? 'text-amber-800' : 'text-blue-800'
+                            modalProgress.nearTimeout ? 'text-amber-800 dark:text-amber-300' : 'text-blue-800 dark:text-blue-300'
                           }`}
                         >
                           {formatSecondsCompact(modalProgress.elapsedSec)} / ~
                           {formatSecondsCompact(modalProgress.timeoutSec)}
                         </span>
                       </div>
-                      <div className="h-1.5 bg-blue-200 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-blue-200 dark:bg-blue-900/60 rounded-full overflow-hidden">
                         <div
                           className={`h-full transition-all duration-500 ${
                             modalProgress.nearTimeout ? 'bg-amber-500' : 'bg-blue-700'
@@ -678,7 +678,7 @@ export function BackgroundJobsBell({
 
               {selectedJob.results.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 flex flex-col items-center gap-2">
-                  <Terminal className="w-6 h-6 text-slate-600" />
+                  <Terminal className="w-6 h-6 text-slate-600 dark:text-slate-400" />
                   <span>
                     {selectedJob.status === 'running'
                       ? tr(
@@ -698,7 +698,7 @@ export function BackgroundJobsBell({
                   return (
                     <div
                       key={res.id}
-                      className="border border-slate-800 rounded-md overflow-hidden bg-slate-950/60"
+                      className="border border-slate-800 rounded-md overflow-hidden bg-slate-950/60 dark:bg-black/75"
                     >
                       <div className="px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-slate-900/80">
                         <div className="flex items-center gap-2 min-w-0">
@@ -710,7 +710,7 @@ export function BackgroundJobsBell({
                           <span className="text-slate-100 font-medium truncate">
                             {res.serverLabel} ({res.sshUser}@{res.targetIp}:{res.targetPort})
                           </span>
-                          <span className="text-slate-600">·</span>
+                          <span className="text-slate-600 dark:text-slate-400">·</span>
                           <span className="text-blue-300 truncate">{res.commandName}</span>
                         </div>
                         <div className="flex items-center gap-3 tabular-nums shrink-0">
@@ -773,7 +773,7 @@ export function BackgroundJobsBell({
                             {res.stdout}
                           </pre>
                         ) : !visibleStderr ? (
-                          <p className="text-slate-500 italic">
+                          <p className="text-slate-500 dark:text-slate-400 italic">
                             {tr('(keine Ausgabe)', '(no output)')}
                           </p>
                         ) : null}

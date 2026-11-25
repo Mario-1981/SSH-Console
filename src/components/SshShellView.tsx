@@ -667,7 +667,7 @@ function SshShellTabPane({
       }
     >
       {error && !isExpanded && (
-        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
@@ -678,19 +678,19 @@ function SshShellTabPane({
         className={
           isExpanded
             ? 'hidden'
-            : 'bg-white border border-slate-200 rounded-b-lg rounded-tr-lg p-5 space-y-4'
+            : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-b-lg rounded-tr-lg p-5 space-y-4'
         }
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 text-xs">
+          <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 p-0.5 text-xs">
             <button
               type="button"
               onClick={() => setTargetMode('saved')}
               disabled={servers.length === 0 || isLive}
               className={`px-3 py-1.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
                 targetMode === 'saved'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               {tr(`Gespeicherter Server (${servers.length})`, `Saved Server (${servers.length})`)}
@@ -702,8 +702,8 @@ function SshShellTabPane({
                 disabled={isLive}
                 className={`px-3 py-1.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
                   targetMode === 'custom'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 {tr('Freie IP-Adresse', 'Custom IP Address')}
@@ -712,7 +712,7 @@ function SshShellTabPane({
           </div>
 
           {selectedCert?.metadata.hasCertificate !== false && selectedCert?.metadata.isExpired && (
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
               <AlertTriangle className="w-3.5 h-3.5" />
               {tr('Gewähltes Zertifikat ist abgelaufen', 'Selected certificate is expired')}
             </span>
@@ -722,7 +722,7 @@ function SshShellTabPane({
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
           {targetMode === 'saved' || !canUseCustomIp ? (
             <div className="md:col-span-4">
-              <label htmlFor={`${tabId}-server`} className="block text-xs font-medium text-slate-700 mb-1">
+              <label htmlFor={`${tabId}-server`} className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Ziel-Server (IP)', 'Target Server (IP)')}
               </label>
               <select
@@ -730,7 +730,7 @@ function SshShellTabPane({
                 value={selectedServerId}
                 onChange={(e) => handleSelectServer(e.target.value)}
                 disabled={isLive || servers.length === 0}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50"
+                className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 dark:disabled:bg-slate-800/50"
               >
                 {servers.length === 0 ? (
                   <option value="">
@@ -748,7 +748,7 @@ function SshShellTabPane({
           ) : (
             <>
               <div className="md:col-span-3">
-                <label htmlFor={`${tabId}-ip`} className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor={`${tabId}-ip`} className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   {tr('Ziel-IP-Adresse', 'Target IP Address')}
                 </label>
                 <input
@@ -758,11 +758,11 @@ function SshShellTabPane({
                   onChange={(e) => setCustomIp(e.target.value)}
                   disabled={isLive}
                   placeholder="10.0.10.25"
-                  className="w-full px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50"
+                  className="w-full px-3 py-2 text-sm font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 dark:disabled:bg-slate-800/50"
                 />
               </div>
               <div className="md:col-span-1">
-                <label htmlFor={`${tabId}-port`} className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor={`${tabId}-port`} className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   Port
                 </label>
                 <input
@@ -773,14 +773,14 @@ function SshShellTabPane({
                   value={customPort}
                   onChange={(e) => setCustomPort(Number(e.target.value) || 22)}
                   disabled={isLive}
-                  className="w-full px-2.5 py-2 text-sm font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50"
+                  className="w-full px-2.5 py-2 text-sm font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 dark:disabled:bg-slate-800/50"
                 />
               </div>
             </>
           )}
 
           <div className="md:col-span-2">
-            <label htmlFor={`${tabId}-ssh-user`} className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor={`${tabId}-ssh-user`} className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               {tr('SSH-Benutzer', 'SSH User')}
             </label>
             <input
@@ -790,12 +790,12 @@ function SshShellTabPane({
               onChange={(e) => setSshUser(e.target.value)}
               disabled={isLive}
               placeholder="root"
-              className="w-full px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50"
+              className="w-full px-3 py-2 text-sm font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 dark:disabled:bg-slate-800/50"
             />
           </div>
 
           <div className="md:col-span-4">
-            <label htmlFor={`${tabId}-cert`} className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor={`${tabId}-cert`} className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               {tr('SSH-Zertifikat / Schlüsselpaar', 'SSH Certificate / Keypair')}
             </label>
             <select
@@ -803,7 +803,7 @@ function SshShellTabPane({
               value={selectedCertId}
               onChange={(e) => setSelectedCertId(e.target.value)}
               disabled={isLive || certificates.length === 0}
-              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50"
+              className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 dark:disabled:bg-slate-800/50"
             >
               {certificates.length === 0 ? (
                 <option value="">
@@ -872,12 +872,12 @@ function SshShellTabPane({
         </div>
 
         {needsRuntimePassphrase && (
-          <div className="pt-2.5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/70 flex flex-col sm:flex-row sm:items-center gap-3">
             <label
               htmlFor={`${tabId}-key-passphrase`}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 dark:text-amber-200 whitespace-nowrap"
             >
-              <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+              <Lock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
               {tr('Schlüssel-Passwort:', 'Key passphrase:')}
             </label>
             <input
@@ -891,9 +891,9 @@ function SshShellTabPane({
                 'Zum Entsperren eingeben (oder leer für Terminal-Abfrage)...',
                 'Enter to unlock (or leave blank for terminal prompt)...'
               )}
-              className="w-full sm:max-w-sm px-3 py-1.5 text-sm bg-white border border-amber-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50"
+              className="w-full sm:max-w-sm px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700/80 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 dark:disabled:bg-slate-800/50"
             />
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
               {tr(
                 'Wird nicht gespeichert und beim Verbinden sofort geleert.',
                 'Not stored and cleared immediately upon connecting.'
@@ -902,12 +902,12 @@ function SshShellTabPane({
           </div>
         )}
 
-        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/70 flex flex-wrap items-center justify-between gap-3">
           {targetMode === 'custom' ? (
             <label
               className={`inline-flex items-center gap-2 text-xs ${
                 allowInsecureHostKey && !isLive
-                  ? 'text-slate-700 cursor-pointer'
+                  ? 'text-slate-700 dark:text-slate-300 cursor-pointer'
                   : 'text-slate-400 cursor-not-allowed'
               }`}
             >
@@ -916,15 +916,15 @@ function SshShellTabPane({
                 checked={allowInsecureHostKey ? customIgnoreHostKey : false}
                 disabled={isLive || !allowInsecureHostKey}
                 onChange={(e) => setCustomIgnoreHostKey(e.target.checked)}
-                className="rounded border-slate-300 text-amber-600 focus:ring-amber-600 disabled:opacity-50"
+                className="rounded border-slate-300 dark:border-slate-700 text-amber-600 dark:text-amber-400 focus:ring-amber-600 disabled:opacity-50"
               />
               <span>
                 {tr('Host-Key-Prüfung deaktivieren', 'Disable Host Key Checking')}{' '}
-                <code className="font-mono text-[11px] text-slate-500">
+                <code className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
                   (StrictHostKeyChecking=no, UserKnownHostsFile=/dev/null)
                 </code>
                 {!allowInsecureHostKey && (
-                  <span className="text-amber-700 ml-1.5">
+                  <span className="text-amber-700 dark:text-amber-400 ml-1.5">
                     ({tr('vom Admin global verboten', 'globally prohibited by admin')})
                   </span>
                 )}
@@ -934,11 +934,11 @@ function SshShellTabPane({
             <div className="text-xs flex items-center gap-1.5">
               <AlertTriangle
                 className={`w-3.5 h-3.5 shrink-0 ${
-                  allowInsecureHostKey ? 'text-amber-600' : 'text-slate-400'
+                  allowInsecureHostKey ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'
                 }`}
               />
               {allowInsecureHostKey ? (
-                <span className="text-amber-800">
+                <span className="text-amber-800 dark:text-amber-300">
                   {tr(
                     'Host-Key-Prüfung für diesen Server deaktiviert:',
                     'Host key checking disabled for this server:'
@@ -948,7 +948,7 @@ function SshShellTabPane({
                   </code>
                 </span>
               ) : (
-                <span className="text-slate-500">
+                <span className="text-slate-500 dark:text-slate-400">
                   {tr(
                     'Host-Key-Prüfung wird trotz Server-Option vom Administrator global erzwungen.',
                     'Host key checking is globally enforced by the administrator despite this server’s setting.'
@@ -957,7 +957,7 @@ function SshShellTabPane({
               )}
             </div>
           ) : (
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-500 dark:text-slate-400">
               {tr(
                 'Host-Key-Prüfung aktiv (StrictHostKeyChecking=accept-new)',
                 'Host key verification active (StrictHostKeyChecking=accept-new)'
@@ -978,9 +978,9 @@ function SshShellTabPane({
                 'Gespeicherten SSH Host-Key für diese IP/Port-Kombination aus known_hosts entfernen (z. B. nach Neuinstallation des Zielservers)',
                 'Remove the stored SSH host key for this IP/port from known_hosts (e.g. after reinstalling the target server)'
               )}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded border border-slate-200 transition-colors cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Trash2 className="w-3.5 h-3.5 text-slate-600" />
+              <Trash2 className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
               {resettingHostKey
                 ? tr('Löscht Host-Key...', 'Deleting host key...')
                 : tr('Alten Host-Key löschen', 'Delete Old Host Key')}
@@ -989,7 +989,7 @@ function SshShellTabPane({
         </div>
 
         {hostKeyNotice && (
-          <div className="px-3 py-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
+          <div className="px-3 py-2 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-xs text-emerald-900 dark:text-emerald-200">
             {hostKeyNotice}
           </div>
         )}
@@ -1012,13 +1012,13 @@ function SshShellTabPane({
             </span>
             {activeTargetLabel && (
               <>
-                <span aria-hidden="true" className="text-slate-600">·</span>
+                <span aria-hidden="true" className="text-slate-600 dark:text-slate-400">·</span>
                 <span className="font-mono text-slate-200 truncate">{activeTargetLabel}</span>
               </>
             )}
             {activeCertLabel && (
               <>
-                <span aria-hidden="true" className="text-slate-600 hidden sm:inline">·</span>
+                <span aria-hidden="true" className="text-slate-600 dark:text-slate-400 hidden sm:inline">·</span>
                 <span className="text-slate-400 truncate hidden sm:inline">{activeCertLabel}</span>
               </>
             )}
@@ -1214,11 +1214,11 @@ export function SshShellView({
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+            <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               SSH-Shell
             </h1>
             {activeConnectionCount > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 tabular-nums">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 tabular-nums">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 {activeConnectionCount === 1
                   ? tr('1 aktive Verbindung', '1 active connection')
@@ -1229,7 +1229,7 @@ export function SshShellView({
               </span>
             )}
           </div>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             {tr(
               'Öffnen Sie eine oder mehrere parallele, passwortlose SSH-Sitzungen (PTY) direkt im Browser und wechseln Sie bequem per Tabs dazwischen.',
               'Open one or more parallel passwordless interactive SSH sessions (PTY) directly in your browser and switch smoothly between tabs.'
@@ -1243,7 +1243,7 @@ export function SshShellView({
             <button
               type="button"
               onClick={() => onNavigate('certificates')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
             >
               <KeyRound className="w-3.5 h-3.5" />
               {tr('Zertifikat hochladen', 'Upload Certificate')}
@@ -1254,7 +1254,7 @@ export function SshShellView({
             <button
               type="button"
               onClick={() => onNavigate('servers')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-md transition-colors cursor-pointer whitespace-nowrap"
             >
               <Server className="w-3.5 h-3.5" />
               {tr('Server anlegen', 'Add Server')}
@@ -1264,8 +1264,8 @@ export function SshShellView({
       </div>
 
       {!opensshAvailable && (
-        <div className="px-4 py-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+        <div className="px-4 py-3 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
           <span>
             {tr(
               'In dieser Vorschau-Sandbox ist kein /usr/bin/ssh installiert. Beim Verbinden wird die Zertifikatsprüfung und ein TCP-Test im Terminal angezeigt. Auf Debian 13 (Trixie) startet hier direkt eine echte interaktive OpenSSH-Shell.',
@@ -1315,8 +1315,8 @@ export function SshShellView({
                       ? 'bg-slate-900 text-slate-100 border-slate-700 border-b-slate-900'
                       : 'bg-slate-950 text-slate-400 border-transparent hover:text-slate-200 hover:bg-slate-900/60'
                     : isCurrent
-                    ? 'bg-white text-slate-900 border-slate-200 border-b-white'
-                    : 'bg-slate-100/80 text-slate-600 border-slate-200/80 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-slate-200 dark:border-slate-800 border-b-white'
+                    : 'bg-slate-100/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 <span
@@ -1337,8 +1337,8 @@ export function SshShellView({
                   }
                   className={`p-0.5 rounded transition-colors cursor-pointer shrink-0 ${
                     isExpanded
-                      ? 'text-slate-500 hover:text-slate-100 hover:bg-slate-800'
-                      : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/80'
+                      ? 'text-slate-500 dark:text-slate-400 hover:text-slate-100 hover:bg-slate-800'
+                      : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/80 dark:hover:bg-slate-700/80'
                   }`}
                 >
                   <X className="w-3.5 h-3.5" />
@@ -1362,7 +1362,7 @@ export function SshShellView({
             className={`inline-flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-t-md transition-colors cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
               isExpanded
                 ? 'text-slate-400 hover:text-white hover:bg-slate-900'
-                : 'text-slate-600 hover:text-blue-700 hover:bg-slate-100 mb-0.5'
+                : 'text-slate-600 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-slate-100 dark:hover:bg-slate-800 mb-0.5'
             }`}
           >
             <Plus className="w-3.5 h-3.5" />

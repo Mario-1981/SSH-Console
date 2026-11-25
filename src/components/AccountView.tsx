@@ -83,15 +83,15 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
           {tr('Konto, Sicherheit & API-Schlüssel', 'Account, Security & API Keys')}
         </h1>
-        <p className="text-sm text-slate-600 mt-1">
+        <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
           {tr(
             'Verwalten Sie 2-Faktor-Authentifizierung (App & Hardware-Schlüssel), Passkeys, Ihr Passwort sowie API-Schlüssel für ',
             'Manage Two-Factor Authentication (App & Hardware Keys), Passkeys, your password, and API keys for '
           )}
-          <code className="font-mono text-xs text-slate-800">curl</code>.
+          <code className="font-mono text-xs text-slate-800 dark:text-slate-200">curl</code>.
         </p>
       </div>
 
@@ -99,35 +99,35 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
       <AccountSecurityPanel user={user} settings={settings} onUserUpdated={onUserUpdated} />
 
       {/* Account Overview */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6">
-        <h2 className="font-display text-base font-semibold text-slate-900 mb-4">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6">
+        <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 mb-4">
           {tr('Kontoinformationen', 'Account Information')}
         </h2>
         <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-sm">
           <div>
-            <dt className="text-xs text-slate-500">{tr('Anzeigename', 'Display Name')}</dt>
-            <dd className="mt-1 font-medium text-slate-900">{user.displayName}</dd>
+            <dt className="text-xs text-slate-500 dark:text-slate-400">{tr('Anzeigename', 'Display Name')}</dt>
+            <dd className="mt-1 font-medium text-slate-900 dark:text-slate-100">{user.displayName}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">
+            <dt className="text-xs text-slate-500 dark:text-slate-400">
               {tr('Benutzername · Anmeldung', 'Username · Auth')}
             </dt>
-            <dd className="mt-1 font-mono text-slate-900">
+            <dd className="mt-1 font-mono text-slate-900 dark:text-slate-100">
               {user.username}{' '}
-              <span className="font-sans text-xs text-slate-500">
+              <span className="font-sans text-xs text-slate-500 dark:text-slate-400">
                 ({user.authProvider === 'sso' ? 'SSO' : tr('Lokal', 'Local')})
               </span>
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">
+            <dt className="text-xs text-slate-500 dark:text-slate-400">
               {tr('Benutzergruppe & Freigaberecht', 'User Group & Sharing Rights')}
             </dt>
-            <dd className="mt-1 text-slate-900">
+            <dd className="mt-1 text-slate-900 dark:text-slate-100">
               <span className="font-medium">
                 {user.groupName || (user.role === 'admin' ? 'Administratoren' : tr('Benutzer', 'User'))}
               </span>{' '}
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
                 (
                 {user.role === 'admin' || user.permissions?.shareResources
                   ? tr('darf Ressourcen teilen', 'can share resources')
@@ -137,10 +137,10 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">
+            <dt className="text-xs text-slate-500 dark:text-slate-400">
               {tr('Standard-SSH-Benutzer · Letzter Login', 'Default SSH User · Last Sign-In')}
             </dt>
-            <dd className="mt-1 font-mono text-xs text-slate-800 tabular-nums">
+            <dd className="mt-1 font-mono text-xs text-slate-800 dark:text-slate-200 tabular-nums">
               {user.defaultSshUser} · {formatDateTime(user.lastLoginAt)}
             </dd>
           </div>
@@ -151,14 +151,14 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
       {user.authProvider !== 'sso' && (
         <form
           onSubmit={handleSubmit}
-          className="bg-white border border-slate-200 rounded-lg p-6 space-y-5 max-w-xl"
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5 max-w-xl"
         >
-          <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-200">
+          <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div>
-              <h2 className="font-display text-base font-semibold text-slate-900">
+              <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                 {tr('Passwort ändern', 'Change Password')}
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {tr(
                   'Mindestens 8 Zeichen sowie mind. 3 von 4 Zeichenarten (Groß-, Kleinbuchstaben, Zahlen, Sonderzeichen). Ihre aktuelle Sitzung bleibt bestehen.',
                   'At least 8 characters and at least 3 of 4 character types (uppercase, lowercase, digits, special characters). Your current session will stay active.'
@@ -168,7 +168,7 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
             <button
               type="button"
               onClick={() => setShowPasswords((v) => !v)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer whitespace-nowrap shrink-0"
             >
               {showPasswords ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               {showPasswords ? tr('Verbergen', 'Hide') : tr('Anzeigen', 'Show')}
@@ -176,20 +176,20 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
           </div>
 
           {error && (
-            <div role="alert" className="px-4 py-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+            <div role="alert" className="px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-sm text-red-800 dark:text-red-300">
               {error}
             </div>
           )}
 
           {success && (
-            <div className="px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-900 flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700" />
+            <div className="px-4 py-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-sm text-emerald-900 dark:text-emerald-200 flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700 dark:text-emerald-400" />
               <span>{success}</span>
             </div>
           )}
 
           <div>
-            <label htmlFor="pw-current" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="pw-current" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Aktuelles Passwort', 'Current Password')}
             </label>
             <input
@@ -198,13 +198,13 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
               autoComplete="current-password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="pw-new" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="pw-new" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Neues Passwort (mindestens 8 Zeichen)', 'New Password (at least 8 characters)')}
             </label>
             <input
@@ -214,14 +214,14 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
               minLength={8}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
             <PasswordStrengthHint password={newPassword} />
           </div>
 
           <div>
-            <label htmlFor="pw-confirm" className="block text-xs font-medium text-slate-700 mb-1.5">
+            <label htmlFor="pw-confirm" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Neues Passwort bestätigen', 'Confirm New Password')}
             </label>
             <input
@@ -231,7 +231,7 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
               minLength={8}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
           </div>
@@ -258,11 +258,11 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
           onUpdateSettings={onUpdateSettings}
         />
       ) : (
-        <section className="bg-white border border-slate-200 rounded-lg p-6">
-          <h2 className="font-display text-base font-semibold text-slate-900">
+        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6">
+          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
             {tr('Persönliche API-Schlüssel & REST-API', 'Personal API Keys & REST API')}
           </h2>
-          <p className="text-xs text-slate-600 mt-1">
+          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
             {tr(
               `Die Nutzung von API-Schlüsseln und der REST-API ist für Ihre Benutzergruppe („${user.groupName || 'Benutzer'}“) deaktiviert.`,
               `API keys and REST API access are disabled for your user group ("${user.groupName || 'User'}").`
