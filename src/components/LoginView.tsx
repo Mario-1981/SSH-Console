@@ -12,6 +12,7 @@ import {
 import { api, setSessionToken } from '../api';
 import { LanguageSwitcher, useI18n } from '../i18n';
 import { ThemeSwitcher } from '../theme';
+import { PWAInstallButton } from './PWAInstallButton';
 import type { AppSettings, User } from '../types';
 
 interface LoginViewProps {
@@ -210,22 +211,23 @@ export function LoginView({ settings, onLogin }: LoginViewProps) {
   const passkeyAvailable = localEnabled && settings.passkeyEnabled;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-8 py-4 flex items-center justify-between gap-4">
-        <span className="font-display text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0">
+    <div className="min-h-dvh bg-slate-50 dark:bg-slate-950 flex flex-col pb-safe">
+      <header className="pt-safe border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between gap-3">
+        <span className="font-display text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 truncate">
           {settings.instanceName}
         </span>
-        <div className="flex items-center gap-3 shrink-0">
-          <span className="hidden sm:inline text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <span className="hidden md:inline text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
             {tr('SSH-Befehls- & Zertifikatskonsole', 'SSH Command & Certificate Console')}
           </span>
-          <ThemeSwitcher />
+          <PWAInstallButton variant="header" />
+          <ThemeSwitcher compact />
           <LanguageSwitcher />
         </div>
       </header>
 
-      <main className="flex-1 flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-8">
+      <main className="flex-1 flex items-center justify-center px-4 sm:px-6 py-6 sm:py-12">
+        <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 sm:p-8">
           {twoFactor ? (
             /* Step 2: 2FA Verification */
             <div>

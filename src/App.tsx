@@ -6,6 +6,9 @@ import { ThemeSwitcher } from './theme';
 import { BackgroundJobsBell } from './components/BackgroundJobsBell';
 import { DashboardView } from './components/DashboardView';
 import { LoginView } from './components/LoginView';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { SetupView } from './components/SetupView';
 import { Sidebar } from './components/Sidebar';
 
@@ -420,7 +423,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+      <div className="min-h-dvh bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
         <p className="text-sm text-slate-500 dark:text-slate-400">
           {tr('Initialisiere SSH Console...', 'Initializing SSH Console...')}
         </p>
@@ -429,11 +432,21 @@ export default function App() {
   }
 
   if (!initialized) {
-    return <SetupView onComplete={handleSetupComplete} />;
+    return (
+      <>
+        <SetupView onComplete={handleSetupComplete} />
+        <OfflineIndicator />
+      </>
+    );
   }
 
   if (!user) {
-    return <LoginView settings={settings} onLogin={handleLogin} />;
+    return (
+      <>
+        <LoginView settings={settings} onLogin={handleLogin} />
+        <OfflineIndicator />
+      </>
+    );
   }
 
   const securitySetupRequired = Boolean(user.mustSetupTwoFactor || user.mustSetupPasskey);
@@ -474,7 +487,7 @@ export default function App() {
   const crumb = breadcrumbs[effectiveTab];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex">
+    <div className="min-h-dvh bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex">
       <Sidebar
         instanceName={settings.instanceName}
         user={user}
@@ -489,65 +502,74 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between gap-4 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-1.5 -ml-1.5 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 rounded-md"
-              aria-label={tr('Menü öffnen', 'Open menu')}
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm truncate">
-              <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">{crumb.group}</span>
-              <span className="text-slate-300 dark:text-slate-600" aria-hidden="true">/</span>
-              <span className="font-medium text-slate-900 dark:text-slate-100 truncate">{crumb.title}</span>
-            </nav>
-          </div>
+        <header className="sticky top-0 z-20 pt-safe bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 shrink-0">
+          <div className="h-13 sm:h-14 flex items-center justify-between gap-2 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                className="lg:hidden min-w-[40px] min-h-[40px] -ml-1.5 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 rounded-md cursor-pointer"
+                aria-label={tr('Menü öffnen', 'Open menu')}
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm truncate">
+                <span className="hidden sm:inline text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                  {crumb.group}
+                </span>
+                <span className="hidden sm:inline text-slate-300 dark:text-slate-600" aria-hidden="true">
+                  /
+                </span>
+                <span className="font-semibold sm:font-medium text-slate-900 dark:text-slate-100 truncate">
+                  {crumb.title}
+                </span>
+              </nav>
+            </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            {!securitySetupRequired && (canExecuteCommands || bgJobs.length > 0) && (
-              <BackgroundJobsBell
-                jobs={bgJobs}
-                activeCount={bgActiveCount}
-                unreadCount={bgUnreadCount}
-                maxBackgroundJobs={bgMaxJobs}
-                isAdmin={user.role === 'admin'}
-                selectedJob={selectedJob}
-                toastJob={toastJob}
-                onSelectJob={handleSelectBackgroundJob}
-                onDismissToast={() => setToastJob(null)}
-                onMarkAllRead={handleMarkAllJobsRead}
-                onDeleteJob={handleDeleteBackgroundJob}
-                onUpdateLimit={handleUpdateBackgroundJobLimit}
-                onNavigateLogs={setActiveTab}
-              />
-            )}
-            <ThemeSwitcher />
-            <LanguageSwitcher />
-            {!securitySetupRequired &&
-              (effectiveTab !== 'dashboard' ? (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('dashboard')}
-                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  {tr('Zum Dashboard', 'Go to Dashboard')}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('servers')}
-                  className="px-3.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  {tr(`Server verwalten (${servers.length})`, `Manage Servers (${servers.length})`)}
-                </button>
-              ))}
+            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+              <PWAInstallButton variant="header" />
+              {!securitySetupRequired && (canExecuteCommands || bgJobs.length > 0) && (
+                <BackgroundJobsBell
+                  jobs={bgJobs}
+                  activeCount={bgActiveCount}
+                  unreadCount={bgUnreadCount}
+                  maxBackgroundJobs={bgMaxJobs}
+                  isAdmin={user.role === 'admin'}
+                  selectedJob={selectedJob}
+                  toastJob={toastJob}
+                  onSelectJob={handleSelectBackgroundJob}
+                  onDismissToast={() => setToastJob(null)}
+                  onMarkAllRead={handleMarkAllJobsRead}
+                  onDeleteJob={handleDeleteBackgroundJob}
+                  onUpdateLimit={handleUpdateBackgroundJobLimit}
+                  onNavigateLogs={setActiveTab}
+                />
+              )}
+              <ThemeSwitcher compact />
+              <LanguageSwitcher />
+              {!securitySetupRequired &&
+                (effectiveTab !== 'dashboard' ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('dashboard')}
+                    className="hidden sm:inline-flex items-center px-3.5 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    {tr('Zum Dashboard', 'Go to Dashboard')}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('servers')}
+                    className="hidden sm:inline-flex items-center px-3.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    {tr(`Server verwalten (${servers.length})`, `Manage Servers (${servers.length})`)}
+                  </button>
+                ))}
+            </div>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto px-6 py-8">
+        <main className="flex-1 overflow-y-auto px-3.5 sm:px-6 py-4 sm:py-8 pb-24 lg:pb-8">
           <div className="max-w-6xl mx-auto">
             <Suspense
               fallback={
@@ -718,6 +740,18 @@ export default function App() {
           </div>
         </main>
       </div>
+
+      <MobileBottomNav
+        activeTab={effectiveTab}
+        canUseShell={canUseShell}
+        setupLocked={securitySetupRequired}
+        activeJobsCount={
+          user.role === 'admin' ? bgTotalActiveCount : bgActiveCount
+        }
+        onSelectTab={setActiveTab}
+        onOpenMenu={() => setMobileMenuOpen(true)}
+      />
+      <OfflineIndicator />
     </div>
   );
 }

@@ -12,6 +12,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm install --legacy-peer-deps --no-audit --no-fund
 
 COPY index.html tsconfig.json vite.config.ts ./
+COPY public ./public
 COPY src ./src
 
 RUN npm run build

@@ -11,6 +11,7 @@ import {
   Maximize2,
   Minimize2,
   KeyRound,
+  Keyboard,
   Server,
   AlertTriangle,
   Plus,
@@ -20,6 +21,23 @@ import {
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import type { ActiveTab, User, UserCertificate, UserServer } from '../types';
+
+const MOBILE_TERMINAL_KEYS: Array<{ label: string; data: string; title: string }> = [
+  { label: 'Esc', data: '\x1b', title: 'Escape' },
+  { label: 'Tab', data: '\t', title: 'Tab' },
+  { label: 'Ctrl+C', data: '\x03', title: 'Interrupt (Ctrl+C)' },
+  { label: 'Ctrl+D', data: '\x04', title: 'EOF / Logout (Ctrl+D)' },
+  { label: 'Ctrl+Z', data: '\x1a', title: 'Suspend (Ctrl+Z)' },
+  { label: 'Ctrl+L', data: '\x0c', title: 'Clear (Ctrl+L)' },
+  { label: '↑', data: '\x1b[A', title: 'Up' },
+  { label: '↓', data: '\x1b[B', title: 'Down' },
+  { label: '←', data: '\x1b[D', title: 'Left' },
+  { label: '→', data: '\x1b[C', title: 'Right' },
+  { label: '|', data: '|', title: 'Pipe' },
+  { label: '/', data: '/', title: 'Slash' },
+  { label: '-', data: '-', title: 'Dash' },
+  { label: '~', data: '~', title: 'Tilde' },
+];
 
 interface SshShellViewProps {
   user: User;
@@ -330,6 +348,16 @@ function SshShellTabPane({
     });
     observer.observe(container);
 
+    const handleVisualViewportResize = () => {
+      if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
+      try {
+        fit.fit();
+      } catch {
+        // ignore
+      }
+    };
+    window.visualViewport?.addEventListener('resize', handleVisualViewportResize);
+
     termRef.current = term;
     fitRef.current = fit;
 
@@ -339,6 +367,7 @@ function SshShellTabPane({
       if (hadLiveSocket) {
         void onSessionEndedRef.current();
       }
+      window.visualViewport?.removeEventListener('resize', handleVisualViewportResize);
       observer.disconnect();
       dataDisposable.dispose();
       resizeDisposable.dispose();
@@ -557,6 +586,14 @@ function SshShellTabPane({
 
   function handleClearTerminal() {
     termRef.current?.clear();
+    termRef.current?.focus();
+  }
+
+  function handleSendExtraKey(data: string) {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data }));
+    }
     termRef.current?.focus();
   }
 
@@ -1084,10 +1121,32 @@ function SshShellTabPane({
         <div
           ref={terminalHostRef}
           onClick={() => termRef.current?.focus()}
-          className={`w-full p-3 bg-slate-950 ${
-            isExpanded ? 'flex-1 min-h-0' : 'h-[520px]'
+          className={`w-full p-2.5 sm:p-3 bg-slate-950 ${
+            isExpanded ? 'flex-1 min-h-0' : 'h-[54dvh] min-h-[280px] sm:h-[520px]'
           }`}
         />
+
+        {/* Touch Extra-Keys Bar for Smartphone / Tablet SSH sessions */}
+        <div
+          role="toolbar"
+          aria-label={tr('Terminal-Sondertasten', 'Terminal extra keys')}
+          className="lg:hidden flex items-center gap-1.5 px-2.5 py-2 bg-slate-900 border-t border-slate-800 overflow-x-auto no-scrollbar shrink-0"
+        >
+          <Keyboard className="w-3.5 h-3.5 text-slate-500 shrink-0 mr-0.5" aria-hidden="true" />
+          {MOBILE_TERMINAL_KEYS.map((key) => (
+            <button
+              key={key.label}
+              type="button"
+              title={key.title}
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => handleSendExtraKey(key.data)}
+              disabled={!isLive}
+              className="px-2.5 py-1.5 min-h-[36px] min-w-[36px] text-xs font-mono font-medium rounded bg-slate-800 text-slate-100 border border-slate-700 active:bg-blue-600 active:border-blue-500 disabled:opacity-40 shrink-0 cursor-pointer select-none"
+            >
+              {key.label}
+            </button>
+          ))}
+        </div>
       </section>
     </div>
   );
@@ -1279,7 +1338,7 @@ export function SshShellView({
       <div
         className={
           isExpanded
-            ? 'fixed inset-4 z-50 flex flex-col bg-slate-950 rounded-lg border border-slate-800 shadow-2xl overflow-hidden'
+            ? 'fixed inset-0 sm:inset-4 z-50 flex flex-col bg-slate-950 rounded-none sm:rounded-lg border-0 sm:border border-slate-800 shadow-2xl overflow-hidden pt-safe pb-safe'
             : ''
         }
       >
