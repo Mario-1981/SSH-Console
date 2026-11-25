@@ -81,16 +81,18 @@ Three independent switches control **periodic auto-ping only**:
 
 ---
 
-## Quick Select & Batch Execution
+## Quick Select, Batch Execution & Background Jobs
 
 1. In the **Quick Select & Batch Execution** bar at the top of the Dashboard:
-   - Select the **SSH Command** (single command or command chain).
+   - Select the **SSH Command** (single command, simple command chain, or **complex JSON workflow**).
+   - If the selected JSON workflow defines runtime `inputs` or overridable `vars`, the input fields appear automatically before launch.
    - Select the **SSH Certificate / Keypair**.
    - If the selected private key is passphrase-protected and has no stored passphrase, an unlock input appears automatically for entering the passphrase for this run.
 2. Check the desired target servers in the table below (or use **Select All** on the current page).
-3. Click **Dispatch Batch** to execute in parallel across all selected targets.
+3. Click **Dispatch Batch** (immediate parallel execution) or **Run as Background Job**:
+   - **Background Jobs** continue running server-side even if you switch tabs or close the browser, report live per-host progress in the Dashboard, and can be inspected or cancelled at any time.
 4. **Immediate Results View**: Execution results (`stdout`, `stderr`, exit code, duration, and collapsible SSH command details) appear **directly below the Quick Select bar and above the IP list**, so you never have to scroll past hundreds of servers to read command output.
 
 ---
 
-Next: **[SSH Shell, Commands & Host Keys](./ssh-shell-commands.html)**
+Next: **[SSH Shell, Workflows & Host Keys](./ssh-shell-commands.html)**

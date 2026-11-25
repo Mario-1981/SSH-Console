@@ -16,11 +16,35 @@ alt_url: /de/fehlerbehebung.html
 
 ### Command fails with `Passphrase erforderlich` / `Passphrase required`
 - **Cause**: The selected private key is passphrase-encrypted and has no passphrase stored in SSH Console.
-- **Fix**: Either enter the passphrase in the unlock field on the **Dashboard** / **SSH Shell** right before running, or save the passphrase encrypted under **SSH Keys & Certificates → Passphrase**.
+- **Fix**: Either enter the passphrase in the unlock field on the **Dashboard** / **SSH Shell** right before running, or save the passphrase encrypted under **SSH Keys & Certificates → Passphrase** (if permitted by your user group).
 
 ### `Permission denied (publickey)` when using a 3-file certificate
-- Check on **SSH Keys & Certificates** that the certificate is **not expired** (`validBefore`) and that the server's **SSH User** (e.g. `root` or `deploy`) is listed in the certificate's **Principals**.
-- Verify `/etc/ssh/sshd_config` on the target server contains `TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub` and `sshd` was reloaded.
+- Check on **SSH Keys & Certificates** that the certificate is **not expired** (`validBefore`) and that the server's **SSH User** (e.g. `root` or `deploy`) is listed in the certificate's **Principals (`-n`)**.
+- Verify `/etc/ssh/sshd_config` on the target server contains `TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub`, that its contents match the `ca.pub` from **Admin → CA Certificates**, and that `sshd` was reloaded.
+
+---
+
+## Certificates, CA Signing & Automatic Re-Certification
+
+### Password or certificate passphrase is rejected
+- **Cause**: The password complexity policy is not satisfied.
+- **Fix**: Use at least **8 characters** and satisfy at least **3 of 4 character classes** (lowercase letters, uppercase letters, digits, special characters). This policy applies to user account passwords, certificate passphrases, and CA passphrases.
+
+### Warning: “Existing `zertifikat-cert.pub` was signed by a different CA”
+- **Cause**: One or more selected certificates already have a `zertifikat-cert.pub` whose CA fingerprint does not match the CA you selected for signing.
+- **Fix**: Confirm that switching to the new CA is intended, then tick the confirmation checkbox in the warning box to allow overwriting.
+
+### Automatic re-certification cannot be enabled or stopped automatically
+- **Common causes**:
+  - The chosen CA does **not have a stored passphrase on the server** (configure under **Admin → CA Certificates**).
+  - The signature validity (`-V`) is set to **`forever`** (non-expiring certificates do not renew).
+  - The user's group lacks **Self-signing** or **Allow automatic re-certification**, or the CA was unassigned from the group.
+  - The certificate was manually replaced/uploaded, or the enabling administrator was deactivated or demoted.
+- **Fix**: The exact revocation reason is shown directly on the certificate card. Once the group policy or stored CA passphrase is restored, re-sign the certificate with automatic re-certification checked.
+
+### Saving a group fails due to an invalid auto-renewal lead time
+- **Cause**: The configured per-group/per-CA auto-renewal lead time is greater than or equal to the signature validity (`-V`).
+- **Fix**: Choose a lead time strictly shorter than the signature validity (for example, for `+24h` validity choose `6 hours` or `Automatic 20% before expiry`).
 
 ---
 
@@ -65,4 +89,4 @@ alt_url: /de/fehlerbehebung.html
 ## Database & Vault
 
 ### What happens if `vault.key` is lost?
-- **Critical:** `vault.key` encrypts all SSH private keys, stored key passphrases, TOTP secrets, and the SSO client secret. If `vault.key` is lost and cannot be restored from backup, encrypted certificates must be re-uploaded and 2FA/SSO secrets re-entered. Always back up `vault.key` alongside `ssh-console.sqlite`.
+- **Critical:** `vault.key` encrypts all SSH private keys, managed CA private keys, stored key/CA passphrases, TOTP secrets, and the SSO client secret. If `vault.key` is lost and cannot be restored from backup, encrypted keys and CAs must be re-uploaded and 2FA/SSO secrets re-entered. Always back up `vault.key` alongside `ssh-console.sqlite`.

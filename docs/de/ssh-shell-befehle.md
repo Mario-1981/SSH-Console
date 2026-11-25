@@ -1,10 +1,10 @@
 ---
-title: SSH-Shell, Befehle & Host-Keys
+title: SSH-Shell, Workflows & Host-Keys
 lang: de
 alt_url: /en/ssh-shell-commands.html
 ---
 
-# SSH-Shell, Befehle & Host-Keys
+# SSH-Shell, Workflows & Host-Keys
 
 SSH Console kombiniert ein **interaktives Multi-Tab-SSH-Terminal im Browser** mit einem **strukturierten Katalog aus Einzelbefehlen und Befehlsketten** – inklusive vollständigem Audit-Log und sauberer OpenSSH-Host-Key-Prüfung.
 
@@ -139,4 +139,4 @@ Normale Benutzer sehen ausschließlich ihre eigenen Ausführungen; Administrator
 
 ---
 
-Weiter: **[Zertifikate, Passphrases & API](./zertifikate-api.html)**
+Weiter: **[Zertifikate, CA-Signierung & API](./zertifikate-api.html)**

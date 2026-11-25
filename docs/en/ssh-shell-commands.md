@@ -1,10 +1,10 @@
 ---
-title: SSH Shell, Commands & Host Keys
+title: SSH Shell, Workflows & Host Keys
 lang: en
 alt_url: /de/ssh-shell-befehle.html
 ---
 
-# SSH Shell, Commands & Host Keys
+# SSH Shell, Workflows & Host Keys
 
 SSH Console provides both **interactive multi-tab SSH terminals** and a **structured catalog of reusable SSH commands and chains**, backed by full audit logging and OpenSSH host-key verification.
 
@@ -139,4 +139,4 @@ Standard users see only their own execution history; administrators can filter a
 
 ---
 
-Next: **[Certificates, Passphrases & API](./certificates-api.html)**
+Next: **[Certificates, CA Signing & API](./certificates-api.html)**

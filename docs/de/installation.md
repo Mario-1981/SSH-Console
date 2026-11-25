@@ -60,7 +60,7 @@ sudo apt install ./ssh-console_*_amd64.deb
 
 Das Paket führt automatisch folgende Schritte aus:
 1. Installiert das Rust-Binary (`/usr/local/bin/ssh-console`) und das gebaute Web-Frontend (`/opt/ssh-console/dist`).
-2. Installiert die benötigten Systempakete (`openssh-client`, `iputils-ping`, `curl`, `ca-certificates`).
+2. Installiert die benötigten Systempakete (`openssh-client` inkl. `ssh` & `ssh-keygen`, `iputils-ping`, `curl`, `ca-certificates`).
 3. Legt den dedizierten Systembenutzer `ssh-console` sowie das Datenverzeichnis `/var/lib/ssh-console` (`0700`) an.
 4. Installiert und startet die systemd-Unit `ssh-console.service`.
 
@@ -89,7 +89,7 @@ cargo build --release
 
 ## Option 3: Lokale Entwicklung (Node.js / Express)
 
-Voraussetzungen: **Node.js 20+** (empfohlen 22) und OpenSSH-Client (`ssh`).
+Voraussetzungen: **Node.js 20+** (empfohlen 22) und OpenSSH-Client (`ssh` & `ssh-keygen` für Schlüssel-/CA-Erzeugung und Zertifikatssignierung).
 
 ```bash
 npm install --legacy-peer-deps
@@ -178,8 +178,8 @@ Alle persistenten Daten liegen in `/var/lib/ssh-console` (bzw. im Docker-Volume 
 
 | Datei | Wichtigkeit | Beschreibung |
 | --- | --- | --- |
-| `ssh-console.sqlite` (+ `-wal`/`-shm`) | **Kritisch** | Benutzer, Server, Kategorien, Befehle, verschlüsselte Zertifikate, Audit-Logs, Einstellungen |
-| `vault.key` (`0600`) | **Kritisch** | 256-Bit AES-256-GCM-Masterschlüssel. **Ohne diese Datei können verschlüsselte SSH-Schlüssel und hinterlegte Passphrases nicht mehr entschlüsselt werden!** |
+| `ssh-console.sqlite` (+ `-wal`/`-shm`) | **Kritisch** | Benutzer, Benutzergruppen, CA-Zuweisungen, Server, Kategorien, Befehle & Workflows, verschlüsselte SSH-Zertifikate & verwaltete CAs, Auto-Renew-Konfigurationen, Hintergrund-Jobs, Audit-Logs, Einstellungen |
+| `vault.key` (`0600`) | **Kritisch** | 256-Bit AES-256-GCM-Masterschlüssel. **Ohne diese Datei können verschlüsselte SSH-Schlüssel, verwaltete CA-Schlüssel sowie hinterlegte Passphrases nicht mehr entschlüsselt werden!** |
 | `known_hosts/` | Empfohlen | Benutzerbezogene SSH-Host-Key-Datenbanken |
 
 ### Konsistentes Online-Backup (Debian-Host)
@@ -206,4 +206,4 @@ sudo systemctl start ssh-console
 
 ---
 
-Weiter: **[Authentifizierung, SSO, 2FA & Passkeys](./authentifizierung.html)**
+Weiter: **[Authentifizierung, Gruppen, SSO & 2FA](./authentifizierung.html)**

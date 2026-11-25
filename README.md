@@ -1,8 +1,8 @@
 # SSH Console
 
-A self-hosted web console for managing Linux servers with **OpenSSH certificates** and **SSH keypairs** (including passphrase-protected keys), featuring a scalable **staggered Ping & Dual-BMC Dashboard**, a **multi-tab interactive browser SSH Shell**, **single commands & multi-step command chains**, **OIDC SSO / 2FA / Passkeys**, **Docker & Debian 13 (Trixie)** packaging, and an automated **`curl` certificate upload & rotation API**.
+A self-hosted web console for managing Linux servers with **OpenSSH certificates** and **SSH keypairs**, featuring a built-in **SSH Certificate Authority (CA) manager**, **single & batch CA signing**, **policy-enforced user self-signing**, **automatic re-certification until revocation or rights removal**, **granular user groups**, a scalable **staggered Ping & Dual-BMC Dashboard**, a **multi-tab interactive browser SSH Shell**, **single commands, command chains & JSON workflows**, **background jobs**, **OIDC SSO / 2FA / Passkeys**, **Docker & Debian 13 (Trixie)** packaging, and an automated **`curl` certificate upload & rotation API**.
 
-Built with a React + TypeScript frontend and a native **Rust (Axum + SQLite)** production backend, alongside a Node.js/Express development server.
+Built with a React + TypeScript frontend and a native **Rust (Axum + SQLite)** production backend, alongside a feature-parity Node.js/Express development server.
 
 > **Documentation (GitHub Pages · English & Deutsch):** Full guides are available in [`/docs`](./docs/index.md) ([English](./docs/en/overview.md) · [Deutsch](./docs/de/ueberblick.md)) and deploy automatically via GitHub Pages (`.github/workflows/pages.yml`).
 
@@ -10,24 +10,31 @@ Built with a React + TypeScript frontend and a native **Rust (Axum + SQLite)** p
 
 ## Features
 
-- **Scalable Auto-Ping Dashboard (10–1,000+ IPs), Adaptive Backoff & Pagination**:
-  - Configurable auto-ping interval (`5s–3600s`, pauseable) with **evenly staggered per-IP pacing** so every host keeps its configured probe interval while spreading network load smoothly across time instead of sending burst floods.
-  - **Adaptive Offline Backoff**: Hosts that stay unreachable beyond a configurable failure threshold (default: `5` consecutive misses) automatically slow down their check interval (default: `5×`, configurable by admins) to reduce network and CPU load — and **immediately reset** to the standard interval on the first successful ping.
-  - **Pagination, Categories & Dual BMC**: Page-size switcher (`10`, `20`, `50`, `All`), server categories, batch command assignment & parallel execution, plus primary and secondary BMC/IPMI/iDRAC/iLO IPs with direct `https://` links and TLS port `443` reachability checks.
+- **Integrated SSH Certificate Authorities (CA), Signing & Automatic Re-Certification**:
+  - **CA Management (`Admin → CA Certificates`)**: Create, import, inspect, update, and delete OpenSSH User CAs (`ca` + `ca.pub`) with mandatory strong CA passphrases (optionally stored AES-256-GCM encrypted on the server) and one-click `ca.pub` download for `TrustedUserCAKeys`.
+  - **Admin Single & Batch CA Signing**: Sign one or multiple user certificates at once with any managed CA, specifying Principals (`-n`), validity (`-V`), optional Key-ID prefix, and either the stored or a one-time CA passphrase.
+  - **Policy-Enforced User Self-Signing**: Assign one or more CAs per **User Group** with fixed Principals (`-n`, optionally including the signing user's username), **per-group & per-CA signature validity (`-V`, presets or custom)**, and **per-group & per-CA automatic re-signing start threshold** — users can single- or batch-sign their own keys without ever seeing CA secrets or overriding policy limits.
+  - **Foreign-CA Overwrite Warning**: Detects when signing would overwrite an existing `zertifikat-cert.pub` issued by a different CA and requires explicit confirmation before replacing it.
+  - **Automatic Re-Certification (Until Revocation or Rights Removal)**: Activate automated background renewal (in both Rust and Node.js backends) during Admin or User signing (requires `autoRenewCertificates` permission for users, stored CA passphrase, and finite validity). Supports single/batch manual revocation and **immediate automatic revocation** upon rights removal, CA unassignment, CA passphrase deletion, account deactivation, or manual certificate replacement.
+- **OpenSSH Certificates, Key Generation, Duplicate Protection & Passphrase Policies**:
+  - Supports 3-file CA-signed OpenSSH certificate bundles (`zertifikat`, `zertifikat.pub`, `zertifikat-cert.pub`) and classic 2-file SSH keypairs (`zertifikat`, `zertifikat.pub`), with cryptographic key/certificate matching and validity window checks.
+  - **In-App Key Generation & Duplicate Name Guard**: Generate SSH keys directly in the UI with live duplicate-name detection and explicit overwrite confirmation (never silently overwrites existing bundles).
+  - **Passphrase Complexity & Group Policies**: Enforces **minimum 8 characters + at least 3 of 4 character classes** (uppercase, lowercase, digits, special characters) across user passwords, certificate passphrases, and CA passphrases. Group permissions control whether key passphrases are required, whether passphrases may be stored encrypted (AES-256-GCM), and whether users may upload their own `zertifikat-cert.pub`.
+  - **Admin Cross-User Certificate Overview**: Admins can search, filter, and delete certificates across all users without ever accessing or editing other users' private keys.
+- **Custom User Groups & Granular Permissions**:
+  - Manage system groups (`Administratoren`, `Standard-Benutzer`) and custom groups with fine-grained toggles for server management, SSH shell / custom IPs, single/chain/workflow commands, certificate upload & generation, signed-cert upload, passphrase rules, CA self-signing, automatic re-certification, API access, resource sharing, and audit logs.
+- **Scalable Auto-Ping Dashboard (10–1,000+ IPs), Adaptive Backoff & Dual BMC**:
+  - Configurable auto-ping interval (`10s–3600s`, pauseable) with **evenly staggered per-IP pacing** and **adaptive offline backoff** (default: `5` consecutive misses → `5×` interval, resetting immediately on recovery).
+  - Page-size switcher (`10`, `20`, `50`, `All`), server categories (`ANY`/`ALL` filters), batch command execution, **Background Jobs** queue for long-running batches, plus primary and secondary BMC/IPMI/iDRAC/iLO IPs with `https://` links and TLS port `443` reachability checks.
 - **Multi-Tab Interactive Browser SSH Shell**: Open multiple simultaneous live OpenSSH PTY terminals (`xterm.js` over WebSockets) to saved servers or ad-hoc IPs directly in the browser, including terminal resize synchronization and on-demand key passphrase unlock.
-- **SSH Commands, Command Chains & Host-Key Verification**:
-  - Define reusable single commands or multi-step chains with configurable `sleep` intervals and stop-on-error (`&&` vs `;`) execution within a single SSH session.
-  - Persistent server-side `known_hosts` tracking (`StrictHostKeyChecking=accept-new`): routine first-connect `Warning: Permanently added ...` notices are automatically filtered out, while real `REMOTE HOST IDENTIFICATION HAS CHANGED` alerts are surfaced prominently with a one-click host-key reset.
-- **OpenSSH Certificates, Keypairs & Passphrase Unlock**:
-  - Supports 3-file CA-signed OpenSSH certificate bundles (`zertifikat`, `zertifikat.pub`, `zertifikat-cert.pub`) and classic 2-file SSH keypairs (`zertifikat`, `zertifikat.pub` for `authorized_keys`), with cryptographic key/certificate verification and validity window checks.
-  - **Encrypted Private Keys**: Automatically detects passphrase-protected keys and lets you either store the passphrase **AES-256-GCM encrypted** with the bundle or enter it on demand per execution / shell session (passed ephemerally via `SSH_ASKPASS`).
+- **SSH Commands, Chains, JSON Workflows & Host-Key Verification**:
+  - Define reusable single commands, multi-step chains (`sleep`, `&&` vs `;`), and complex **JSON Workflows** with typed runtime `inputs` (including masked secrets), `if`/`else` branching, `loop` polling, output filters, and table/JSON/template formatting (examples in [`workflows/`](./workflows)).
+  - Persistent per-user `known_hosts` tracking (`StrictHostKeyChecking=accept-new`) with automatic filtering of routine first-connect notices while surfacing real `REMOTE HOST IDENTIFICATION HAS CHANGED` alerts and one-click host-key resets.
 - **Automated `curl` Upload & Rotation API**: Generate personal API keys (`sshc_...`) and upload, replace, or partially rotate certificates and passphrases from scripts or cron jobs via `/api/v1/certificates/*`.
-- **Privacy, SSO, 2FA & Passkeys**:
-  - **OIDC / OAuth 2.0 SSO (PKCE S256)**: Connect Keycloak, Authentik, Microsoft Entra ID, Google Workspace, Okta, GitLab, etc. with auto-discovery, optional auto-provisioning, and a required connection test before disabling local login.
-  - **2FA & Passkeys**: Optional or admin-enforced **TOTP Authenticator Apps** (+ recovery codes), **FIDO2 Hardware Security Keys**, and passwordless **Passkeys** (discoverable WebAuthn), with self-service management and admin reset.
-  - **Role-Based Sharing**: Commands, servers, and certificates are private to their creator by default; administrators can share items with all users or specific accounts without ever exposing decrypted private keys or passphrases.
-- **Bilingual UI (German & English)**: Instant `DE / EN` switcher across every screen.
-- **Audit Log**: Complete execution history with target, user, certificate key ID, OpenSSH arguments, exit code, duration, `stdout`, and `stderr`.
+- **Privacy, OIDC SSO, 2FA & Passkeys**:
+  - **OIDC / OAuth 2.0 SSO (PKCE S256)**: Auto-discovery, optional auto-provisioning, and mandatory anti-lockout connection test before disabling local login.
+  - **2FA & Passkeys**: Optional or admin-enforced **TOTP Authenticator Apps** (+ recovery codes), **FIDO2 Hardware Security Keys**, and passwordless **Passkeys** (discoverable WebAuthn).
+- **Bilingual UI (`DE / EN`) & Audit Log**: Instant language switcher and full execution history (`stdout`, `stderr`, exit code, duration, target, key ID, redacted secrets).
 
 ---
 
@@ -82,8 +89,9 @@ sudo apt install ./ssh-console_*_amd64.deb
 
 The package automatically:
 1. Installs the compiled Rust binary (`/usr/local/bin/ssh-console`) and built frontend (`/opt/ssh-console/dist`).
-2. Creates a dedicated system user (`ssh-console`) and data directory (`/var/lib/ssh-console`).
-3. Installs and starts the hardened `ssh-console.service` systemd unit.
+2. Installs required runtime packages (`openssh-client` incl. `ssh` & `ssh-keygen`, `iputils-ping`, `curl`, `ca-certificates`).
+3. Creates a dedicated system user (`ssh-console`) and data directory (`/var/lib/ssh-console`).
+4. Installs and starts the hardened `ssh-console.service` systemd unit.
 
 Verify the service:
 
@@ -109,7 +117,7 @@ cargo build --release
 | --- | --- | --- |
 | [`.github/workflows/release-docker.yml`](./.github/workflows/release-docker.yml) | Push to `main`/`master`, `v*` tags, manual | Builds & publishes multi-arch Docker images (`linux/amd64`, plus `linux/arm64` on `v*` tags or manual selection) to GHCR |
 | [`.github/workflows/release-deb.yml`](./.github/workflows/release-deb.yml) | `v*` tags, manual | Builds Debian 13 (Trixie) `.deb` packages and attaches them to a GitHub Release |
-| [`.github/workflows/pages.yml`](./.github/workflows/pages.yml) | Changes in `docs/`, manual | Builds & deploys the bilingual `/docs` site to **GitHub Pages** using Node 24 actions |
+| [`.github/workflows/pages.yml`](./.github/workflows/pages.yml) | Changes in `docs/`, manual | Builds & deploys the bilingual `/docs` site to **GitHub Pages** |
 
 To enable the hosted documentation in your fork/repository, open **Settings → Pages → Build and deployment → Source** and select **GitHub Actions**.
 
@@ -120,7 +128,7 @@ To enable the hosted documentation in your fork/repository, open **Settings → 
 ### Prerequisites
 
 - Node.js 20+ (22 recommended)
-- OpenSSH client (`ssh`) for live SSH execution (optional; falls back to dry-run validation if unavailable)
+- OpenSSH client (`ssh` & `ssh-keygen`) for live SSH execution and CA certificate signing (falls back to dry-run validation where unavailable)
 - Rust 1.85+ (only required when compiling the native Rust backend under `rust-app/`)
 
 ### Run the development server
@@ -143,7 +151,7 @@ npm run build
 
 ## Certificate Upload API (`curl`)
 
-Each user can create and revoke personal API keys (`sshc_...`) under **Account & Security** or via **Upload via curl & API Key** on the **SSH Keys & Certificates** page.
+Each user with API permission can create and revoke personal API keys (`sshc_...`) under **Account & Security** or via **Upload via curl & API Key** on the **SSH Keys & Certificates** page.
 
 ### Endpoints
 
@@ -196,10 +204,10 @@ curl -X PATCH "https://your-server/api/v1/certificates/prod-ed25519" \
 ### Update or clear a stored key passphrase
 
 ```bash
-# Store or update passphrase
+# Store or update passphrase (if permitted by group policy; complexity rules apply)
 curl -X PATCH "https://your-server/api/v1/certificates/prod-ed25519" \
   -H "X-API-Key: sshc_YOUR_API_KEY" \
-  -F "passphrase=NEW_PASSPHRASE"
+  -F "passphrase=NEW_STRONG_PASSPHRASE"
 
 # Remove stored passphrase (revert to per-use prompt)
 curl -X PATCH "https://your-server/api/v1/certificates/prod-ed25519" \
@@ -220,14 +228,14 @@ curl -H "X-API-Key: sshc_YOUR_API_KEY" \
 | --- | --- | --- | --- |
 | `private_key` | On create | `privateKey`, `zertifikat`, `key` | Private OpenSSH/PEM key file |
 | `public_key` | On create | `publicKey`, `zertifikat_pub`, `pub` | Matching public key file (`.pub`) |
-| `cert` | No | `certificate`, `cert_pub`, `zertifikat_cert` | Optional CA-signed OpenSSH certificate (`-cert.pub`) |
+| `cert` | No | `certificate`, `cert_pub`, `zertifikat_cert` | Optional CA-signed OpenSSH certificate (`-cert.pub`; subject to `uploadSignedCert` group permission) |
 | `name` | No | `label` | Bundle label (defaults to certificate `keyId` or filename) |
-| `passphrase` | No | `key_passphrase`, `keyPassphrase` | Optional passphrase for an encrypted private key (stored encrypted with AES-256-GCM) |
+| `passphrase` | No | `key_passphrase`, `keyPassphrase` | Optional passphrase for an encrypted private key (stored encrypted with AES-256-GCM; subject to group policy & complexity rules) |
 | `clear_passphrase` | No | `clearPassphrase` | Set to `true` on `PATCH`/`PUT` to delete a stored passphrase |
 | `remove_cert` | No | `removeCert` | Set to `true` on `PATCH`/`PUT` to remove `cert` and convert to a 2-file keypair |
 
 - On `POST /api/v1/certificates/upload`, an existing bundle with the same `name` for the authenticated user is updated in place (`HTTP 200`, `"replaced": true`); otherwise a new entry is created (`HTTP 201`, `"replaced": false`).
-- On `PATCH` / `PUT /api/v1/certificates/<name-or-id>`, only supplied fields are updated while unchanged files, bundle ID, and sharing settings are preserved.
+- On `PATCH` / `PUT /api/v1/certificates/<name-or-id>`, only supplied fields are updated while unchanged files, bundle ID, and sharing settings are preserved. Manually replacing a certificate automatically stops any active auto-renewal on that bundle.
 - `application/json` payloads are also supported using the same field names.
 
 ---
@@ -246,9 +254,9 @@ Environment variables (configured via `docker-compose.yml` or `/etc/default/ssh-
 | `RUST_LOG` | `info` | Log verbosity (`debug`, `info`, `warn`, `error`) |
 
 Persistent files in `/var/lib/ssh-console`:
-- `ssh-console.sqlite` — SQLite (WAL mode) storing users, sessions, hashed API keys, SSH commands, servers, certificates (encrypted private keys & passphrases), SSO/2FA settings, and audit logs.
-- `vault.key` (`0600`) — 256-bit AES-256-GCM master key used to encrypt stored private keys, key passphrases, and OIDC client secrets.
-- `known_hosts` (`0600`) — Persistent OpenSSH host-key registry for `StrictHostKeyChecking=accept-new`.
+- `ssh-console.sqlite` — SQLite (WAL mode) storing users, custom user groups & permissions, sessions, hashed API keys, SSH commands/workflows, servers, certificates & auto-renewal configs, managed SSH CAs (encrypted private keys & passphrases), background jobs, SSO/2FA settings, and audit logs.
+- `vault.key` (`0600`) — 256-bit AES-256-GCM master key used to encrypt stored SSH private keys, managed CA private keys, stored key/CA passphrases, TOTP secrets, and OIDC client secrets.
+- `known_hosts` (`0600`) — Persistent per-user OpenSSH host-key registry for `StrictHostKeyChecking=accept-new`.
 
 ### Development (Node.js / Express)
 
@@ -260,7 +268,10 @@ Persistent files in `/var/lib/ssh-console`:
 
 ## Security Architecture
 
-- **Private Keys & Passphrases at Rest**: Encrypted with **AES-256-GCM** using a dedicated server-side master key; never returned to the browser.
+- **Private Keys, CAs & Passphrases at Rest**: Encrypted with **AES-256-GCM** using a dedicated server-side master key; plaintext private keys and passphrases are never returned to the browser.
+- **Zero-Exposure Cross-User Admin Overview**: Admins can audit, sign, or delete user certificates across accounts without ever viewing or exporting another user's private key.
+- **Server-Side Group & CA Policy Enforcement**: Per-group permissions, CA assignments, Principals (`-n`), signature validities (`-V`), and automatic re-signing lead times are strictly enforced server-side and immediately reconciled when rights change.
+- **Password & Passphrase Complexity**: All newly set account passwords, certificate passphrases, and CA passphrases must be at least 8 characters long and satisfy at least 3 of 4 character classes (uppercase, lowercase, digits, special characters).
 - **Ephemeral SSH Execution**: Private keys and optional `SSH_ASKPASS` helper scripts are written into a temporary `0700`/`0600` directory strictly for the duration of an OpenSSH invocation and wiped immediately afterwards.
 - **Passwords**: Hashed with Argon2id (Rust backend) / scrypt with per-user salts (Express dev backend).
 - **API Keys**: Generated with 256 bits of cryptographic entropy, displayed once on creation, and stored exclusively as **SHA-256** hashes.

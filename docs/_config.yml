@@ -1,5 +1,5 @@
 title: SSH Console Docs
-description: Self-Hosted OpenSSH Certificate, Multi-Tab SSH Shell, Ping & BMC Console
+description: Self-Hosted OpenSSH Certificate & CA Console, Automatic Re-Certification, User Groups, Multi-Tab SSH Shell, JSON Workflows, Ping & BMC Dashboard
 markdown: kramdown
 kramdown:
   input: GFM

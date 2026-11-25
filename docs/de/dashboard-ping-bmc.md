@@ -81,16 +81,18 @@ Drei unabhängige Schalter steuern **ausschließlich den regelmäßigen Auto-Pin
 
 ---
 
-## Schnellauswahl & Sammelausführung
+## Schnellauswahl, Sammelausführung & Hintergrund-Jobs
 
 1. In der Leiste **Schnellauswahl & Sammelausführung** ganz oben im Dashboard:
-   - Gewünschten **SSH-Befehl** (Einzelbefehl oder Befehlskette) wählen.
+   - Gewünschten **SSH-Befehl** (Einzelbefehl, einfache Befehlskette oder **komplexen JSON-Workflow**) wählen.
+   - Falls der gewählte JSON-Workflow Laufzeit-Eingaben (`inputs`) oder überschreibbare Variablen (`vars`) definiert, erscheinen die Eingabefelder automatisch direkt vor dem Start.
    - Gewünschtes **SSH-Zertifikat / Schlüsselpaar** wählen.
    - Bei einem passwortgeschützten Schlüssel ohne hinterlegte Passphrase erscheint automatisch das Entsperr-Eingabefeld für diese Ausführung.
 2. Ziel-Server in der Tabelle darunter markieren (einzeln oder per Seiten-Auswahlbox).
-3. Auf **Sammelauftrag ausführen** klicken – die Ausführung erfolgt parallel auf allen markierten Zielen.
+3. Auf **Sammelauftrag ausführen** (sofortige parallele Ausführung mit Live-Ergebnis) oder **Als Hintergrund-Job starten** klicken:
+   - **Hintergrund-Jobs** laufen serverseitig weiter, auch wenn der Tab gewechselt oder geschlossen wird, zeigen den Live-Fortschritt im Dashboard an und lassen sich dort abbrechen oder im Detail auswerten.
 4. **Direkte Ergebnisanzeige**: Die Ausgaben (`stdout`, `stderr`, Exit-Code, Laufzeit und aufklappbarer SSH-Aufruf) erscheinen **direkt nach der Schnellauswahl und vor der IP-Liste**, sodass Ergebnisse auch bei großen Serverlisten sofort ohne Scrollen sichtbar sind.
 
 ---
 
-Weiter: **[SSH-Shell, Befehle & Host-Keys](./ssh-shell-befehle.html)**
+Weiter: **[SSH-Shell, Workflows & Host-Keys](./ssh-shell-befehle.html)**

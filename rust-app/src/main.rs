@@ -3280,7 +3280,7 @@ async fn api_admin_update_ca(
                     .vault
                     .decrypt(&existing.private_key_enc, &existing.private_key_nonce)
                     .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
-                String::from_utf8(bytes)
+                String::from_utf8(bytes.to_vec())
                     .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             };
             let effective_pub = new_pub_opt.unwrap_or(&existing.public_key);

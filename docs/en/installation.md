@@ -60,7 +60,7 @@ sudo apt install ./ssh-console_*_amd64.deb
 
 The package automatically:
 1. Installs the Rust binary at `/usr/local/bin/ssh-console` and the web frontend at `/opt/ssh-console/dist`.
-2. Installs required runtime packages (`openssh-client`, `iputils-ping`, `curl`, `ca-certificates`).
+2. Installs required runtime packages (`openssh-client` incl. `ssh` & `ssh-keygen`, `iputils-ping`, `curl`, `ca-certificates`).
 3. Creates the dedicated system user `ssh-console` and data directory `/var/lib/ssh-console` (`0700`).
 4. Installs and enables `ssh-console.service`.
 
@@ -89,7 +89,7 @@ cargo build --release
 
 ## Option 3: Local Development (Node.js / Express)
 
-Prerequisites: **Node.js 20+** (22 recommended) and OpenSSH client (`ssh`).
+Prerequisites: **Node.js 20+** (22 recommended) and OpenSSH client (`ssh` & `ssh-keygen` for key/CA generation and certificate signing).
 
 ```bash
 npm install --legacy-peer-deps
@@ -178,8 +178,8 @@ All persistent state lives in `/var/lib/ssh-console` (or the `ssh-console-data` 
 
 | File | Importance | Description |
 | --- | --- | --- |
-| `ssh-console.sqlite` (+ `-wal`/`-shm`) | **Critical** | Users, servers, categories, commands, encrypted certificates, logs, settings |
-| `vault.key` (`0600`) | **Critical** | 256-bit AES-256-GCM master key. **Without this file, encrypted SSH private keys and stored passphrases cannot be decrypted!** |
+| `ssh-console.sqlite` (+ `-wal`/`-shm`) | **Critical** | Users, user groups, CA assignments, servers, categories, commands & workflows, encrypted SSH certificates & managed CAs, auto-renewal configs, background jobs, audit logs, settings |
+| `vault.key` (`0600`) | **Critical** | 256-bit AES-256-GCM master key. **Without this file, encrypted SSH private keys, managed CA keys, and stored passphrases cannot be decrypted!** |
 | `known_hosts/` | Recommended | Per-user SSH host key trust databases |
 
 ### Consistent Online Backup (Debian Host)
@@ -206,4 +206,4 @@ sudo systemctl start ssh-console
 
 ---
 
-Next: **[Authentication, SSO, 2FA & Passkeys](./authentication.html)**
+Next: **[Authentication, Groups, SSO & 2FA](./authentication.html)**
