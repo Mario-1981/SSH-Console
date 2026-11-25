@@ -663,8 +663,8 @@ pub fn ensure_mariadb_schema(conn: &mut PooledConn) -> Result<(), String> {
 pub fn inspect_mariadb_existing_tables(
     conn: &mut PooledConn,
 ) -> Result<(Vec<DatabaseTableCount>, u64), String> {
-    let existing_names: Vec<String> = conn
-        .query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")
+    let existing_names = conn
+        .query::<String, _>("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")
         .map_err(|e| format!("MariaDB-Tabellenprüfung fehlgeschlagen: {e}"))?;
     let existing_set: HashSet<String> = existing_names
         .into_iter()
@@ -679,8 +679,8 @@ pub fn inspect_mariadb_existing_tables(
             continue;
         }
         let sql = format!("SELECT COUNT(*) FROM `{}`", spec.name);
-        let cnt: u64 = conn
-            .query_first(sql)
+        let cnt = conn
+            .query_first::<u64, _>(sql)
             .map_err(|e| format!("Zählung für Tabelle {} fehlgeschlagen: {e}", spec.name))?
             .unwrap_or(0);
         total = total.saturating_add(cnt);
@@ -701,8 +701,8 @@ pub fn test_connection(cfg: &ResolvedMariaDbConfig) -> Result<MariaDbTestRespons
         .get_conn()
         .map_err(|e| format!("MariaDB-Verbindung fehlgeschlagen: {e}"))?;
 
-    let (version, db_opt): (String, Option<String>) = conn
-        .query_first("SELECT VERSION(), DATABASE()")
+    let (version, db_opt) = conn
+        .query_first::<(String, Option<String>), _>("SELECT VERSION(), DATABASE()")
         .map_err(|e| format!("MariaDB-Versionsabfrage fehlgeschlagen: {e}"))?
         .unwrap_or_else(|| ("MariaDB".to_string(), Some(cfg.database.clone())));
 
@@ -723,8 +723,8 @@ pub fn query_mariadb_version(pool: &Pool) -> Result<String, String> {
     let mut conn = pool
         .get_conn()
         .map_err(|e| format!("MariaDB-Verbindung fehlgeschlagen: {e}"))?;
-    let version: String = conn
-        .query_first("SELECT VERSION()")
+    let version = conn
+        .query_first::<String, _>("SELECT VERSION()")
         .map_err(|e| format!("MariaDB-Ping fehlgeschlagen: {e}"))?
         .unwrap_or_else(|| "MariaDB".to_string());
     Ok(version)
@@ -929,8 +929,8 @@ pub fn load_mariadb_into_sqlite(
             .collect::<Vec<_>>()
             .join(", ");
         let select_sql = format!("SELECT {col_list} FROM `{}`", spec.name);
-        let rows: Vec<Row> = mconn
-            .query(select_sql)
+        let rows = mconn
+            .query::<Row, _>(select_sql)
             .map_err(|e| format!("MariaDB-Lesefehler für {}: {e}", spec.name))?;
         let mut converted = Vec::with_capacity(rows.len());
         for row in rows {

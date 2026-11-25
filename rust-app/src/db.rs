@@ -124,8 +124,8 @@ impl SyncedDbMutex {
     }
 }
 
-fn attach_update_hook(conn: &mut Connection, dirty: Arc<Mutex<HashSet<String>>>) {
-    let _ = conn.update_hook(Some(move |_action, _db: &str, table: &str, _rowid: i64| {
+fn attach_update_hook(conn: &Connection, dirty: Arc<Mutex<HashSet<String>>>) {
+    conn.update_hook(Some(move |_action, _db: &str, table: &str, _rowid: i64| {
         if let Ok(mut set) = dirty.lock() {
             set.insert(table.to_string());
         }
@@ -467,7 +467,7 @@ impl Database {
         let last_sync_error = Arc::new(Mutex::new(None::<String>));
         let mut detected_version: Option<String> = None;
 
-        let mut conn = if cfg.engine == "mariadb" && cfg.mariadb.is_some() {
+        let conn = if cfg.engine == "mariadb" && cfg.mariadb.is_some() {
             let mut mem = Connection::open_in_memory()
                 .map_err(|e| format!("SQLite-In-Memory-Fehler: {e}"))?;
             Self::init_sqlite_schema(&mem)?;
@@ -501,7 +501,7 @@ impl Database {
             file_conn
         };
 
-        attach_update_hook(&mut conn, Arc::clone(&dirty_tables));
+        attach_update_hook(&conn, Arc::clone(&dirty_tables));
 
         Ok(Self {
             conn: SyncedDbMutex {
@@ -4783,7 +4783,7 @@ impl Database {
                 mariadb::load_mariadb_into_sqlite(&pool, &mut mem_conn)
                     .map_err(MigrationError::Internal)?;
                 Self::init_sqlite_schema(&mem_conn).map_err(MigrationError::Internal)?;
-                attach_update_hook(&mut mem_conn, Arc::clone(&self.conn.dirty_tables));
+                attach_update_hook(&mem_conn, Arc::clone(&self.conn.dirty_tables));
 
                 let explicit_pass = req
                     .mariadb
@@ -4913,11 +4913,11 @@ impl Database {
                     ))
                 })?;
 
-                let mut reopened = Connection::open(&sqlite_path).map_err(|e| {
+                let reopened = Connection::open(&sqlite_path).map_err(|e| {
                     MigrationError::Internal(format!("Migrierte SQLite-Datei konnte nicht geöffnet werden: {e}"))
                 })?;
                 Self::init_sqlite_schema(&reopened).map_err(MigrationError::Internal)?;
-                attach_update_hook(&mut reopened, Arc::clone(&self.conn.dirty_tables));
+                attach_update_hook(&reopened, Arc::clone(&self.conn.dirty_tables));
 
                 let now_iso = Utc::now().to_rfc3339();
                 cfg.engine = "sqlite".to_string();
