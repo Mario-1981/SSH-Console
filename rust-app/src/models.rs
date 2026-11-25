@@ -1127,4 +1127,97 @@ pub struct AssignedSigningCaPublic {
     pub auto_renew_before_seconds: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseTableCount {
+    pub table: String,
+    pub label: String,
+    pub rows: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MariaDbConfigPublic {
+    pub configured: bool,
+    pub host: String,
+    pub port: u16,
+    pub database: String,
+    pub username: String,
+    pub has_password: bool,
+    pub ssl: bool,
+    pub ssl_reject_unauthorized: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseStatusResponse {
+    pub engine: String,
+    pub runtime: String,
+    pub connected: bool,
+    pub mariadb_version: Option<String>,
+    pub sqlite_path: String,
+    pub sqlite_exists: bool,
+    pub sqlite_size_bytes: u64,
+    pub mariadb: MariaDbConfigPublic,
+    pub tables: Vec<DatabaseTableCount>,
+    pub total_rows: u64,
+    pub last_migrated_at: Option<String>,
+    pub last_migration_direction: Option<String>,
+    pub last_synced_at: Option<String>,
+    pub last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MariaDbConfigInput {
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub ssl: Option<bool>,
+    #[serde(default)]
+    pub ssl_reject_unauthorized: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MariaDbTestResponse {
+    pub ok: bool,
+    pub version: String,
+    pub database: String,
+    pub latency_ms: u64,
+    pub existing_tables: Vec<DatabaseTableCount>,
+    pub existing_row_count: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrateDatabaseRequest {
+    pub direction: String,
+    #[serde(default)]
+    pub mariadb: Option<MariaDbConfigInput>,
+    #[serde(default)]
+    pub confirm_overwrite: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrateDatabaseResult {
+    pub direction: String,
+    pub engine: String,
+    pub migrated_tables: Vec<DatabaseTableCount>,
+    pub total_rows: u64,
+    pub duration_ms: u64,
+    pub backup_file_name: Option<String>,
+    pub mariadb_version: Option<String>,
+}
+
+
 

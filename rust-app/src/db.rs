@@ -1,25 +1,146 @@
+use crate::crypto::Vault;
+use crate::mariadb::{
+    self, DbConfigFile, StoredMariaDbConfig,
+};
 use crate::models::{
     AdminAuthSettingsPatchRequest, AuthPolicySettings, CertInspection, CertificateAuthorityPublic,
-    CertificateAutoRenewConfig, CommandStep, ExecutionLog, GroupPermissions, ServerCategory,
-    SshCommand, StoredCertificateAuthorityForEdit, StoredCertificateForEdit,
-    StoredCertificateForSigning, UserApiKeyPublic, UserCertificatePublic, UserCertificateSecret,
-    UserGroup, UserPublic, UserServer, WebAuthnCredentialPublic, WebAuthnCredentialStored,
+    CertificateAutoRenewConfig, CommandStep, DatabaseStatusResponse, DatabaseTableCount,
+    ExecutionLog, GroupPermissions, MariaDbConfigInput, MariaDbConfigPublic, MariaDbTestResponse,
+    MigrateDatabaseRequest, MigrateDatabaseResult, ServerCategory, SshCommand,
+    StoredCertificateAuthorityForEdit, StoredCertificateForEdit, StoredCertificateForSigning,
+    UserApiKeyPublic, UserCertificatePublic, UserCertificateSecret, UserGroup, UserPublic,
+    UserServer, WebAuthnCredentialPublic, WebAuthnCredentialStored,
 };
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
-use std::path::Path;
-use std::sync::Mutex;
+use std::collections::HashSet;
+use std::fs;
+use std::ops::{Deref, DerefMut};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
+use std::time::Instant;
 use uuid::Uuid;
 
+pub enum MigrationError {
+    BadRequest(String),
+    Conflict {
+        message: String,
+        existing_row_count: u64,
+        existing_tables: Vec<DatabaseTableCount>,
+    },
+    Internal(String),
+}
+
+struct SyncedDbMutex {
+    inner: Mutex<Connection>,
+    dirty_tables: Arc<Mutex<HashSet<String>>>,
+    mariadb_pool: Arc<RwLock<Option<mysql::Pool>>>,
+    last_synced_at: Arc<Mutex<Option<String>>>,
+    last_sync_error: Arc<Mutex<Option<String>>>,
+}
+
+struct SyncedConnGuard<'a> {
+    guard: Option<MutexGuard<'a, Connection>>,
+    dirty_tables: &'a Arc<Mutex<HashSet<String>>>,
+    mariadb_pool: &'a Arc<RwLock<Option<mysql::Pool>>>,
+    last_synced_at: &'a Arc<Mutex<Option<String>>>,
+    last_sync_error: &'a Arc<Mutex<Option<String>>>,
+    changes_before: u64,
+}
+
+impl<'a> Deref for SyncedConnGuard<'a> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        self.guard.as_ref().expect("DB-Guard bereits freigegeben")
+    }
+}
+
+impl<'a> DerefMut for SyncedConnGuard<'a> {
+    fn deref_mut(&mut self) -> &mut Connection {
+        self.guard.as_mut().expect("DB-Guard bereits freigegeben")
+    }
+}
+
+impl<'a> Drop for SyncedConnGuard<'a> {
+    fn drop(&mut self) {
+        if let Some(conn) = self.guard.as_ref() {
+            let pool_opt = self.mariadb_pool.read().ok().and_then(|g| g.clone());
+            if let Some(pool) = pool_opt {
+                let mut tables: Vec<String> = {
+                    let mut dirty = self.dirty_tables.lock().unwrap_or_else(|e| e.into_inner());
+                    dirty.drain().collect()
+                };
+                if tables.is_empty() && conn.total_changes() != self.changes_before {
+                    tables = mariadb::ALL_TABLES
+                        .iter()
+                        .map(|t| t.name.to_string())
+                        .collect();
+                }
+                if !tables.is_empty() {
+                    match mariadb::sync_tables_to_mariadb(conn, &pool, &tables) {
+                        Ok(()) => {
+                            if let Ok(mut ts) = self.last_synced_at.lock() {
+                                *ts = Some(Utc::now().to_rfc3339());
+                            }
+                            if let Ok(mut err) = self.last_sync_error.lock() {
+                                *err = None;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("MariaDB-Synchronisierung fehlgeschlagen ({:?}): {}", tables, e);
+                            if let Ok(mut err) = self.last_sync_error.lock() {
+                                *err = Some(e);
+                            }
+                        }
+                    }
+                }
+            } else if let Ok(mut dirty) = self.dirty_tables.lock() {
+                dirty.clear();
+            }
+        }
+        let _ = self.guard.take();
+    }
+}
+
+impl SyncedDbMutex {
+    fn lock(&self) -> Result<SyncedConnGuard<'_>, PoisonError<MutexGuard<'_, Connection>>> {
+        let guard = self.inner.lock()?;
+        let changes_before = guard.total_changes();
+        Ok(SyncedConnGuard {
+            guard: Some(guard),
+            dirty_tables: &self.dirty_tables,
+            mariadb_pool: &self.mariadb_pool,
+            last_synced_at: &self.last_synced_at,
+            last_sync_error: &self.last_sync_error,
+            changes_before,
+        })
+    }
+
+    fn lock_raw(&self) -> Result<MutexGuard<'_, Connection>, PoisonError<MutexGuard<'_, Connection>>> {
+        self.inner.lock()
+    }
+}
+
+fn attach_update_hook(conn: &mut Connection, dirty: Arc<Mutex<HashSet<String>>>) {
+    let _ = conn.update_hook(Some(move |_action, _db: &str, table: &str, _rowid: i64| {
+        if let Ok(mut set) = dirty.lock() {
+            set.insert(table.to_string());
+        }
+    }));
+}
+
 pub struct Database {
-    conn: Mutex<Connection>,
+    conn: SyncedDbMutex,
+    data_dir: PathBuf,
+    db_config: Mutex<DbConfigFile>,
+    mariadb_version: Mutex<Option<String>>,
 }
 
 impl Database {
-    pub fn open(db_path: &Path) -> Result<Self, String> {
-        let conn = Connection::open(db_path).map_err(|e| format!("SQLite-Fehler: {e}"))?;
+    fn init_sqlite_schema(conn: &Connection) -> Result<(), String> {
         conn.execute_batch(
             "
             PRAGMA journal_mode = WAL;
@@ -335,8 +456,64 @@ impl Database {
             [],
         );
 
+        Ok(())
+    }
+
+    pub fn open_with_vault(data_dir: &Path, vault: &Vault) -> Result<Self, String> {
+        let cfg = mariadb::load_config_file(data_dir);
+        let dirty_tables = Arc::new(Mutex::new(HashSet::<String>::new()));
+        let mariadb_pool: Arc<RwLock<Option<mysql::Pool>>> = Arc::new(RwLock::new(None));
+        let last_synced_at = Arc::new(Mutex::new(None::<String>));
+        let last_sync_error = Arc::new(Mutex::new(None::<String>));
+        let mut detected_version: Option<String> = None;
+
+        let mut conn = if cfg.engine == "mariadb" && cfg.mariadb.is_some() {
+            let mut mem = Connection::open_in_memory()
+                .map_err(|e| format!("SQLite-In-Memory-Fehler: {e}"))?;
+            Self::init_sqlite_schema(&mem)?;
+
+            let resolved = mariadb::resolve_mariadb_config(cfg.mariadb.as_ref(), None, vault)?;
+            let pool = mariadb::build_pool(&resolved)?;
+            let version = mariadb::query_mariadb_version(&pool)?;
+            mariadb::load_mariadb_into_sqlite(&pool, &mut mem)?;
+            Self::init_sqlite_schema(&mem)?;
+
+            tracing::info!(
+                "SSH Console: MariaDB aktiv ({}:{}/{}, {})",
+                resolved.host,
+                resolved.port,
+                resolved.database,
+                version
+            );
+            detected_version = Some(version);
+            if let Ok(mut g) = mariadb_pool.write() {
+                *g = Some(pool);
+            }
+            if let Ok(mut ts) = last_synced_at.lock() {
+                *ts = Some(Utc::now().to_rfc3339());
+            }
+            mem
+        } else {
+            let sqlite_path = data_dir.join("ssh-console.sqlite");
+            let file_conn =
+                Connection::open(&sqlite_path).map_err(|e| format!("SQLite-Fehler: {e}"))?;
+            Self::init_sqlite_schema(&file_conn)?;
+            file_conn
+        };
+
+        attach_update_hook(&mut conn, Arc::clone(&dirty_tables));
+
         Ok(Self {
-            conn: Mutex::new(conn),
+            conn: SyncedDbMutex {
+                inner: Mutex::new(conn),
+                dirty_tables,
+                mariadb_pool,
+                last_synced_at,
+                last_sync_error,
+            },
+            data_dir: data_dir.to_path_buf(),
+            db_config: Mutex::new(cfg),
+            mariadb_version: Mutex::new(detected_version),
         })
     }
 
@@ -4385,5 +4562,399 @@ impl Database {
             }
         }
         Ok(changed > 0)
+    }
+
+    pub fn get_database_status(&self) -> Result<DatabaseStatusResponse, String> {
+        let cfg = self
+            .db_config
+            .lock()
+            .map_err(|_| "DB-Config Lock Fehler".to_string())?
+            .clone();
+        let sqlite_path = self.data_dir.join("ssh-console.sqlite");
+        let (sqlite_exists, sqlite_size_bytes) = match fs::metadata(&sqlite_path) {
+            Ok(m) => (true, m.len()),
+            Err(_) => (false, 0),
+        };
+
+        let mut connected = true;
+        let mut version = self.mariadb_version.lock().ok().and_then(|g| g.clone());
+        if cfg.engine == "mariadb" {
+            let pool_opt = self
+                .conn
+                .mariadb_pool
+                .read()
+                .ok()
+                .and_then(|g| g.clone());
+            if let Some(pool) = pool_opt {
+                match mariadb::query_mariadb_version(&pool) {
+                    Ok(v) => {
+                        connected = true;
+                        version = Some(v.clone());
+                        if let Ok(mut g) = self.mariadb_version.lock() {
+                            *g = Some(v);
+                        }
+                    }
+                    Err(e) => {
+                        connected = false;
+                        if let Ok(mut g) = self.conn.last_sync_error.lock() {
+                            *g = Some(e);
+                        }
+                    }
+                }
+            } else {
+                connected = false;
+            }
+        }
+
+        let tables = {
+            let raw = self
+                .conn
+                .lock_raw()
+                .map_err(|_| "DB Lock Fehler".to_string())?;
+            mariadb::get_sqlite_table_counts(&raw)?
+        };
+        let total_rows: u64 = tables.iter().map(|t| t.rows).sum();
+
+        let last_synced_at = self.conn.last_synced_at.lock().ok().and_then(|g| g.clone());
+        let last_sync_error = self
+            .conn
+            .last_sync_error
+            .lock()
+            .ok()
+            .and_then(|g| g.clone());
+
+        let m_pub = match &cfg.mariadb {
+            Some(m) => MariaDbConfigPublic {
+                configured: !m.host.is_empty() && !m.database.is_empty() && !m.username.is_empty(),
+                host: m.host.clone(),
+                port: m.port,
+                database: m.database.clone(),
+                username: m.username.clone(),
+                has_password: m.password_enc_b64.is_some() && m.password_nonce_b64.is_some(),
+                ssl: m.ssl,
+                ssl_reject_unauthorized: m.ssl_reject_unauthorized,
+            },
+            None => MariaDbConfigPublic {
+                configured: false,
+                host: String::new(),
+                port: 3306,
+                database: "ssh_console".to_string(),
+                username: String::new(),
+                has_password: false,
+                ssl: false,
+                ssl_reject_unauthorized: true,
+            },
+        };
+
+        Ok(DatabaseStatusResponse {
+            engine: cfg.engine.clone(),
+            runtime: "rust".to_string(),
+            connected,
+            mariadb_version: if cfg.engine == "mariadb" { version } else { None },
+            sqlite_path: sqlite_path.to_string_lossy().to_string(),
+            sqlite_exists,
+            sqlite_size_bytes,
+            mariadb: m_pub,
+            tables,
+            total_rows,
+            last_migrated_at: cfg.last_migrated_at,
+            last_migration_direction: cfg.last_migration_direction,
+            last_synced_at,
+            last_sync_error,
+        })
+    }
+
+    pub fn save_mariadb_config(
+        &self,
+        vault: &Vault,
+        input: &MariaDbConfigInput,
+    ) -> Result<(), String> {
+        let mut cfg = self
+            .db_config
+            .lock()
+            .map_err(|_| "DB-Config Lock Fehler".to_string())?;
+        let resolved = mariadb::resolve_mariadb_config(cfg.mariadb.as_ref(), Some(input), vault)?;
+
+        let explicit_pass = input.password.as_deref().filter(|p| !p.is_empty());
+        let (pass_enc_b64, pass_nonce_b64) = if let Some(p) = explicit_pass {
+            let (e, n) = mariadb::encrypt_password(vault, p)?;
+            (Some(e), Some(n))
+        } else if let Some(existing) = &cfg.mariadb {
+            (
+                existing.password_enc_b64.clone(),
+                existing.password_nonce_b64.clone(),
+            )
+        } else {
+            let (e, n) = mariadb::encrypt_password(vault, resolved.password.as_str())?;
+            (Some(e), Some(n))
+        };
+
+        cfg.mariadb = Some(StoredMariaDbConfig {
+            host: resolved.host,
+            port: resolved.port,
+            database: resolved.database,
+            username: resolved.username,
+            password_enc_b64: pass_enc_b64,
+            password_nonce_b64: pass_nonce_b64,
+            ssl: resolved.ssl,
+            ssl_reject_unauthorized: resolved.ssl_reject_unauthorized,
+        });
+        mariadb::save_config_file(&self.data_dir, &cfg)?;
+        Ok(())
+    }
+
+    pub fn clear_mariadb_config(&self) -> Result<(), String> {
+        let mut cfg = self
+            .db_config
+            .lock()
+            .map_err(|_| "DB-Config Lock Fehler".to_string())?;
+        if cfg.engine == "mariadb" {
+            return Err("Die MariaDB-Konfiguration kann nicht gelöscht werden, solange MariaDB die aktive Datenbank ist. Bitte migrieren Sie zuerst zurück zu SQLite.".into());
+        }
+        cfg.mariadb = None;
+        mariadb::save_config_file(&self.data_dir, &cfg)?;
+        Ok(())
+    }
+
+    pub fn test_mariadb(
+        &self,
+        vault: &Vault,
+        input: &MariaDbConfigInput,
+    ) -> Result<MariaDbTestResponse, String> {
+        let existing = self
+            .db_config
+            .lock()
+            .map_err(|_| "DB-Config Lock Fehler".to_string())?
+            .mariadb
+            .clone();
+        let resolved = mariadb::resolve_mariadb_config(existing.as_ref(), Some(input), vault)?;
+        mariadb::test_connection(&resolved)
+    }
+
+    pub fn migrate_database(
+        &self,
+        vault: &Vault,
+        req: &MigrateDatabaseRequest,
+    ) -> Result<MigrateDatabaseResult, MigrationError> {
+        let started = Instant::now();
+        let mut raw_conn = self
+            .conn
+            .lock_raw()
+            .map_err(|_| MigrationError::Internal("DB Lock Fehler".into()))?;
+        let mut cfg = self
+            .db_config
+            .lock()
+            .map_err(|_| MigrationError::Internal("DB-Config Lock Fehler".into()))?;
+
+        match req.direction.as_str() {
+            "sqlite-to-mariadb" => {
+                if cfg.engine == "mariadb" {
+                    return Err(MigrationError::BadRequest(
+                        "MariaDB ist bereits als aktive Datenbank eingerichtet.".into(),
+                    ));
+                }
+                let resolved = mariadb::resolve_mariadb_config(
+                    cfg.mariadb.as_ref(),
+                    req.mariadb.as_ref(),
+                    vault,
+                )
+                .map_err(MigrationError::BadRequest)?;
+
+                let test = mariadb::test_connection(&resolved).map_err(MigrationError::BadRequest)?;
+                if test.existing_row_count > 0 && !req.confirm_overwrite {
+                    return Err(MigrationError::Conflict {
+                        message: format!(
+                            "Die Ziel-MariaDB enthält bereits {} Datensätze in bestehenden SSH-Console-Tabellen. Bitte bestätigen Sie das Überschreiben.",
+                            test.existing_row_count
+                        ),
+                        existing_row_count: test.existing_row_count,
+                        existing_tables: test.existing_tables,
+                    });
+                }
+
+                let pool = mariadb::build_pool(&resolved).map_err(MigrationError::BadRequest)?;
+                let migrated_tables = mariadb::migrate_sqlite_to_mariadb(&raw_conn, &pool)
+                    .map_err(MigrationError::Internal)?;
+                let total_rows: u64 = migrated_tables.iter().map(|t| t.rows).sum();
+
+                let mut mem_conn = Connection::open_in_memory()
+                    .map_err(|e| MigrationError::Internal(format!("SQLite-In-Memory-Fehler: {e}")))?;
+                Self::init_sqlite_schema(&mem_conn).map_err(MigrationError::Internal)?;
+                mariadb::load_mariadb_into_sqlite(&pool, &mut mem_conn)
+                    .map_err(MigrationError::Internal)?;
+                Self::init_sqlite_schema(&mem_conn).map_err(MigrationError::Internal)?;
+                attach_update_hook(&mut mem_conn, Arc::clone(&self.conn.dirty_tables));
+
+                let explicit_pass = req
+                    .mariadb
+                    .as_ref()
+                    .and_then(|m| m.password.as_deref())
+                    .filter(|p| !p.is_empty());
+                let (pass_enc_b64, pass_nonce_b64) = if let Some(p) = explicit_pass {
+                    let (e, n) =
+                        mariadb::encrypt_password(vault, p).map_err(MigrationError::Internal)?;
+                    (Some(e), Some(n))
+                } else if let Some(existing) = &cfg.mariadb {
+                    (
+                        existing.password_enc_b64.clone(),
+                        existing.password_nonce_b64.clone(),
+                    )
+                } else {
+                    let (e, n) = mariadb::encrypt_password(vault, resolved.password.as_str())
+                        .map_err(MigrationError::Internal)?;
+                    (Some(e), Some(n))
+                };
+
+                let now_iso = Utc::now().to_rfc3339();
+                cfg.engine = "mariadb".to_string();
+                cfg.mariadb = Some(StoredMariaDbConfig {
+                    host: resolved.host,
+                    port: resolved.port,
+                    database: resolved.database,
+                    username: resolved.username,
+                    password_enc_b64: pass_enc_b64,
+                    password_nonce_b64: pass_nonce_b64,
+                    ssl: resolved.ssl,
+                    ssl_reject_unauthorized: resolved.ssl_reject_unauthorized,
+                });
+                cfg.last_migrated_at = Some(now_iso.clone());
+                cfg.last_migration_direction = Some("sqlite-to-mariadb".to_string());
+                mariadb::save_config_file(&self.data_dir, &cfg)
+                    .map_err(MigrationError::Internal)?;
+
+                *raw_conn = mem_conn;
+                if let Ok(mut dirty) = self.conn.dirty_tables.lock() {
+                    dirty.clear();
+                }
+                if let Ok(mut g) = self.conn.mariadb_pool.write() {
+                    *g = Some(pool);
+                }
+                if let Ok(mut v) = self.mariadb_version.lock() {
+                    *v = Some(test.version.clone());
+                }
+                if let Ok(mut ts) = self.conn.last_synced_at.lock() {
+                    *ts = Some(now_iso);
+                }
+                if let Ok(mut err) = self.conn.last_sync_error.lock() {
+                    *err = None;
+                }
+
+                Ok(MigrateDatabaseResult {
+                    direction: "sqlite-to-mariadb".to_string(),
+                    engine: "mariadb".to_string(),
+                    migrated_tables,
+                    total_rows,
+                    duration_ms: started.elapsed().as_millis().max(1) as u64,
+                    backup_file_name: None,
+                    mariadb_version: Some(test.version),
+                })
+            }
+            "mariadb-to-sqlite" => {
+                if cfg.engine != "mariadb" {
+                    return Err(MigrationError::BadRequest(
+                        "SQLite ist bereits als aktive Datenbank eingerichtet.".into(),
+                    ));
+                }
+
+                let pool = {
+                    let active_opt = self
+                        .conn
+                        .mariadb_pool
+                        .read()
+                        .ok()
+                        .and_then(|g| g.clone());
+                    if let Some(p) = active_opt {
+                        p
+                    } else {
+                        let resolved =
+                            mariadb::resolve_mariadb_config(cfg.mariadb.as_ref(), None, vault)
+                                .map_err(MigrationError::BadRequest)?;
+                        mariadb::build_pool(&resolved).map_err(MigrationError::BadRequest)?
+                    }
+                };
+
+                let sqlite_path = self.data_dir.join("ssh-console.sqlite");
+                let tmp_path = self.data_dir.join("ssh-console.sqlite.migrating");
+                let _ = fs::remove_file(&tmp_path);
+                let _ = fs::remove_file(self.data_dir.join("ssh-console.sqlite.migrating-wal"));
+                let _ = fs::remove_file(self.data_dir.join("ssh-console.sqlite.migrating-shm"));
+
+                let migrated_tables = {
+                    let mut tmp_conn = Connection::open(&tmp_path).map_err(|e| {
+                        MigrationError::Internal(format!("Temporäre SQLite-Datei konnte nicht erstellt werden: {e}"))
+                    })?;
+                    Self::init_sqlite_schema(&tmp_conn).map_err(MigrationError::Internal)?;
+                    let counts = mariadb::load_mariadb_into_sqlite(&pool, &mut tmp_conn)
+                        .map_err(MigrationError::Internal)?;
+                    let _ = tmp_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+                    counts
+                };
+                let _ = fs::remove_file(self.data_dir.join("ssh-console.sqlite.migrating-wal"));
+                let _ = fs::remove_file(self.data_dir.join("ssh-console.sqlite.migrating-shm"));
+
+                let mut backup_file_name: Option<String> = None;
+                if sqlite_path.exists() {
+                    let stamp = Utc::now().format("%Y%m%dT%H%M%SZ");
+                    let bak_name = format!("ssh-console.sqlite.bak-{stamp}");
+                    let bak_path = self.data_dir.join(&bak_name);
+                    fs::copy(&sqlite_path, &bak_path).map_err(|e| {
+                        MigrationError::Internal(format!(
+                            "Backup der bisherigen SQLite-Datenbank fehlgeschlagen: {e}"
+                        ))
+                    })?;
+                    backup_file_name = Some(bak_name);
+                }
+
+                let _ = fs::remove_file(self.data_dir.join("ssh-console.sqlite-wal"));
+                let _ = fs::remove_file(self.data_dir.join("ssh-console.sqlite-shm"));
+                fs::rename(&tmp_path, &sqlite_path).map_err(|e| {
+                    MigrationError::Internal(format!(
+                        "Migrierte SQLite-Datei konnte nicht aktiviert werden: {e}"
+                    ))
+                })?;
+
+                let mut reopened = Connection::open(&sqlite_path).map_err(|e| {
+                    MigrationError::Internal(format!("Migrierte SQLite-Datei konnte nicht geöffnet werden: {e}"))
+                })?;
+                Self::init_sqlite_schema(&reopened).map_err(MigrationError::Internal)?;
+                attach_update_hook(&mut reopened, Arc::clone(&self.conn.dirty_tables));
+
+                let now_iso = Utc::now().to_rfc3339();
+                cfg.engine = "sqlite".to_string();
+                cfg.last_migrated_at = Some(now_iso);
+                cfg.last_migration_direction = Some("mariadb-to-sqlite".to_string());
+                mariadb::save_config_file(&self.data_dir, &cfg)
+                    .map_err(MigrationError::Internal)?;
+
+                *raw_conn = reopened;
+                if let Ok(mut dirty) = self.conn.dirty_tables.lock() {
+                    dirty.clear();
+                }
+                if let Ok(mut g) = self.conn.mariadb_pool.write() {
+                    *g = None;
+                }
+                if let Ok(mut v) = self.mariadb_version.lock() {
+                    *v = None;
+                }
+                if let Ok(mut err) = self.conn.last_sync_error.lock() {
+                    *err = None;
+                }
+
+                let total_rows: u64 = migrated_tables.iter().map(|t| t.rows).sum();
+                Ok(MigrateDatabaseResult {
+                    direction: "mariadb-to-sqlite".to_string(),
+                    engine: "sqlite".to_string(),
+                    migrated_tables,
+                    total_rows,
+                    duration_ms: started.elapsed().as_millis().max(1) as u64,
+                    backup_file_name,
+                    mariadb_version: None,
+                })
+            }
+            _ => Err(MigrationError::BadRequest(
+                "Ungültige Migrationsrichtung. Erlaubt: sqlite-to-mariadb oder mariadb-to-sqlite."
+                    .into(),
+            )),
+        }
     }
 }

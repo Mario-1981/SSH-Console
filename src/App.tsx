@@ -29,6 +29,9 @@ const CertificatesView = lazy(() =>
 const CommandsAdminView = lazy(() =>
   import('./components/CommandsAdminView').then((m) => ({ default: m.CommandsAdminView }))
 );
+const DatabaseAdminView = lazy(() =>
+  import('./components/DatabaseAdminView').then((m) => ({ default: m.DatabaseAdminView }))
+);
 const ServersView = lazy(() =>
   import('./components/ServersView').then((m) => ({ default: m.ServersView }))
 );
@@ -444,7 +447,10 @@ export default function App() {
         ? 'dashboard'
         : activeTab === 'logs' && !canViewLogs
           ? 'dashboard'
-          : (activeTab === 'admin-users' || activeTab === 'admin-ca' || activeTab === 'admin-auth') &&
+          : (activeTab === 'admin-users' ||
+                activeTab === 'admin-ca' ||
+                activeTab === 'admin-auth' ||
+                activeTab === 'admin-database') &&
               user.role !== 'admin'
             ? 'dashboard'
             : activeTab;
@@ -461,6 +467,7 @@ export default function App() {
     'admin-users': { group: 'Administration', title: tr('Benutzer & Gruppen', 'Users & Groups') },
     'admin-ca': { group: 'Administration', title: tr('CA-Zertifikate', 'CA Certificates') },
     'admin-auth': { group: 'Administration', title: tr('Authentifizierung & SSO', 'Auth & SSO') },
+    'admin-database': { group: 'Administration', title: tr('Datenbank', 'Database') },
   };
 
   const crumb = breadcrumbs[effectiveTab];
@@ -694,6 +701,14 @@ export default function App() {
                   if (updatedUser) {
                     void handleUserSecurityUpdated(updatedUser);
                   }
+                }}
+              />
+            )}
+
+            {effectiveTab === 'admin-database' && user.role === 'admin' && (
+              <DatabaseAdminView
+                onDatabaseMigrated={() => {
+                  void loadWorkspaceData(user);
                 }}
               />
             )}

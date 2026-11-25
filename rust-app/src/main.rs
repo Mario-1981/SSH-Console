@@ -3,6 +3,7 @@ mod auth_extra;
 mod crypto;
 mod db;
 mod jobs;
+mod mariadb;
 mod models;
 mod ping;
 mod shell;
@@ -6699,6 +6700,144 @@ async fn api_rust_project_files(
     Ok(Json(json!({ "files": files })))
 }
 
+async fn api_admin_get_database(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    let st = Arc::clone(&state);
+    let status = tokio::task::spawn_blocking(move || st.db.get_database_status())
+        .await
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("Task-Fehler: {e}")))?
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(status).unwrap_or_else(|_| json!({}))))
+}
+
+async fn api_admin_save_database_config(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<MariaDbConfigInput>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    let st = Arc::clone(&state);
+    let status = tokio::task::spawn_blocking(move || -> Result<DatabaseStatusResponse, String> {
+        st.db.save_mariadb_config(&st.vault, &req)?;
+        st.db.get_database_status()
+    })
+    .await
+    .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("Task-Fehler: {e}")))?
+    .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::to_value(status).unwrap_or_else(|_| json!({}))))
+}
+
+async fn api_admin_clear_mariadb_config(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    let st = Arc::clone(&state);
+    let status = tokio::task::spawn_blocking(move || -> Result<DatabaseStatusResponse, String> {
+        st.db.clear_mariadb_config()?;
+        st.db.get_database_status()
+    })
+    .await
+    .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("Task-Fehler: {e}")))?
+    .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::to_value(status).unwrap_or_else(|_| json!({}))))
+}
+
+async fn api_admin_test_database(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<MariaDbConfigInput>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    let st = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || st.db.test_mariadb(&st.vault, &req))
+        .await
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("Task-Fehler: {e}")))?
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::to_value(result).unwrap_or_else(|_| json!({}))))
+}
+
+async fn api_admin_migrate_database(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<MigrateDatabaseRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    let st = Arc::clone(&state);
+    let outcome = tokio::task::spawn_blocking(move || {
+        let migration = st.db.migrate_database(&st.vault, &req)?;
+        let status = st
+            .db
+            .get_database_status()
+            .map_err(db::MigrationError::Internal)?;
+        Ok::<_, db::MigrationError>((migration, status))
+    })
+    .await
+    .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("Task-Fehler: {e}")))?;
+
+    match outcome {
+        Ok((migration, status)) => Ok(Json(json!({
+            "migration": migration,
+            "status": status
+        }))),
+        Err(db::MigrationError::BadRequest(msg)) => Err(err_resp(StatusCode::BAD_REQUEST, msg)),
+        Err(db::MigrationError::Internal(msg)) => {
+            Err(err_resp(StatusCode::INTERNAL_SERVER_ERROR, msg))
+        }
+        Err(db::MigrationError::Conflict {
+            message,
+            existing_row_count,
+            existing_tables,
+        }) => Err((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": message,
+                "code": "TARGET_NOT_EMPTY",
+                "existingRowCount": existing_row_count,
+                "existingTables": existing_tables
+            })),
+        )),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -6712,8 +6851,8 @@ async fn main() {
     );
     std::fs::create_dir_all(&data_dir).expect("Datenverzeichnis konnte nicht erstellt werden");
 
-    let db = Database::open(&data_dir.join("ssh-console.sqlite")).expect("SQLite-Datenbankfehler");
     let vault = Vault::load_or_create(&data_dir).expect("Vault-Initialisierungsfehler");
+    let db = Database::open_with_vault(&data_dir, &vault).expect("Datenbankfehler");
     let initial_allowed = db.get_ping_allowed();
     let initial_interval = db.get_ping_interval_sec();
     let ping_state = Arc::new(tokio::sync::RwLock::new(ping::PingState {
@@ -7036,6 +7175,14 @@ async fn main() {
         .route("/api/dashboard/ping", post(api_dashboard_ping))
         .route("/api/dashboard/ping-settings", patch(api_user_ping_settings))
         .route("/api/logs", get(api_list_logs))
+        .route("/api/admin/database", get(api_admin_get_database))
+        .route("/api/admin/database/config", put(api_admin_save_database_config))
+        .route(
+            "/api/admin/database/mariadb-config",
+            delete(api_admin_clear_mariadb_config),
+        )
+        .route("/api/admin/database/test", post(api_admin_test_database))
+        .route("/api/admin/database/migrate", post(api_admin_migrate_database))
         .route("/api/rust-project/files", get(api_rust_project_files))
         .fallback_service(spa_service)
         .with_state(state);

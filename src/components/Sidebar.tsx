@@ -13,6 +13,7 @@ import {
   X,
   Activity,
   FileKey2,
+  Database,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { ActiveTab, User } from '../types';
@@ -69,6 +70,7 @@ export function Sidebar({
     { id: 'admin-users', label: tr('Benutzer & Gruppen', 'Users & Groups'), icon: Users },
     { id: 'admin-ca', label: tr('CA-Zertifikate', 'CA Certificates'), icon: FileKey2 },
     { id: 'admin-auth', label: tr('Authentifizierung & SSO', 'Auth & SSO'), icon: ShieldCheck },
+    { id: 'admin-database', label: tr('Datenbank', 'Database'), icon: Database },
   ];
 
   const setupLocked = Boolean(user.mustSetupTwoFactor || user.mustSetupPasskey);

@@ -10,9 +10,15 @@ import type {
   CertificateAuthority,
   CommandKind,
   DashboardPingResponse,
+  DatabaseMigrationResponse,
+  DatabaseStatus,
+  DatabaseTableCount,
   ExecutionLog,
   GroupPermissions,
   LoginResponse,
+  MariaDbConfigPayload,
+  MariaDbTestResult,
+  MigrationDirection,
   RustProjectFile,
   ServerCategory,
   ShareableUser,
@@ -27,6 +33,13 @@ import type {
   WebAuthnCredentialItem,
   WebAuthnCredentialKind,
 } from './types';
+
+export interface DatabaseMigrationConflictError extends Error {
+  statusCode?: number;
+  code?: string;
+  existingRowCount?: number;
+  existingTables?: DatabaseTableCount[];
+}
 
 const LEGACY_TOKEN_STORAGE_KEY = 'trixiessh_session_token';
 let memoryToken: string | null = null;
@@ -898,6 +911,63 @@ export const api = {
     request<{ ok: boolean }>(`/api/admin/ca/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+
+  // Admin: Database Management (SQLite <-> MariaDB)
+  getAdminDatabaseStatus: () => request<DatabaseStatus>('/api/admin/database'),
+
+  saveAdminDatabaseConfig: (payload: MariaDbConfigPayload) =>
+    request<DatabaseStatus>('/api/admin/database/config', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  clearAdminMariaDbConfig: () =>
+    request<DatabaseStatus>('/api/admin/database/mariadb-config', {
+      method: 'DELETE',
+    }),
+
+  testAdminDatabase: (payload: Partial<MariaDbConfigPayload>) =>
+    request<MariaDbTestResult>('/api/admin/database/test', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  migrateAdminDatabase: async (payload: {
+    direction: MigrationDirection;
+    mariadb?: Partial<MariaDbConfigPayload>;
+    confirmOverwrite?: boolean;
+  }): Promise<DatabaseMigrationResponse> => {
+    const res = await fetch('/api/admin/database/migrate', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      code?: string;
+      existingRowCount?: number;
+      existingTables?: DatabaseTableCount[];
+    };
+    if (!res.ok) {
+      if (res.status === 401) {
+        setStoredToken(null);
+        unauthorizedHandler?.();
+      }
+      const err: DatabaseMigrationConflictError = new Error(
+        data.error || `Migration fehlgeschlagen (${res.status})`
+      );
+      err.statusCode = res.status;
+      err.code = data.code;
+      err.existingRowCount = data.existingRowCount;
+      err.existingTables = data.existingTables;
+      throw err;
+    }
+    return data as unknown as DatabaseMigrationResponse;
+  },
 
   // Rust Project
   listRustFiles: () => request<{ files: RustProjectFile[] }>('/api/rust-project/files'),

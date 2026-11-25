@@ -3,6 +3,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ParsedCertMetadata } from './opensshCert.ts';
 import { parseAndValidateWorkflow } from '../src/workflowEngine.ts';
+import type { Pool } from 'mysql2/promise';
+import {
+  countSchemaTables,
+  createMariaDbPool,
+  loadDatabaseConfigFile,
+  readSchemaFromMariaDb,
+  saveDatabaseConfigFile,
+  testMariaDbConnection,
+  validateMariaDbInput,
+  writeSchemaToMariaDb,
+  type DatabaseConfigFile,
+  type DatabaseEngine,
+  type DatabaseTableCount,
+  type MariaDbConfigInput,
+  type MariaDbTestResult,
+  type MigrationDirection,
+  type ResolvedMariaDbConfig,
+} from './mariadb.ts';
 
 export type UserRole = 'admin' | 'user';
 export type AuthProvider = 'local' | 'sso';
@@ -509,7 +527,7 @@ export interface AppSettings {
   maxBackgroundJobs: number;
 }
 
-interface DatabaseSchema {
+export interface DatabaseSchema {
   settings: AppSettings;
   groups: UserGroup[];
   users: StoredUser[];
@@ -654,9 +672,81 @@ export function normalizeServerCategories(input: unknown): string[] {
 
 class Store {
   private db: DatabaseSchema;
+  private dbConfig: DatabaseConfigFile;
+  private mariadbPool: Pool | null = null;
+  private mariadbVersion: string | null = null;
+  private lastSyncedAt: string | null = null;
+  private lastSyncError: string | null = null;
+  private syncQueue: Promise<void> = Promise.resolve();
 
   constructor() {
+    this.dbConfig = loadDatabaseConfigFile(DATA_DIR);
     this.db = this.load();
+  }
+
+  private resolveStoredMariaDb(
+    override?: Partial<MariaDbConfigInput>
+  ): ResolvedMariaDbConfig {
+    const existing = this.dbConfig.mariadb;
+    const merged: Partial<MariaDbConfigInput> = {
+      host: override?.host ?? existing?.host ?? '',
+      port: override?.port ?? existing?.port ?? 3306,
+      database: override?.database ?? existing?.database ?? '',
+      username: override?.username ?? existing?.username ?? '',
+      password: override?.password,
+      ssl: override?.ssl ?? existing?.ssl ?? false,
+      sslRejectUnauthorized:
+        override?.sslRejectUnauthorized ?? existing?.sslRejectUnauthorized ?? true,
+    };
+    const validated = validateMariaDbInput(merged, existing?.passwordEncrypted ?? null, true);
+    let password = validated.passwordInput;
+    if (!password && existing?.passwordEncrypted) {
+      try {
+        password = decryptSecret(existing.passwordEncrypted);
+      } catch {
+        throw new Error(
+          'Das gespeicherte MariaDB-Passwort konnte nicht entschlüsselt werden. Bitte geben Sie es erneut ein.'
+        );
+      }
+    }
+    if (!password) {
+      throw new Error('Bitte das Passwort für den MariaDB-Benutzer angeben.');
+    }
+    return {
+      host: validated.host,
+      port: validated.port,
+      database: validated.database,
+      username: validated.username,
+      password,
+      ssl: validated.ssl,
+      sslRejectUnauthorized: validated.sslRejectUnauthorized,
+    };
+  }
+
+  async initDatabase(): Promise<void> {
+    this.dbConfig = loadDatabaseConfigFile(DATA_DIR);
+    if (this.dbConfig.engine !== 'mariadb' || !this.dbConfig.mariadb) {
+      return;
+    }
+    try {
+      const resolved = this.resolveStoredMariaDb();
+      const pool = createMariaDbPool(resolved);
+      const test = await testMariaDbConnection(resolved);
+      const { schema } = await readSchemaFromMariaDb(pool, emptyDb().settings);
+      this.mariadbPool = pool;
+      this.mariadbVersion = test.version;
+      this.lastSyncedAt = new Date().toISOString();
+      this.lastSyncError = null;
+      this.db = this.normalizeLoadedSchema(schema);
+      console.log(
+        `SSH Console: MariaDB aktiv (${resolved.host}:${resolved.port}/${resolved.database}, ${test.version})`
+      );
+    } catch (err) {
+      this.lastSyncError = err instanceof Error ? err.message : String(err);
+      console.error(
+        `SSH Console: MariaDB-Verbindung beim Start fehlgeschlagen (${this.lastSyncError}).`
+      );
+    }
   }
 
   private load(): DatabaseSchema {
@@ -666,7 +756,14 @@ class Store {
     }
     try {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) as DatabaseSchema;
-      const nowIso = new Date().toISOString();
+      return this.normalizeLoadedSchema(parsed);
+    } catch {
+      return emptyDb();
+    }
+  }
+
+  private normalizeLoadedSchema(parsed: DatabaseSchema): DatabaseSchema {
+    const nowIso = new Date().toISOString();
       const defaultGroups = createDefaultGroups(nowIso);
       const rawGroups = Array.isArray(parsed.groups) ? parsed.groups : [];
       const customGroups: UserGroup[] = [];
@@ -880,16 +977,33 @@ class Store {
           ? parsed.certificateAuthorities
           : [],
       };
-    } catch {
-      return emptyDb();
-    }
+  }
+
+  private writeLocalFile(schema: DatabaseSchema) {
+    ensureDataDir();
+    const tmp = `${DB_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(schema, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, DB_FILE);
   }
 
   private save() {
-    ensureDataDir();
-    const tmp = `${DB_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(this.db, null, 2), { mode: 0o600 });
-    fs.renameSync(tmp, DB_FILE);
+    if (this.dbConfig.engine === 'mariadb' && this.mariadbPool) {
+      const pool = this.mariadbPool;
+      const snapshot: DatabaseSchema = JSON.parse(JSON.stringify(this.db)) as DatabaseSchema;
+      this.syncQueue = this.syncQueue
+        .then(async () => {
+          if (this.mariadbPool !== pool || this.dbConfig.engine !== 'mariadb') return;
+          await writeSchemaToMariaDb(pool, snapshot);
+          this.lastSyncedAt = new Date().toISOString();
+          this.lastSyncError = null;
+        })
+        .catch((err) => {
+          this.lastSyncError = err instanceof Error ? err.message : String(err);
+          console.error('MariaDB-Synchronisierung fehlgeschlagen:', this.lastSyncError);
+        });
+      return;
+    }
+    this.writeLocalFile(this.db);
   }
 
   isInitialized(): boolean {
@@ -2967,6 +3081,294 @@ class Store {
       return targetUserId ? this.db.logs.filter((l) => l.userId === targetUserId) : this.db.logs;
     }
     return this.db.logs.filter((l) => l.userId === user.id);
+  }
+
+  // Admin: Database Engine & SQLite <-> MariaDB Migration
+  async getDatabaseStatus(): Promise<{
+    engine: DatabaseEngine;
+    runtime: 'nodejs';
+    connected: boolean;
+    mariadbVersion: string | null;
+    sqlitePath: string;
+    sqliteExists: boolean;
+    sqliteSizeBytes: number;
+    mariadb: {
+      configured: boolean;
+      host: string;
+      port: number;
+      database: string;
+      username: string;
+      hasPassword: boolean;
+      ssl: boolean;
+      sslRejectUnauthorized: boolean;
+    };
+    tables: DatabaseTableCount[];
+    totalRows: number;
+    lastMigratedAt: string | null;
+    lastMigrationDirection: MigrationDirection | null;
+    lastSyncedAt: string | null;
+    lastSyncError: string | null;
+  }> {
+    const sqliteExists = fs.existsSync(DB_FILE);
+    const sqliteSizeBytes = sqliteExists ? fs.statSync(DB_FILE).size : 0;
+    let connected = true;
+    let version = this.mariadbVersion;
+
+    if (this.dbConfig.engine === 'mariadb') {
+      if (this.mariadbPool) {
+        try {
+          const conn = await this.mariadbPool.getConnection();
+          try {
+            const [rows] = await conn.query('SELECT VERSION() AS version');
+            const first = Array.isArray(rows) ? (rows[0] as { version?: string } | undefined) : undefined;
+            if (first?.version) {
+              version = String(first.version);
+              this.mariadbVersion = version;
+            }
+            connected = true;
+          } finally {
+            conn.release();
+          }
+        } catch (err) {
+          connected = false;
+          this.lastSyncError = err instanceof Error ? err.message : String(err);
+        }
+      } else {
+        connected = false;
+      }
+    }
+
+    const tables = countSchemaTables(this.db);
+    const totalRows = tables.reduce((acc, t) => acc + t.rows, 0);
+    const m = this.dbConfig.mariadb;
+
+    return {
+      engine: this.dbConfig.engine,
+      runtime: 'nodejs',
+      connected,
+      mariadbVersion: this.dbConfig.engine === 'mariadb' ? version : null,
+      sqlitePath: DB_FILE,
+      sqliteExists,
+      sqliteSizeBytes,
+      mariadb: {
+        configured: Boolean(m && m.host && m.database && m.username),
+        host: m?.host ?? '',
+        port: m?.port ?? 3306,
+        database: m?.database ?? 'ssh_console',
+        username: m?.username ?? '',
+        hasPassword: Boolean(m?.passwordEncrypted),
+        ssl: Boolean(m?.ssl),
+        sslRejectUnauthorized: m ? m.sslRejectUnauthorized : true,
+      },
+      tables,
+      totalRows,
+      lastMigratedAt: this.dbConfig.lastMigratedAt,
+      lastMigrationDirection: this.dbConfig.lastMigrationDirection,
+      lastSyncedAt: this.lastSyncedAt,
+      lastSyncError: this.lastSyncError,
+    };
+  }
+
+  saveMariaDbConfig(input: Partial<MariaDbConfigInput>): void {
+    const existing = this.dbConfig.mariadb;
+    const validated = validateMariaDbInput(input, existing?.passwordEncrypted ?? null, true);
+    const passwordEncrypted = validated.passwordInput
+      ? encryptSecret(validated.passwordInput)
+      : existing?.passwordEncrypted ?? null;
+
+    this.dbConfig = {
+      ...this.dbConfig,
+      mariadb: {
+        host: validated.host,
+        port: validated.port,
+        database: validated.database,
+        username: validated.username,
+        passwordEncrypted,
+        ssl: validated.ssl,
+        sslRejectUnauthorized: validated.sslRejectUnauthorized,
+      },
+    };
+    saveDatabaseConfigFile(DATA_DIR, this.dbConfig);
+  }
+
+  clearMariaDbConfig(): void {
+    if (this.dbConfig.engine === 'mariadb') {
+      throw new Error(
+        'Die MariaDB-Konfiguration kann nicht gelöscht werden, solange MariaDB die aktive Datenbank ist. Bitte migrieren Sie zuerst zurück zu SQLite.'
+      );
+    }
+    this.dbConfig = {
+      ...this.dbConfig,
+      mariadb: null,
+    };
+    saveDatabaseConfigFile(DATA_DIR, this.dbConfig);
+  }
+
+  async testMariaDb(input?: Partial<MariaDbConfigInput>): Promise<MariaDbTestResult> {
+    const resolved = this.resolveStoredMariaDb(input);
+    return testMariaDbConnection(resolved);
+  }
+
+  async migrateDatabase(params: {
+    direction: MigrationDirection;
+    mariadb?: Partial<MariaDbConfigInput>;
+    confirmOverwrite?: boolean;
+  }): Promise<{
+    direction: MigrationDirection;
+    engine: DatabaseEngine;
+    migratedTables: DatabaseTableCount[];
+    totalRows: number;
+    durationMs: number;
+    backupFileName: string | null;
+    mariadbVersion: string | null;
+  }> {
+    const started = Date.now();
+    await this.syncQueue;
+
+    if (params.direction === 'sqlite-to-mariadb') {
+      if (this.dbConfig.engine === 'mariadb') {
+        throw new Error('MariaDB ist bereits als aktive Datenbank eingerichtet.');
+      }
+      const resolved = this.resolveStoredMariaDb(params.mariadb);
+      const test = await testMariaDbConnection(resolved);
+      if (test.existingRowCount > 0 && !params.confirmOverwrite) {
+        const err = new Error(
+          `Die Ziel-MariaDB enthält bereits ${test.existingRowCount} Datensätze in bestehenden SSH-Console-Tabellen. Bitte bestätigen Sie das Überschreiben.`
+        ) as Error & {
+          statusCode?: number;
+          code?: string;
+          existingRowCount?: number;
+          existingTables?: DatabaseTableCount[];
+        };
+        err.statusCode = 409;
+        err.code = 'TARGET_NOT_EMPTY';
+        err.existingRowCount = test.existingRowCount;
+        err.existingTables = test.existingTables;
+        throw err;
+      }
+
+      const pool = createMariaDbPool(resolved);
+      try {
+        const expectedCounts = countSchemaTables(this.db);
+        const writtenCounts = await writeSchemaToMariaDb(pool, this.db);
+        const expectedTotal = expectedCounts.reduce((a, b) => a + b.rows, 0);
+        const writtenTotal = writtenCounts.reduce((a, b) => a + b.rows, 0);
+        if (expectedTotal !== writtenTotal) {
+          throw new Error(
+            `Integritätsprüfung fehlgeschlagen: Erwartet ${expectedTotal} Datensätze, in MariaDB geschrieben: ${writtenTotal}.`
+          );
+        }
+
+        const existingPassEnc = this.dbConfig.mariadb?.passwordEncrypted ?? null;
+        const passwordEncrypted =
+          params.mariadb?.password && params.mariadb.password.length > 0
+            ? encryptSecret(params.mariadb.password)
+            : existingPassEnc ?? encryptSecret(resolved.password);
+
+        const nowIso = new Date().toISOString();
+        this.dbConfig = {
+          engine: 'mariadb',
+          mariadb: {
+            host: resolved.host,
+            port: resolved.port,
+            database: resolved.database,
+            username: resolved.username,
+            passwordEncrypted,
+            ssl: resolved.ssl,
+            sslRejectUnauthorized: resolved.sslRejectUnauthorized,
+          },
+          lastMigratedAt: nowIso,
+          lastMigrationDirection: 'sqlite-to-mariadb',
+        };
+        saveDatabaseConfigFile(DATA_DIR, this.dbConfig);
+
+        const oldPool = this.mariadbPool;
+        this.mariadbPool = pool;
+        this.mariadbVersion = test.version;
+        this.lastSyncedAt = nowIso;
+        this.lastSyncError = null;
+        if (oldPool) {
+          void oldPool.end().catch(() => {});
+        }
+
+        return {
+          direction: 'sqlite-to-mariadb',
+          engine: 'mariadb',
+          migratedTables: writtenCounts,
+          totalRows: writtenTotal,
+          durationMs: Math.max(1, Date.now() - started),
+          backupFileName: null,
+          mariadbVersion: test.version,
+        };
+      } catch (err) {
+        await pool.end().catch(() => {});
+        throw err;
+      }
+    }
+
+    if (params.direction === 'mariadb-to-sqlite') {
+      if (this.dbConfig.engine !== 'mariadb') {
+        throw new Error('SQLite ist bereits als aktive Datenbank eingerichtet.');
+      }
+
+      const resolved = this.resolveStoredMariaDb();
+      const pool = this.mariadbPool ?? createMariaDbPool(resolved);
+      const createdTempPool = !this.mariadbPool;
+
+      try {
+        const { schema: freshFromMaria, counts } = await readSchemaFromMariaDb(
+          pool,
+          emptyDb().settings
+        );
+        const normalized = this.normalizeLoadedSchema(freshFromMaria);
+
+        let backupFileName: string | null = null;
+        if (fs.existsSync(DB_FILE)) {
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+          backupFileName = `trixiessh.json.bak-${stamp}`;
+          fs.copyFileSync(DB_FILE, path.join(DATA_DIR, backupFileName));
+        }
+
+        this.writeLocalFile(normalized);
+        this.db = normalized;
+
+        const nowIso = new Date().toISOString();
+        this.dbConfig = {
+          ...this.dbConfig,
+          engine: 'sqlite',
+          lastMigratedAt: nowIso,
+          lastMigrationDirection: 'mariadb-to-sqlite',
+        };
+        saveDatabaseConfigFile(DATA_DIR, this.dbConfig);
+
+        const oldPool = this.mariadbPool;
+        this.mariadbPool = null;
+        this.mariadbVersion = null;
+        this.lastSyncError = null;
+        if (oldPool) {
+          void oldPool.end().catch(() => {});
+        }
+
+        const finalCounts = countSchemaTables(this.db);
+        const totalRows = finalCounts.reduce((a, b) => a + b.rows, 0);
+
+        return {
+          direction: 'mariadb-to-sqlite',
+          engine: 'sqlite',
+          migratedTables: counts.length > 0 ? finalCounts : counts,
+          totalRows,
+          durationMs: Math.max(1, Date.now() - started),
+          backupFileName,
+          mariadbVersion: null,
+        };
+      } finally {
+        if (createdTempPool) {
+          await pool.end().catch(() => {});
+        }
+      }
+    }
+
+    throw new Error('Ungültige Migrationsrichtung.');
   }
 }
 

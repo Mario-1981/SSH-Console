@@ -506,6 +506,7 @@ const DEBIAN_PRESET_COMMANDS = [
 ];
 
 async function startServer() {
+  await store.initDatabase();
   const app = express();
   app.disable('x-powered-by');
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -4839,6 +4840,148 @@ async function startServer() {
     (req: AuthedRequest, res) => {
       const filterUserId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
       res.json({ logs: store.listLogs(req.user!, filterUserId) });
+    }
+  );
+
+  // Admin: Database Engine (SQLite / MariaDB) & Bidirectional Migration
+  app.get(
+    '/api/admin/database',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    async (_req, res) => {
+      try {
+        const status = await store.getDatabaseStatus();
+        res.json(status);
+      } catch (err) {
+        res.status(500).json({
+          error:
+            err instanceof Error
+              ? err.message
+              : 'Datenbankstatus konnte nicht geladen werden.',
+        });
+      }
+    }
+  );
+
+  app.put(
+    '/api/admin/database/config',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const body = req.body ?? {};
+        store.saveMariaDbConfig({
+          host: body.host,
+          port: body.port,
+          database: body.database,
+          username: body.username,
+          password: body.password,
+          ssl: body.ssl,
+          sslRejectUnauthorized: body.sslRejectUnauthorized,
+        });
+        const status = await store.getDatabaseStatus();
+        res.json(status);
+      } catch (err) {
+        res.status(400).json({
+          error:
+            err instanceof Error
+              ? err.message
+              : 'MariaDB-Konfiguration konnte nicht gespeichert werden.',
+        });
+      }
+    }
+  );
+
+  app.delete(
+    '/api/admin/database/mariadb-config',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    async (_req, res) => {
+      try {
+        store.clearMariaDbConfig();
+        const status = await store.getDatabaseStatus();
+        res.json(status);
+      } catch (err) {
+        res.status(400).json({
+          error:
+            err instanceof Error
+              ? err.message
+              : 'MariaDB-Konfiguration konnte nicht gelöscht werden.',
+        });
+      }
+    }
+  );
+
+  app.post(
+    '/api/admin/database/test',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const body = req.body ?? {};
+        const result = await store.testMariaDb({
+          host: body.host,
+          port: body.port,
+          database: body.database,
+          username: body.username,
+          password: body.password,
+          ssl: body.ssl,
+          sslRejectUnauthorized: body.sslRejectUnauthorized,
+        });
+        res.json(result);
+      } catch (err) {
+        res.status(400).json({
+          error:
+            err instanceof Error
+              ? `MariaDB-Verbindung fehlgeschlagen: ${err.message}`
+              : 'MariaDB-Verbindung fehlgeschlagen.',
+        });
+      }
+    }
+  );
+
+  app.post(
+    '/api/admin/database/migrate',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const body = req.body ?? {};
+        const direction = body.direction;
+        if (direction !== 'sqlite-to-mariadb' && direction !== 'mariadb-to-sqlite') {
+          res.status(400).json({
+            error:
+              'Ungültige Migrationsrichtung. Erlaubt: sqlite-to-mariadb oder mariadb-to-sqlite.',
+          });
+          return;
+        }
+        const migration = await store.migrateDatabase({
+          direction,
+          mariadb: body.mariadb,
+          confirmOverwrite: Boolean(body.confirmOverwrite),
+        });
+        const status = await store.getDatabaseStatus();
+        res.json({ migration, status });
+      } catch (err) {
+        const e = err as Error & {
+          statusCode?: number;
+          code?: string;
+          existingRowCount?: number;
+          existingTables?: unknown[];
+        };
+        const statusCode = e.statusCode ?? 400;
+        res.status(statusCode).json({
+          error: e.message || 'Datenbankmigration fehlgeschlagen.',
+          code: e.code,
+          existingRowCount: e.existingRowCount,
+          existingTables: e.existingTables,
+        });
+      }
     }
   );
 

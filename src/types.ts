@@ -428,6 +428,77 @@ export interface DashboardPingResponse {
   userPingEnabled: boolean;
 }
 
+export type DatabaseEngine = 'sqlite' | 'mariadb';
+export type MigrationDirection = 'sqlite-to-mariadb' | 'mariadb-to-sqlite';
+
+export interface DatabaseTableCount {
+  table: string;
+  label: string;
+  rows: number;
+}
+
+export interface MariaDbConfigPublic {
+  configured: boolean;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  hasPassword: boolean;
+  ssl: boolean;
+  sslRejectUnauthorized: boolean;
+}
+
+export interface DatabaseStatus {
+  engine: DatabaseEngine;
+  runtime: 'nodejs' | 'rust';
+  connected: boolean;
+  mariadbVersion: string | null;
+  sqlitePath: string;
+  sqliteExists: boolean;
+  sqliteSizeBytes: number;
+  mariadb: MariaDbConfigPublic;
+  tables: DatabaseTableCount[];
+  totalRows: number;
+  lastMigratedAt: string | null;
+  lastMigrationDirection: MigrationDirection | null;
+  lastSyncedAt: string | null;
+  lastSyncError: string | null;
+}
+
+export interface MariaDbConfigPayload {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password?: string;
+  ssl: boolean;
+  sslRejectUnauthorized: boolean;
+}
+
+export interface MariaDbTestResult {
+  ok: boolean;
+  version: string;
+  database: string;
+  latencyMs: number;
+  existingTables: DatabaseTableCount[];
+  existingRowCount: number;
+}
+
+export interface DatabaseMigrationResult {
+  direction: MigrationDirection;
+  engine: DatabaseEngine;
+  migratedTables: DatabaseTableCount[];
+  totalRows: number;
+  durationMs: number;
+  backupFileName: string | null;
+  mariadbVersion: string | null;
+}
+
+export interface DatabaseMigrationResponse {
+  migration: DatabaseMigrationResult;
+  status: DatabaseStatus;
+}
+
 export type ActiveTab =
   | 'dashboard'
   | 'shell'
@@ -439,4 +510,5 @@ export type ActiveTab =
   | 'admin-commands'
   | 'admin-users'
   | 'admin-ca'
-  | 'admin-auth';
+  | 'admin-auth'
+  | 'admin-database';
