@@ -26,11 +26,11 @@ import {
   parseAndValidateWorkflow,
   type WorkflowStep,
 } from '../workflowEngine';
-import type { CommandKind, CommandStep, SshCommand, User } from '../types';
+import type { CommandKind, CommandStep, ShareableUser, SshCommand, User } from '../types';
 
 interface CommandsAdminViewProps {
   currentUser: User;
-  users: User[];
+  users: ShareableUser[];
   commands: SshCommand[];
   onRefresh: () => Promise<void>;
 }
@@ -112,7 +112,21 @@ function renderWorkflowOutline(steps: WorkflowStep[], depth = 0): string[] {
 export function CommandsAdminView({ currentUser, users, commands, onRefresh }: CommandsAdminViewProps) {
   const { locale, tr } = useI18n();
   const isAdmin = currentUser.role === 'admin';
-  const [kind, setKind] = useState<CommandKind>('single');
+  const canSingle = isAdmin || currentUser.permissions?.createSingleCommands !== false;
+  const canChain = isAdmin || currentUser.permissions?.createChainCommands !== false;
+  const canWorkflow = isAdmin || currentUser.permissions?.createWorkflowCommands !== false;
+  const canCreateAny = canSingle || canChain || canWorkflow;
+  const canShare = isAdmin || Boolean(currentUser.permissions?.shareResources);
+
+  const defaultAllowedKind: CommandKind = canSingle ? 'single' : canChain ? 'chain' : 'workflow';
+  const canEditKind = (k?: CommandKind) => {
+    const resolved: CommandKind = k === 'workflow' ? 'workflow' : k === 'chain' ? 'chain' : 'single';
+    if (resolved === 'workflow') return canWorkflow;
+    if (resolved === 'chain') return canChain;
+    return canSingle;
+  };
+
+  const [kind, setKind] = useState<CommandKind>(defaultAllowedKind);
   const [name, setName] = useState('');
   const [category, setCategory] = useState('Diagnose');
   const [command, setCommand] = useState('');
@@ -156,22 +170,40 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
   }, [commands, search, filterKind, locale]);
 
   useEffect(() => {
-    const ownIdSet = new Set(commands.filter((c) => c.userId === currentUser.id).map((c) => c.id));
+    if (!editingId && !canEditKind(kind) && canCreateAny) {
+      setKind(defaultAllowedKind);
+    }
+  }, [editingId, kind, canCreateAny, defaultAllowedKind, canSingle, canChain, canWorkflow]);
+
+  useEffect(() => {
+    const ownIdSet = new Set(
+      commands
+        .filter((c) => c.userId === currentUser.id && (canEditKind(c.kind) || canShare))
+        .map((c) => c.id)
+    );
     setSelectedCommandIds((prev) => {
       const next = prev.filter((id) => ownIdSet.has(id));
       return next.length === prev.length ? prev : next;
     });
-  }, [commands, currentUser.id]);
+  }, [commands, currentUser.id, canSingle, canChain, canWorkflow, canShare]);
 
   const filteredOwnCommands = useMemo(
-    () => filtered.filter((c) => c.userId === currentUser.id),
-    [filtered, currentUser.id]
+    () => filtered.filter((c) => c.userId === currentUser.id && (canEditKind(c.kind) || canShare)),
+    [filtered, currentUser.id, canSingle, canChain, canWorkflow, canShare]
   );
 
   const selectedCommands = useMemo(() => {
     const selSet = new Set(selectedCommandIds);
-    return commands.filter((c) => c.userId === currentUser.id && selSet.has(c.id));
-  }, [commands, currentUser.id, selectedCommandIds]);
+    return commands.filter(
+      (c) => c.userId === currentUser.id && selSet.has(c.id) && (canEditKind(c.kind) || canShare)
+    );
+  }, [commands, currentUser.id, selectedCommandIds, canSingle, canChain, canWorkflow, canShare]);
+
+  const canBulkEditSelected = useMemo(
+    () => selectedCommands.length > 0 && selectedCommands.every((c) => canEditKind(c.kind)),
+    [selectedCommands, canSingle, canChain, canWorkflow]
+  );
+  const canBulkAny = canCreateAny || canShare;
 
   const allFilteredOwnSelected =
     filteredOwnCommands.length > 0 &&
@@ -275,7 +307,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
 
   function resetForm() {
     setEditingId(null);
-    setKind('single');
+    setKind(defaultAllowedKind);
     setName('');
     setCategory('Diagnose');
     setCommand('');
@@ -419,7 +451,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       } else {
         await api.createCommand({
           ...payload,
-          ...(isAdmin && shareOnCreate ? { sharedWithAll: true, sharedWithUserIds: [] } : {}),
+          ...(canShare && shareOnCreate ? { sharedWithAll: true, sharedWithUserIds: [] } : {}),
         });
       }
       await onRefresh();
@@ -489,29 +521,36 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             {tr('SSH-Befehle & Befehlsketten', 'SSH Commands & Command Chains')}
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            {isAdmin
+            {canShare
               ? tr(
-                  'Ihre Befehle und Befehlsketten sind standardmäßig privat. Als Administrator können Sie Einträge gezielt oder für alle Benutzer teilen.',
-                  'Your commands and chains are private by default. As an administrator, you can share entries with specific users or everyone.'
+                  'Ihre Befehle und Befehlsketten sind standardmäßig privat und können gezielt oder für alle Benutzer geteilt werden.',
+                  'Your commands and chains are private by default and can be shared with specific users or everyone.'
+                )
+              : canCreateAny
+              ? tr(
+                  'Legen Sie Ihre eigenen SSH-Befehle im Rahmen Ihrer Gruppenrechte an. Eigene Einträge sind privat; geteilte Befehle erscheinen zusätzlich in Ihrer Liste.',
+                  'Create your own SSH commands according to your group permissions. Own entries are private; shared commands also appear in your list.'
                 )
               : tr(
-                  'Legen Sie Ihre eigenen Einzelbefehle oder Befehlsketten mit Sleep an. Ihre Einträge sind nur für Sie sichtbar; vom Administrator geteilte Befehle erscheinen zusätzlich in Ihrer Liste.',
-                  'Create your own single commands or command chains with sleep intervals. Your entries are visible only to you; commands shared by an administrator also appear in your list.'
+                  'Übersicht der für Sie freigegebenen SSH-Befehle. Das Erstellen eigener Befehle ist für Ihre Benutzergruppe deaktiviert.',
+                  'Overview of SSH commands available to you. Creating custom commands is disabled for your user group.'
                 )}
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleLoadPresets}
-          disabled={loadingPresets}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          {loadingPresets
-            ? tr('Lädt...', 'Loading...')
-            : tr('Debian-Standardbefehle laden', 'Load Debian Preset Commands')}
-        </button>
+        {canSingle && (
+          <button
+            type="button"
+            onClick={handleLoadPresets}
+            disabled={loadingPresets}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            {loadingPresets
+              ? tr('Lädt...', 'Loading...')
+              : tr('Debian-Standardbefehle laden', 'Load Debian Preset Commands')}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -521,6 +560,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
       )}
 
       {/* Command Create / Edit Form */}
+      {canCreateAny && (
       <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
           <div className="flex items-center gap-3">
@@ -542,48 +582,54 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           </div>
 
           <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md self-start flex-wrap">
-            <button
-              type="button"
-              onClick={() => setKind('single')}
-              className={`px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
-                kind === 'single'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tr('Einzelbefehl', 'Single Command')}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setKind('chain');
-                if (steps.length === 0) {
-                  setSteps([
-                    { command: command.trim(), sleepAfterSec: 3 },
-                    { command: '', sleepAfterSec: 0 },
-                  ]);
-                }
-              }}
-              className={`px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
-                kind === 'chain'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tr('Befehlskette (Sleep)', 'Simple Chain (sleep)')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setKind('workflow')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
-                kind === 'workflow'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Braces className="w-3.5 h-3.5" />
-              {tr('Komplexe Kette (JSON)', 'Complex Chain (JSON)')}
-            </button>
+            {canSingle && (
+              <button
+                type="button"
+                onClick={() => setKind('single')}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                  kind === 'single'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tr('Einzelbefehl', 'Single Command')}
+              </button>
+            )}
+            {canChain && (
+              <button
+                type="button"
+                onClick={() => {
+                  setKind('chain');
+                  if (steps.length === 0) {
+                    setSteps([
+                      { command: command.trim(), sleepAfterSec: 3 },
+                      { command: '', sleepAfterSec: 0 },
+                    ]);
+                  }
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                  kind === 'chain'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tr('Befehlskette (Sleep)', 'Simple Chain (sleep)')}
+              </button>
+            )}
+            {canWorkflow && (
+              <button
+                type="button"
+                onClick={() => setKind('workflow')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                  kind === 'workflow'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Braces className="w-3.5 h-3.5" />
+                {tr('Komplexe Kette (JSON)', 'Complex Chain (JSON)')}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1025,7 +1071,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             </button>
           </div>
 
-          {isAdmin && !editingId && (
+          {canShare && !editingId && (
             <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
               <input
                 type="checkbox"
@@ -1043,6 +1089,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           )}
         </div>
       </form>
+      )}
 
       {/* Commands Table */}
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -1105,7 +1152,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
           </div>
         )}
 
-        {selectedCommands.length > 0 && (
+        {canBulkAny && selectedCommands.length > 0 && (
           <div className="px-6 py-3 bg-blue-50/80 border-b border-blue-200 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 text-xs">
               <span className="font-semibold text-blue-950">
@@ -1123,25 +1170,29 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
               </button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={bulkQuickBusy}
-                onClick={() => handleQuickBulkCommands({ enabled: true })}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
-              >
-                <Check className="w-3.5 h-3.5 text-emerald-700" />
-                {tr('Aktivieren', 'Enable')}
-              </button>
-              <button
-                type="button"
-                disabled={bulkQuickBusy}
-                onClick={() => handleQuickBulkCommands({ enabled: false })}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5 text-slate-500" />
-                {tr('Deaktivieren', 'Disable')}
-              </button>
-              {isAdmin && (
+              {canBulkEditSelected && (
+                <>
+                  <button
+                    type="button"
+                    disabled={bulkQuickBusy}
+                    onClick={() => handleQuickBulkCommands({ enabled: true })}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5 text-emerald-700" />
+                    {tr('Aktivieren', 'Enable')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkQuickBusy}
+                    onClick={() => handleQuickBulkCommands({ enabled: false })}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5 text-slate-500" />
+                    {tr('Deaktivieren', 'Disable')}
+                  </button>
+                </>
+              )}
+              {canShare && (
                 <button
                   type="button"
                   disabled={bulkQuickBusy}
@@ -1152,15 +1203,17 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   {tr('Teilen', 'Share')}
                 </button>
               )}
-              <button
-                type="button"
-                disabled={bulkQuickBusy}
-                onClick={() => setBulkDialogFocus('all')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                {tr('Sammeleinstellungen...', 'Bulk Settings...')}
-              </button>
+              {canBulkEditSelected && (
+                <button
+                  type="button"
+                  disabled={bulkQuickBusy}
+                  onClick={() => setBulkDialogFocus('all')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  {tr('Sammeleinstellungen...', 'Bulk Settings...')}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1183,20 +1236,22 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 pl-6 pr-2 w-10">
-                    <input
-                      type="checkbox"
-                      checked={allFilteredOwnSelected}
-                      disabled={filteredOwnCommands.length === 0}
-                      onChange={toggleSelectAllFilteredOwn}
-                      aria-label={tr('Alle eigenen Befehle auswählen', 'Select all own commands')}
-                      title={tr(
-                        'Alle eigenen gefilterten Befehle auswählen / abwählen',
-                        'Select / deselect all own filtered commands'
-                      )}
-                      className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
-                    />
-                  </th>
+                  {canBulkAny && (
+                    <th className="py-2.5 pl-6 pr-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredOwnSelected}
+                        disabled={filteredOwnCommands.length === 0}
+                        onChange={toggleSelectAllFilteredOwn}
+                        aria-label={tr('Alle eigenen Befehle auswählen', 'Select all own commands')}
+                        title={tr(
+                          'Alle eigenen gefilterten Befehle auswählen / abwählen',
+                          'Select / deselect all own filtered commands'
+                        )}
+                        className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
+                      />
+                    </th>
+                  )}
                   <th className="py-2.5 px-4">{tr('Bezeichnung', 'Name')}</th>
                   <th className="py-2.5 px-4">{tr('Typ · Kategorie', 'Type · Category')}</th>
                   <th className="py-2.5 px-4">{tr('SSH-Befehl', 'SSH Command')}</th>
@@ -1212,6 +1267,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                   const isWorkflow = cmd.kind === 'workflow';
                   const sleepSum = isChain ? getTotalSleepSec(cmd.steps) : 0;
                   const isOwner = cmd.userId === currentUser.id;
+                  const canEditRow = isOwner && canEditKind(cmd.kind);
+                  const canShareRow = isOwner && canShare;
+                  const canSelectRow = canEditRow || canShareRow;
                   const isSelected = selectedCommandIds.includes(cmd.id);
                   const catLabel = translateCategory(cmd.category, locale);
                   const shareLabel = isOwner
@@ -1224,28 +1282,30 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                         isSelected ? 'bg-blue-50/40 hover:bg-blue-50/70' : 'hover:bg-slate-50/80'
                       }`}
                     >
-                      <td className="py-3 pl-6 pr-2 w-10">
-                        {isOwner ? (
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleCommandSelection(cmd.id)}
-                            aria-label={tr(`${cmd.name} auswählen`, `Select ${cmd.name}`)}
-                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
-                          />
-                        ) : (
-                          <input
-                            type="checkbox"
-                            checked={false}
-                            disabled
-                            title={tr(
-                              'Geteilte Befehle anderer Benutzer können nicht bearbeitet werden',
-                              'Shared commands owned by other users cannot be modified'
-                            )}
-                            className="rounded border-slate-200 opacity-35 cursor-not-allowed"
-                          />
-                        )}
-                      </td>
+                      {canBulkAny && (
+                        <td className="py-3 pl-6 pr-2 w-10">
+                          {canSelectRow ? (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleCommandSelection(cmd.id)}
+                              aria-label={tr(`${cmd.name} auswählen`, `Select ${cmd.name}`)}
+                              className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                            />
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={false}
+                              disabled
+                              title={tr(
+                                'Dieser Befehl kann nicht bearbeitet werden',
+                                'This command cannot be modified'
+                              )}
+                              className="rounded border-slate-200 opacity-35 cursor-not-allowed"
+                            />
+                          )}
+                        </td>
+                      )}
                       <td className="py-3 px-4">
                         <p className="font-medium text-slate-900">{cmd.name}</p>
                         {cmd.description && (
@@ -1301,7 +1361,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                         {cmd.timeoutSec}s
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        {isOwner ? (
+                        {canEditRow ? (
                           <button
                             type="button"
                             onClick={() => handleToggleEnabled(cmd)}
@@ -1320,9 +1380,9 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                         )}
                       </td>
                       <td className="py-3 px-6 text-right whitespace-nowrap">
-                        {isOwner ? (
+                        {canEditRow || canShareRow ? (
                           <div className="inline-flex items-center gap-3">
-                            {isAdmin && (
+                            {canShareRow && (
                               <button
                                 type="button"
                                 onClick={() => setSharingCmd(cmd)}
@@ -1332,22 +1392,26 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
                                 {tr('Teilen', 'Share')}
                               </button>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => startEdit(cmd)}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-700 cursor-pointer"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                              {tr('Bearbeiten', 'Edit')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(cmd.id)}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              {tr('Löschen', 'Delete')}
-                            </button>
+                            {canEditRow && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => startEdit(cmd)}
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-700 cursor-pointer"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                  {tr('Bearbeiten', 'Edit')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(cmd.id)}
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  {tr('Löschen', 'Delete')}
+                                </button>
+                              </>
+                            )}
                           </div>
                         ) : (
                           <span className="text-xs text-slate-400">
@@ -1364,7 +1428,7 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         )}
       </section>
 
-      {sharingCmd && isAdmin && (
+      {sharingCmd && canShare && (
         <ShareDialog
           title={tr('SSH-Befehl teilen', 'Share SSH Command')}
           itemName={`${sharingCmd.name} (${translateCategory(sharingCmd.category, locale)})`}
@@ -1380,10 +1444,11 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
         />
       )}
 
-      {bulkDialogFocus && selectedCommands.length > 0 && (
+      {bulkDialogFocus && selectedCommands.length > 0 && canBulkAny && (
         <BulkCommandsDialog
           selectedCommands={selectedCommands}
-          isAdmin={isAdmin}
+          canShare={canShare}
+          canEditCommands={canBulkEditSelected}
           currentUserId={currentUser.id}
           users={users}
           categories={availableCategories}

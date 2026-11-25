@@ -146,6 +146,9 @@ export function DashboardView({
 }: DashboardViewProps) {
   const { locale, tr, formatClockTime, formatDateTime } = useI18n();
   const isAdmin = currentUser.role === 'admin';
+  const canExecuteCommands = isAdmin || currentUser.permissions?.executeCommands !== false;
+  const canManageServers = isAdmin || currentUser.permissions?.manageOwnServers !== false;
+  const canUploadCerts = isAdmin || currentUser.permissions?.uploadCertificates !== false;
   const activeCommands = useMemo(() => commands.filter((c) => c.enabled), [commands]);
 
   const [pingData, setPingData] = useState<DashboardPingResponse | null>(null);
@@ -1094,6 +1097,7 @@ export function DashboardView({
       </section>
 
       {/* Quick Command & Multi-IP Dispatch Bar */}
+      {canExecuteCommands ? (
       <section className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
           <div>
@@ -1169,14 +1173,20 @@ export function DashboardView({
               {tr('SSH-Schlüssel / Zertifikatspaket', 'SSH Key / Certificate Bundle')}
             </label>
             {certificates.length === 0 ? (
-              <button
-                type="button"
-                onClick={() => onNavigate('certificates')}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <KeyRound className="w-3.5 h-3.5" />
-                {tr('Schlüssel / Zertifikat hochladen', 'Upload Key / Certificate')}
-              </button>
+              canUploadCerts ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('certificates')}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  {tr('Schlüssel / Zertifikat hochladen', 'Upload Key / Certificate')}
+                </button>
+              ) : (
+                <p className="px-3 py-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md">
+                  {tr('Kein freigegebenes SSH-Zertifikat verfügbar', 'No shared SSH certificate available')}
+                </p>
+              )
             ) : (
               <select
                 id="dash-cert"
@@ -1482,6 +1492,14 @@ export function DashboardView({
           </div>
         )}
       </section>
+      ) : (
+        <section className="bg-white border border-slate-200 rounded-lg px-5 py-4 text-xs text-slate-600">
+          {tr(
+            `Das Ausführen von SSH-Befehlen und Sammelaufträgen ist für Ihre Benutzergruppe („${currentUser.groupName || 'Benutzer'}“) deaktiviert.`,
+            `Executing SSH commands and batch jobs is disabled for your user group ("${currentUser.groupName || 'User'}").`
+          )}
+        </section>
+      )}
 
       {/* Non-blocking Live Background Jobs Activity Strip */}
       {(() => {
@@ -1597,7 +1615,7 @@ export function DashboardView({
               ))}
             </div>
 
-            {servers.length > 0 && (
+            {canExecuteCommands && servers.length > 0 && (
               <div className="flex items-center gap-3 text-xs text-slate-600">
                 <button
                   type="button"
@@ -1760,13 +1778,15 @@ export function DashboardView({
                 `Add your target IPs under "My Servers (IPs)" to enable ${intervalSec}-second ping monitoring and batch execution.`
               )}
             </p>
-            <button
-              type="button"
-              onClick={() => onNavigate('servers')}
-              className="mt-4 px-4 py-2 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
-            >
-              {tr('Server-IPs anlegen', 'Add Server IPs')}
-            </button>
+            {canManageServers && (
+              <button
+                type="button"
+                onClick={() => onNavigate('servers')}
+                className="mt-4 px-4 py-2 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+              >
+                {tr('Server-IPs anlegen', 'Add Server IPs')}
+              </button>
+            )}
           </div>
         ) : filteredServers.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-slate-500">
@@ -1777,18 +1797,20 @@ export function DashboardView({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 pl-6 pr-2 w-10">
-                    <input
-                      type="checkbox"
-                      checked={allPageSelected}
-                      onChange={(e) => toggleCurrentPageSelection(e.target.checked)}
-                      aria-label={tr(
-                        'Alle Server dieser Seite auswählen',
-                        'Select all servers on this page'
-                      )}
-                      className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
-                    />
-                  </th>
+                  {canExecuteCommands && (
+                    <th className="py-2.5 pl-6 pr-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allPageSelected}
+                        onChange={(e) => toggleCurrentPageSelection(e.target.checked)}
+                        aria-label={tr(
+                          'Alle Server dieser Seite auswählen',
+                          'Select all servers on this page'
+                        )}
+                        className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                      />
+                    </th>
+                  )}
                   <th className="py-2.5 px-4">{tr('Server · IP-Adresse', 'Server · IP Address')}</th>
                   <th className="py-2.5 px-4">BMC (HTTPS :443)</th>
                   <th className="py-2.5 px-4">{tr('Ping-Status', 'Ping Status')}</th>
@@ -1826,15 +1848,17 @@ export function DashboardView({
                         isChecked ? 'bg-blue-50/40 hover:bg-blue-50/60' : 'hover:bg-slate-50/80'
                       }`}
                     >
-                      <td className="py-3 pl-6 pr-2">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleRow(srv.id)}
-                          aria-label={tr(`${srv.label} auswählen`, `Select ${srv.label}`)}
-                          className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
-                        />
-                      </td>
+                      {canExecuteCommands && (
+                        <td className="py-3 pl-6 pr-2">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleRow(srv.id)}
+                            aria-label={tr(`${srv.label} auswählen`, `Select ${srv.label}`)}
+                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                          />
+                        </td>
+                      )}
                       <td className="py-3 px-4">
                         <p className="font-medium text-slate-900 whitespace-nowrap">
                           {srv.label}
@@ -2108,7 +2132,7 @@ export function DashboardView({
                       </td>
                       <td className="py-3 pl-4 pr-6 text-right whitespace-nowrap">
                         <div className="inline-flex items-center gap-3">
-                          {srv.userId === currentUser.id && (
+                          {canManageServers && srv.userId === currentUser.id && (
                             <button
                               type="button"
                               onClick={() => handleToggleServerPing(srv)}

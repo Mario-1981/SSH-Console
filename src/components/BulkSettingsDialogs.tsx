@@ -15,7 +15,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { translateCategory, useI18n } from '../i18n';
-import type { SshCommand, User, UserServer } from '../types';
+import type { ShareableUser, SshCommand, UserServer } from '../types';
 
 type ShareBulkMode = 'unchanged' | 'private' | 'all' | 'selected';
 type TriState = 'unchanged' | 'on' | 'off';
@@ -31,9 +31,10 @@ export interface BulkServersPayload {
 
 interface BulkServersDialogProps {
   selectedServers: UserServer[];
-  isAdmin: boolean;
+  canShare: boolean;
+  canManageServers?: boolean;
   currentUserId: string;
-  users: User[];
+  users: ShareableUser[];
   allowInsecureHostKey: boolean;
   selectableCategories: string[];
   initialFocus?: 'all' | 'categories' | 'sharing';
@@ -44,7 +45,8 @@ interface BulkServersDialogProps {
 
 export function BulkServersDialog({
   selectedServers,
-  isAdmin,
+  canShare,
+  canManageServers = true,
   currentUserId,
   users,
   allowInsecureHostKey,
@@ -58,7 +60,7 @@ export function BulkServersDialog({
   const [pingMode, setPingMode] = useState<TriState>('unchanged');
   const [hostKeyMode, setHostKeyMode] = useState<TriState>('unchanged');
   const [catAction, setCatAction] = useState<CategoryBulkAction>(
-    initialFocus === 'categories' ? 'add' : 'unchanged'
+    initialFocus === 'categories' && canManageServers ? 'add' : 'unchanged'
   );
   const [chosenCategories, setChosenCategories] = useState<string[]>([]);
   const [localExtraCategories, setLocalExtraCategories] = useState<string[]>([]);
@@ -66,7 +68,7 @@ export function BulkServersDialog({
   const [creatingCat, setCreatingCat] = useState(false);
 
   const [shareMode, setShareMode] = useState<ShareBulkMode>(
-    initialFocus === 'sharing' && isAdmin ? 'all' : 'unchanged'
+    initialFocus === 'sharing' && canShare ? 'all' : 'unchanged'
   );
   const [shareUserIds, setShareUserIds] = useState<string[]>([]);
 
@@ -133,14 +135,14 @@ export function BulkServersDialog({
     setError(null);
 
     const payload: BulkServersPayload = {};
-    if (pingMode !== 'unchanged') {
+    if (canManageServers && pingMode !== 'unchanged') {
       payload.pingEnabled = pingMode === 'on';
     }
-    if (hostKeyMode !== 'unchanged') {
+    if (canManageServers && hostKeyMode !== 'unchanged') {
       // 'on' => verify host keys (ignoreHostKey = false); 'off' => bypass (ignoreHostKey = true)
       payload.ignoreHostKey = hostKeyMode === 'off';
     }
-    if (catAction !== 'unchanged') {
+    if (canManageServers && catAction !== 'unchanged') {
       if ((catAction === 'add' || catAction === 'remove') && chosenCategories.length === 0) {
         setError(
           tr(
@@ -153,7 +155,7 @@ export function BulkServersDialog({
       payload.categoriesAction = catAction;
       payload.categories = chosenCategories;
     }
-    if (isAdmin && shareMode !== 'unchanged') {
+    if (canShare && shareMode !== 'unchanged') {
       if (shareMode === 'selected' && shareUserIds.length === 0) {
         setError(
           tr(
@@ -258,6 +260,7 @@ export function BulkServersDialog({
           </p>
 
           {/* 1. Ping On/Off */}
+          {canManageServers && (
           <div className="border border-slate-200 rounded-md p-4 space-y-2.5">
             <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-slate-500" />
@@ -291,8 +294,10 @@ export function BulkServersDialog({
               ))}
             </div>
           </div>
+          )}
 
           {/* 2. Host-Key Checking */}
+          {canManageServers && (
           <div className="border border-slate-200 rounded-md p-4 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
@@ -344,8 +349,10 @@ export function BulkServersDialog({
               </button>
             </div>
           </div>
+          )}
 
           {/* 3. IP Categories */}
+          {canManageServers && (
           <div className="border border-slate-200 rounded-md p-4 space-y-3">
             <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
               <Tag className="w-3.5 h-3.5 text-slate-500" />
@@ -450,13 +457,14 @@ export function BulkServersDialog({
               </div>
             )}
           </div>
+          )}
 
-          {/* 4. Sharing (Admin only) */}
-          {isAdmin && (
+          {/* 4. Sharing */}
+          {canShare && (
             <div className="border border-slate-200 rounded-md p-4 space-y-3">
               <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
                 <Share2 className="w-3.5 h-3.5 text-slate-500" />
-                {tr('Teilen & Sichtbarkeit (Administrator)', 'Sharing & Visibility (Admin)')}
+                {tr('Teilen & Sichtbarkeit', 'Sharing & Visibility')}
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(
@@ -562,9 +570,10 @@ export interface BulkCommandsPayload {
 
 interface BulkCommandsDialogProps {
   selectedCommands: SshCommand[];
-  isAdmin: boolean;
+  canShare: boolean;
+  canEditCommands?: boolean;
   currentUserId: string;
-  users: User[];
+  users: ShareableUser[];
   categories: string[];
   initialFocus?: 'all' | 'sharing';
   onClose: () => void;
@@ -573,7 +582,8 @@ interface BulkCommandsDialogProps {
 
 export function BulkCommandsDialog({
   selectedCommands,
-  isAdmin,
+  canShare,
+  canEditCommands = true,
   currentUserId,
   users,
   categories,
@@ -585,7 +595,7 @@ export function BulkCommandsDialog({
   const [enabledMode, setEnabledMode] = useState<TriState>('unchanged');
   const [categoryValue, setCategoryValue] = useState<string>('__unchanged__');
   const [shareMode, setShareMode] = useState<ShareBulkMode>(
-    initialFocus === 'sharing' && isAdmin ? 'all' : 'unchanged'
+    initialFocus === 'sharing' && canShare ? 'all' : 'unchanged'
   );
   const [shareUserIds, setShareUserIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -604,13 +614,13 @@ export function BulkCommandsDialog({
     setError(null);
 
     const payload: BulkCommandsPayload = {};
-    if (enabledMode !== 'unchanged') {
+    if (canEditCommands && enabledMode !== 'unchanged') {
       payload.enabled = enabledMode === 'on';
     }
-    if (categoryValue !== '__unchanged__') {
+    if (canEditCommands && categoryValue !== '__unchanged__') {
       payload.category = categoryValue;
     }
-    if (isAdmin && shareMode !== 'unchanged') {
+    if (canShare && shareMode !== 'unchanged') {
       if (shareMode === 'selected' && shareUserIds.length === 0) {
         setError(
           tr(
@@ -713,12 +723,12 @@ export function BulkCommandsDialog({
             )}
           </p>
 
-          {/* 1. Sharing (Admin only) */}
-          {isAdmin && (
+          {/* 1. Sharing */}
+          {canShare && (
             <div className="border border-slate-200 rounded-md p-4 space-y-3">
               <p className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
                 <Share2 className="w-3.5 h-3.5 text-slate-500" />
-                {tr('Teilen & Sichtbarkeit (Administrator)', 'Sharing & Visibility (Admin)')}
+                {tr('Teilen & Sichtbarkeit', 'Sharing & Visibility')}
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(
@@ -789,57 +799,61 @@ export function BulkCommandsDialog({
           )}
 
           {/* 2. Status */}
-          <div className="border border-slate-200 rounded-md p-4 space-y-2.5">
-            <p className="text-xs font-semibold text-slate-900">
-              {tr('Befehlsstatus', 'Command Status')}
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              {(
-                [
-                  { id: 'unchanged', label: tr('Unverändert', 'Unchanged') },
-                  { id: 'on', label: tr('Aktivieren', 'Enable') },
-                  { id: 'off', label: tr('Deaktivieren', 'Disable') },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setEnabledMode(opt.id)}
-                  className={`px-3 py-2 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
-                    enabledMode === opt.id
-                      ? opt.id === 'on'
-                        ? 'bg-emerald-50 text-emerald-900 border-emerald-400'
-                        : opt.id === 'off'
-                        ? 'bg-slate-800 text-white border-slate-800'
-                        : 'bg-blue-50 text-blue-900 border-blue-400'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+          {canEditCommands && (
+            <div className="border border-slate-200 rounded-md p-4 space-y-2.5">
+              <p className="text-xs font-semibold text-slate-900">
+                {tr('Befehlsstatus', 'Command Status')}
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { id: 'unchanged', label: tr('Unverändert', 'Unchanged') },
+                    { id: 'on', label: tr('Aktivieren', 'Enable') },
+                    { id: 'off', label: tr('Deaktivieren', 'Disable') },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setEnabledMode(opt.id)}
+                    className={`px-3 py-2 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                      enabledMode === opt.id
+                        ? opt.id === 'on'
+                          ? 'bg-emerald-50 text-emerald-900 border-emerald-400'
+                          : opt.id === 'off'
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'bg-blue-50 text-blue-900 border-blue-400'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* 3. Category */}
-          <div className="border border-slate-200 rounded-md p-4 space-y-2">
-            <label htmlFor="bulk-cmd-category" className="block text-xs font-semibold text-slate-900">
-              {tr('Befehlskategorie', 'Command Category')}
-            </label>
-            <select
-              id="bulk-cmd-category"
-              value={categoryValue}
-              onChange={(e) => setCategoryValue(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-            >
-              <option value="__unchanged__">{tr('— Unverändert lassen —', '— Keep unchanged —')}</option>
-              {categories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {translateCategory(cat, locale)}
-                </option>
-              ))}
-            </select>
-          </div>
+          {canEditCommands && (
+            <div className="border border-slate-200 rounded-md p-4 space-y-2">
+              <label htmlFor="bulk-cmd-category" className="block text-xs font-semibold text-slate-900">
+                {tr('Befehlskategorie', 'Command Category')}
+              </label>
+              <select
+                id="bulk-cmd-category"
+                value={categoryValue}
+                onChange={(e) => setCategoryValue(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="__unchanged__">{tr('— Unverändert lassen —', '— Keep unchanged —')}</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {translateCategory(cat, locale)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
             <button

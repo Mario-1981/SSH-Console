@@ -24,11 +24,11 @@ import { api } from '../api';
 import { useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
 import { BulkServersDialog, type BulkServersPayload } from './BulkSettingsDialogs';
-import type { AppSettings, BmcCheckResult, ServerCategory, User, UserServer } from '../types';
+import type { AppSettings, BmcCheckResult, ServerCategory, ShareableUser, User, UserServer } from '../types';
 
 interface ServersViewProps {
   user: User;
-  users: User[];
+  users: ShareableUser[];
   servers: UserServer[];
   globalPingAllowed?: boolean;
   allowInsecureHostKey?: boolean;
@@ -53,6 +53,9 @@ export function ServersView({
 }: ServersViewProps) {
   const { locale, tr } = useI18n();
   const isAdmin = user.role === 'admin';
+  const canManageServers = isAdmin || user.permissions?.manageOwnServers !== false;
+  const canShare = isAdmin || Boolean(user.permissions?.shareResources);
+  const canBulkModify = canManageServers || canShare;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [label, setLabel] = useState('');
   const [ipAddress, setIpAddress] = useState('');
@@ -385,7 +388,7 @@ export function ServersView({
           pingEnabled,
           ignoreHostKey: allowInsecureHostKey ? ignoreHostKey : false,
           categories: selectedCategories,
-          ...(isAdmin && shareOnCreate ? { sharedWithAll: true, sharedWithUserIds: [] } : {}),
+          ...(canShare && shareOnCreate ? { sharedWithAll: true, sharedWithUserIds: [] } : {}),
         });
       }
       await Promise.all([onRefresh(), loadCategories()]);
@@ -567,14 +570,19 @@ export function ServersView({
           {tr('Meine Server (Ziel-IPs & BMC)', 'My Servers (Target IPs & BMC)')}
         </h1>
         <p className="text-sm text-slate-600 mt-1">
-          {isAdmin
+          {canShare
             ? tr(
-                'Hinterlegen Sie Ziel-IPs und bis zu zwei optionale BMC-Adressen (HTTPS Port 443). Einträge sind standardmäßig privat und können als Administrator mit anderen Benutzern geteilt werden.',
-                'Store target server IPs and up to two optional BMC addresses (HTTPS port 443). Entries are private by default and can be shared with other users as an administrator.'
+                'Hinterlegen Sie Ziel-IPs und bis zu zwei optionale BMC-Adressen (HTTPS Port 443). Einträge sind standardmäßig privat und können mit anderen Benutzern geteilt werden.',
+                'Store target server IPs and up to two optional BMC addresses (HTTPS port 443). Entries are private by default and can be shared with other users.'
+              )
+            : canManageServers
+            ? tr(
+                'Hinterlegen Sie die IP-Adressen Ihrer Zielserver sowie optional bis zu zwei BMC-IPs. Eigene Einträge sind nur für Sie sichtbar; geteilte Server stehen zusätzlich bereit.',
+                'Store your target server IP addresses and up to two optional BMC IPs. Your own entries are visible only to you; shared servers are also available.'
               )
             : tr(
-                'Hinterlegen Sie die IP-Adressen Ihrer Zielserver sowie optional bis zu zwei BMC-IPs. Eigene Einträge sind nur für Sie sichtbar; vom Administrator geteilte Server stehen zusätzlich bereit.',
-                'Store your target server IP addresses and up to two optional BMC IPs. Your own entries are visible only to you; servers shared by an administrator are also available.'
+                'Übersicht der für Sie verfügbaren Zielserver. Das Anlegen und Bearbeiten eigener Server-IPs ist für Ihre Benutzergruppe deaktiviert.',
+                'Overview of target servers available to you. Creating and editing own server IPs is disabled for your user group.'
               )}
         </p>
       </div>
@@ -693,6 +701,7 @@ export function ServersView({
       )}
 
       {/* IP Categories Manager */}
+      {canManageServers && (
       <section className="bg-white border border-slate-200 rounded-lg p-5 space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start gap-2.5 min-w-0">
@@ -769,7 +778,9 @@ export function ServersView({
           </div>
         )}
       </section>
+      )}
 
+      {canManageServers && (
       <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
         <div className="flex items-center justify-between gap-4">
           <h2 className="font-display text-base font-semibold text-slate-900">
@@ -1044,7 +1055,7 @@ export function ServersView({
             </span>
           </label>
 
-          {isAdmin && !editingId && (
+          {canShare && !editingId && (
             <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
               <input
                 type="checkbox"
@@ -1062,6 +1073,7 @@ export function ServersView({
           )}
         </div>
       </form>
+      )}
 
       {/* Server Table */}
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -1101,7 +1113,7 @@ export function ServersView({
           </div>
         </div>
 
-        {selectedServers.length > 0 && (
+        {canBulkModify && selectedServers.length > 0 && (
           <div className="px-6 py-3 bg-blue-50/80 border-b border-blue-200 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 text-xs">
               <span className="font-semibold text-blue-950">
@@ -1119,34 +1131,38 @@ export function ServersView({
               </button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={bulkQuickBusy}
-                onClick={() => handleQuickBulkServers({ pingEnabled: true })}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
-              >
-                <Activity className="w-3.5 h-3.5 text-emerald-700" />
-                {tr('Ping an', 'Ping On')}
-              </button>
-              <button
-                type="button"
-                disabled={bulkQuickBusy}
-                onClick={() => handleQuickBulkServers({ pingEnabled: false })}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
-              >
-                <Ban className="w-3.5 h-3.5 text-slate-500" />
-                {tr('Ping aus', 'Ping Off')}
-              </button>
-              <button
-                type="button"
-                disabled={bulkQuickBusy}
-                onClick={() => setBulkDialogFocus('categories')}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
-              >
-                <Tag className="w-3.5 h-3.5 text-slate-500" />
-                {tr('Kategorien', 'Categories')}
-              </button>
-              {isAdmin && (
+              {canManageServers && (
+                <>
+                  <button
+                    type="button"
+                    disabled={bulkQuickBusy}
+                    onClick={() => handleQuickBulkServers({ pingEnabled: true })}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                  >
+                    <Activity className="w-3.5 h-3.5 text-emerald-700" />
+                    {tr('Ping an', 'Ping On')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkQuickBusy}
+                    onClick={() => handleQuickBulkServers({ pingEnabled: false })}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                  >
+                    <Ban className="w-3.5 h-3.5 text-slate-500" />
+                    {tr('Ping aus', 'Ping Off')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkQuickBusy}
+                    onClick={() => setBulkDialogFocus('categories')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+                  >
+                    <Tag className="w-3.5 h-3.5 text-slate-500" />
+                    {tr('Kategorien', 'Categories')}
+                  </button>
+                </>
+              )}
+              {canShare && (
                 <button
                   type="button"
                   disabled={bulkQuickBusy}
@@ -1157,15 +1173,17 @@ export function ServersView({
                   {tr('Teilen', 'Share')}
                 </button>
               )}
-              <button
-                type="button"
-                disabled={bulkQuickBusy}
-                onClick={() => setBulkDialogFocus('all')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                {tr('Sammeleinstellungen...', 'Bulk Settings...')}
-              </button>
+              {canManageServers && (
+                <button
+                  type="button"
+                  disabled={bulkQuickBusy}
+                  onClick={() => setBulkDialogFocus('all')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  {tr('Sammeleinstellungen...', 'Bulk Settings...')}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1192,20 +1210,22 @@ export function ServersView({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 pl-6 pr-2 w-10">
-                    <input
-                      type="checkbox"
-                      checked={allFilteredOwnSelected}
-                      disabled={filteredOwnServers.length === 0}
-                      onChange={toggleSelectAllFilteredOwn}
-                      aria-label={tr('Alle eigenen Server auswählen', 'Select all own servers')}
-                      title={tr(
-                        'Alle eigenen gefilterten Server auswählen / abwählen',
-                        'Select / deselect all own filtered servers'
-                      )}
-                      className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
-                    />
-                  </th>
+                  {canBulkModify && (
+                    <th className="py-2.5 pl-6 pr-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredOwnSelected}
+                        disabled={filteredOwnServers.length === 0}
+                        onChange={toggleSelectAllFilteredOwn}
+                        aria-label={tr('Alle eigenen Server auswählen', 'Select all own servers')}
+                        title={tr(
+                          'Alle eigenen gefilterten Server auswählen / abwählen',
+                          'Select / deselect all own filtered servers'
+                        )}
+                        className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-40 cursor-pointer"
+                      />
+                    </th>
+                  )}
                   <th className="py-2.5 px-4">{tr('Bezeichnung', 'Label')}</th>
                   <th className="py-2.5 px-4">{tr('Server-IP · SSH', 'Server IP · SSH')}</th>
                   <th className="py-2.5 px-4">BMC (HTTPS :443)</th>
@@ -1237,28 +1257,30 @@ export function ServersView({
                         isSelected ? 'bg-blue-50/40 hover:bg-blue-50/70' : 'hover:bg-slate-50/80'
                       }`}
                     >
-                      <td className="py-3 pl-6 pr-2 w-10">
-                        {isOwner ? (
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleServerSelection(srv.id)}
-                            aria-label={tr(`${srv.label} auswählen`, `Select ${srv.label}`)}
-                            className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
-                          />
-                        ) : (
-                          <input
-                            type="checkbox"
-                            checked={false}
-                            disabled
-                            title={tr(
-                              'Geteilte Server anderer Benutzer können nicht bearbeitet werden',
-                              'Shared servers owned by other users cannot be modified'
-                            )}
-                            className="rounded border-slate-200 opacity-35 cursor-not-allowed"
-                          />
-                        )}
-                      </td>
+                      {canBulkModify && (
+                        <td className="py-3 pl-6 pr-2 w-10">
+                          {isOwner ? (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleServerSelection(srv.id)}
+                              aria-label={tr(`${srv.label} auswählen`, `Select ${srv.label}`)}
+                              className="rounded border-slate-300 text-blue-700 focus:ring-blue-600 cursor-pointer"
+                            />
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={false}
+                              disabled
+                              title={tr(
+                                'Geteilte Server anderer Benutzer können nicht bearbeitet werden',
+                                'Shared servers owned by other users cannot be modified'
+                              )}
+                              className="rounded border-slate-200 opacity-35 cursor-not-allowed"
+                            />
+                          )}
+                        </td>
+                      )}
                       <td className="py-3 px-4 font-medium text-slate-900">
                         <p className="whitespace-nowrap">{srv.label}</p>
                         {(srv.categories?.length ?? 0) > 0 && (
@@ -1378,7 +1400,7 @@ export function ServersView({
                         )}
                       </td>
                       <td className="py-3 px-4 text-xs whitespace-nowrap">
-                        {isOwner ? (
+                        {isOwner && canManageServers ? (
                           <button
                             type="button"
                             onClick={() => handleTogglePing(srv)}
@@ -1428,7 +1450,7 @@ export function ServersView({
                       </td>
                       <td className="py-3 px-4 text-xs whitespace-nowrap">
                         <div className="inline-flex items-center gap-1.5">
-                          {isOwner && allowInsecureHostKey ? (
+                          {isOwner && canManageServers && allowInsecureHostKey ? (
                             <button
                               type="button"
                               onClick={() => handleToggleHostKey(srv)}
@@ -1525,17 +1547,19 @@ export function ServersView({
                         {srv.notes || '—'}
                       </td>
                       <td className="py-3 px-6 text-right whitespace-nowrap">
-                        {isOwner ? (
+                        {isOwner && (canManageServers || canShare) ? (
                           <div className="inline-flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => startEdit(srv)}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-950 cursor-pointer"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                              {tr('Bearbeiten', 'Edit')}
-                            </button>
-                            {isAdmin && (
+                            {canManageServers && (
+                              <button
+                                type="button"
+                                onClick={() => startEdit(srv)}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-950 cursor-pointer"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                                {tr('Bearbeiten', 'Edit')}
+                              </button>
+                            )}
+                            {canShare && (
                               <button
                                 type="button"
                                 onClick={() => setSharingServer(srv)}
@@ -1545,15 +1569,17 @@ export function ServersView({
                                 {tr('Teilen', 'Share')}
                               </button>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(srv.id)}
-                              disabled={deletingId === srv.id}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              {tr('Entfernen', 'Delete')}
-                            </button>
+                            {canManageServers && (
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(srv.id)}
+                                disabled={deletingId === srv.id}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {tr('Entfernen', 'Delete')}
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <span className="text-xs text-slate-400">
@@ -1570,7 +1596,7 @@ export function ServersView({
         )}
       </section>
 
-      {sharingServer && isAdmin && (
+      {sharingServer && canShare && (
         <ShareDialog
           title={tr('Zielserver (IP) teilen', 'Share Target Server (IP)')}
           itemName={`${sharingServer.label} (${sharingServer.sshUser}@${sharingServer.ipAddress}:${sharingServer.port})`}
@@ -1586,20 +1612,25 @@ export function ServersView({
         />
       )}
 
-      {bulkDialogFocus && selectedServers.length > 0 && (
+      {bulkDialogFocus && selectedServers.length > 0 && canBulkModify && (
         <BulkServersDialog
           selectedServers={selectedServers}
-          isAdmin={isAdmin}
+          canShare={canShare}
+          canManageServers={canManageServers}
           currentUserId={user.id}
           users={users}
           allowInsecureHostKey={allowInsecureHostKey}
           selectableCategories={selectableCategories}
           initialFocus={bulkDialogFocus}
-          onCreateCategory={async (name) => {
-            const res = await api.createServerCategory(name);
-            await loadCategories();
-            return res.category.name;
-          }}
+          onCreateCategory={
+            canManageServers
+              ? async (name) => {
+                  const res = await api.createServerCategory(name);
+                  await loadCategories();
+                  return res.category.name;
+                }
+              : undefined
+          }
           onClose={() => setBulkDialogFocus(null)}
           onSave={applyBulkServers}
         />

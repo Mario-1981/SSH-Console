@@ -2,11 +2,66 @@ export type UserRole = 'admin' | 'user';
 export type AuthProvider = 'local' | 'sso';
 export type WebAuthnCredentialKind = 'security-key' | 'passkey';
 
+export interface GroupCaAssignment {
+  caId: string;
+  principals: string[];
+  includeOwnerPrincipal: boolean;
+  validity: string;
+  autoRenewBeforeSeconds?: number;
+}
+
+export interface GroupPermissions {
+  manageOwnServers: boolean;
+  createSingleCommands: boolean;
+  createChainCommands: boolean;
+  createWorkflowCommands: boolean;
+  uploadCertificates: boolean;
+  uploadSignedCert: boolean;
+  generateTestCertificates: boolean;
+  requireCertificatePassphrase: boolean;
+  storeCertificatePassphrase: boolean;
+  selfSignCertificates: boolean;
+  autoRenewCertificates: boolean;
+  useApi: boolean;
+  shareResources: boolean;
+  useSshShell: boolean;
+  useSshShellCustomIp: boolean;
+  executeCommands: boolean;
+  viewOwnLogs: boolean;
+  caSigningAssignments: GroupCaAssignment[];
+}
+
+export interface UserGroup {
+  id: string;
+  name: string;
+  description: string;
+  isSystem: boolean;
+  isImmutable: boolean;
+  isAdmin: boolean;
+  permissions: GroupPermissions;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ShareableUser {
+  id: string;
+  username: string;
+  displayName: string;
+  role: UserRole;
+  groupId: string;
+  groupName: string;
+  active: boolean;
+}
+
 export interface User {
   id: string;
   username: string;
   displayName: string;
   role: UserRole;
+  groupId: string;
+  groupName: string;
+  permissions: GroupPermissions;
   authProvider: AuthProvider;
   email: string;
   defaultSshUser: string;
@@ -207,6 +262,28 @@ export interface ParsedCertMetadata {
   warnings: string[];
 }
 
+export type CertificateAutoRenewMode = 'admin' | 'user';
+
+export interface CertificateAutoRenewConfig {
+  enabled: boolean;
+  mode: CertificateAutoRenewMode;
+  caId: string;
+  caName: string;
+  principals: string[];
+  includeOwnerPrincipal: boolean;
+  validity: string;
+  keyIdPrefix: string;
+  renewBeforeSeconds: number;
+  enabledByUserId: string;
+  enabledByUsername: string;
+  enabledAt: string;
+  lastRenewedAt: string | null;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
 export interface UserCertificate {
   id: string;
   userId: string;
@@ -217,9 +294,42 @@ export interface UserCertificate {
   certFileName: string;
   metadata: ParsedCertMetadata;
   hasStoredPassphrase?: boolean;
+  autoRenew?: CertificateAutoRenewConfig | null;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   uploadedAt: string;
+}
+
+export interface CertificateAuthority {
+  id: string;
+  name: string;
+  description: string;
+  privateKeyFileName: string;
+  publicKeyFileName: string;
+  publicKey: string;
+  keyType: string;
+  fingerprint: string;
+  privateKeyFormat: 'openssh-v1' | 'pem-rsa' | 'pem-ec' | 'pem-pkcs8' | 'unknown';
+  privateKeyEncrypted: boolean;
+  hasStoredPassphrase: boolean;
+  createdBy: string;
+  createdByUsername: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssignedSigningCa {
+  id: string;
+  name: string;
+  description: string;
+  keyType: string;
+  fingerprint: string;
+  hasStoredPassphrase: boolean;
+  principals: string[];
+  includeOwnerPrincipal: boolean;
+  effectivePrincipals: string[];
+  validity: string;
+  autoRenewBeforeSeconds: number;
 }
 
 export interface ExecutionLog {
@@ -328,4 +438,5 @@ export type ActiveTab =
   | 'account'
   | 'admin-commands'
   | 'admin-users'
+  | 'admin-ca'
   | 'admin-auth';

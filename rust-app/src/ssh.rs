@@ -6,7 +6,7 @@ use std::fs;
 use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command as StdCommand;
+use std::process::{Command as StdCommand, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::process::Command;
@@ -619,88 +619,367 @@ pub async fn inspect_certificate_bundle(
 pub struct GeneratedTestBundle {
     pub private_key: String,
     pub public_key: String,
-    pub certificate: String,
-    pub ca_public_key: String,
 }
 
-/// Erzeugt ein echtes OpenSSH-Ed25519-Testzertifikat (CA + Benutzerschlüssel + Signatur)
-/// über `/usr/bin/ssh-keygen` für schnelle Tests auf Debian Trixie.
-pub async fn generate_test_cert_bundle(
+pub fn is_valid_principal_token(value: &str) -> bool {
+    let trimmed = value.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 64
+        && !trimmed.starts_with('-')
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '@' | '.' | '-'))
+}
+
+pub fn parse_and_validate_principals(raw: &serde_json::Value) -> Result<Vec<String>, String> {
+    let mut items: Vec<String> = Vec::new();
+    match raw {
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                if let Some(s) = v.as_str() {
+                    items.push(s.to_string());
+                }
+            }
+        }
+        serde_json::Value::String(s) => {
+            for part in s.split(|c| matches!(c, ',' | ';' | '\n' | '\r')) {
+                items.push(part.to_string());
+            }
+        }
+        _ => {
+            return Err(
+                "Bitte mindestens einen Principal (-n) angeben (z. B. root oder admin).".into(),
+            );
+        }
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    for raw_item in items {
+        let trimmed = raw_item.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !is_valid_principal_token(trimmed) {
+            return Err(format!(
+                "Ungültiger Principal (-n): „{trimmed}“. Erlaubt sind Buchstaben, Ziffern, Punkt, Unterstrich, Bindestrich (nicht am Anfang) und @ (max. 64 Zeichen)."
+            ));
+        }
+        if !out.iter().any(|x| x == trimmed) {
+            out.push(trimmed.to_string());
+        }
+    }
+
+    if out.is_empty() {
+        return Err("Bitte mindestens einen Principal (-n) angeben (z. B. root oder admin).".into());
+    }
+    if out.len() > 32 {
+        return Err("Maximal 32 Principals (-n) pro Zertifikat sind zulässig.".into());
+    }
+    Ok(out)
+}
+
+fn parse_duration_part(part: &str, prefix: char) -> Result<(u64, char), String> {
+    let mut chars = part.chars();
+    if chars.next() != Some(prefix) {
+        return Err("Ungültiges Zeitformat".into());
+    }
+    let rest: String = chars.collect();
+    if rest.len() < 2 {
+        return Err("Ungültiges Zeitformat".into());
+    }
+    let unit = rest
+        .chars()
+        .last()
+        .unwrap()
+        .to_ascii_lowercase();
+    if !matches!(unit, 's' | 'm' | 'h' | 'd' | 'w') {
+        return Err("Ungültige Zeiteinheit".into());
+    }
+    let num_str = &rest[..rest.len() - 1];
+    if !num_str.chars().all(|c| c.is_ascii_digit()) {
+        return Err("Ungültige Zahl".into());
+    }
+    let amount = num_str.parse::<u64>().map_err(|_| "Ungültige Zahl".to_string())?;
+    let unit_sec: u64 = match unit {
+        's' => 1,
+        'm' => 60,
+        'h' => 3600,
+        'd' => 86400,
+        'w' => 604800,
+        _ => return Err("Ungültige Zeiteinheit".into()),
+    };
+    let total = amount.checked_mul(unit_sec).ok_or_else(|| "Gültigkeitsdauer zu groß".to_string())?;
+    let max_sec = 100u64 * 365 * 86400;
+    if total > max_sec {
+        return Err("Gültigkeitsdauer überschreitet das Maximum von 100 Jahren.".into());
+    }
+    Ok((amount, unit))
+}
+
+pub fn validate_validity_spec(raw_opt: Option<&str>) -> Result<String, String> {
+    let raw = raw_opt.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("+30d");
+    let lower = raw.to_ascii_lowercase();
+    if lower == "forever" || lower == "always" || lower == "always:forever" {
+        return Ok("always:forever".into());
+    }
+    if raw.starts_with('+') {
+        let (amount, unit) = parse_duration_part(raw, '+').map_err(|_| {
+            format!(
+                "Ungültige Gültigkeitsdauer (-V): „{raw}“. Erlaubt sind z. B. +8h, +24h, +7d, +30d, +52w oder forever."
+            )
+        })?;
+        let unit_sec: u64 = match unit {
+            's' => 1,
+            'm' => 60,
+            'h' => 3600,
+            'd' => 86400,
+            _ => 604800,
+        };
+        if amount.saturating_mul(unit_sec) < 60 {
+            return Err("Ungültige Gültigkeitsdauer (-V): Mindestens +60s erforderlich.".into());
+        }
+        return Ok(format!("+{amount}{unit}"));
+    }
+    if let Some((left, right)) = raw.split_once(':') {
+        let (back_amt, back_unit) = parse_duration_part(left, '-').map_err(|_| {
+            format!("Ungültige Gültigkeitsdauer (-V): „{raw}“.")
+        })?;
+        let (fwd_amt, fwd_unit) = parse_duration_part(right, '+').map_err(|_| {
+            format!("Ungültige Gültigkeitsdauer (-V): „{raw}“.")
+        })?;
+        let fwd_unit_sec: u64 = match fwd_unit {
+            's' => 1,
+            'm' => 60,
+            'h' => 3600,
+            'd' => 86400,
+            _ => 604800,
+        };
+        if fwd_amt.saturating_mul(fwd_unit_sec) < 60 {
+            return Err("Ungültige Gültigkeitsdauer (-V): Mindestens +60s erforderlich.".into());
+        }
+        return Ok(format!("-{back_amt}{back_unit}:+{fwd_amt}{fwd_unit}"));
+    }
+    Err(format!(
+        "Ungültige Gültigkeitsdauer (-V): „{raw}“. Erlaubt sind z. B. +8h, +24h, +7d, +30d, +52w oder forever."
+    ))
+}
+
+pub fn validity_forward_seconds(raw_opt: Option<&str>) -> Result<Option<u64>, String> {
+    let normalized = validate_validity_spec(raw_opt)?;
+    if normalized == "always:forever" {
+        return Ok(None);
+    }
+    let fwd_part = if let Some((_, right)) = normalized.split_once(':') {
+        right
+    } else {
+        normalized.as_str()
+    };
+    let (amount, unit) = parse_duration_part(fwd_part, '+')?;
+    let unit_sec: u64 = match unit {
+        's' => 1,
+        'm' => 60,
+        'h' => 3600,
+        'd' => 86400,
+        _ => 604800,
+    };
+    Ok(Some(amount.saturating_mul(unit_sec)))
+}
+
+pub fn sanitize_key_id(raw: &str, fallback: &str) -> String {
+    let mapped: String = raw
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '@' | '.' | ':' | '/' | ' ' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = mapped.trim_start_matches('-').trim();
+    let limited: String = trimmed.chars().take(128).collect();
+    if limited.is_empty() {
+        fallback.to_string()
+    } else {
+        limited
+    }
+}
+
+pub fn derive_cert_file_name(existing: &str, pub_file: &str, priv_file: &str) -> String {
+    if !existing.trim().is_empty() {
+        return existing.trim().to_string();
+    }
+    let pub_clean = pub_file.trim();
+    if pub_clean.to_ascii_lowercase().ends_with(".pub") && pub_clean.len() > 4 {
+        return format!("{}-cert.pub", &pub_clean[..pub_clean.len() - 4]);
+    }
+    let priv_clean = priv_file.trim();
+    if priv_clean.is_empty() {
+        "zertifikat-cert.pub".into()
+    } else {
+        format!("{priv_clean}-cert.pub")
+    }
+}
+
+pub fn extract_fingerprint_token(raw: &str) -> String {
+    for tok in raw.split_whitespace() {
+        let clean = tok.trim_matches(|c| matches!(c, '(' | ')' | ',' | ';'));
+        if clean.len() > 7 && clean[..7].eq_ignore_ascii_case("SHA256:") {
+            let body = clean[7..].trim_end_matches('=');
+            return format!("SHA256:{body}");
+        }
+        if clean.len() > 4 && clean[..4].eq_ignore_ascii_case("MD5:") {
+            return clean.to_ascii_lowercase();
+        }
+    }
+    raw.trim().to_string()
+}
+
+pub fn is_signed_by_same_ca(existing_ca_fp: &str, selected_ca_fp: &str) -> bool {
+    let a = extract_fingerprint_token(existing_ca_fp);
+    let b = extract_fingerprint_token(selected_ca_fp);
+    !a.is_empty() && !b.is_empty() && a == b
+}
+
+/// Signiert einen öffentlichen Benutzerschlüssel (`zertifikat.pub`) mithilfe einer
+/// passwortgeschützten CA über `/usr/bin/ssh-keygen -s` und `SSH_ASKPASS`.
+#[allow(clippy::too_many_arguments)]
+pub async fn sign_user_public_key_with_ca(
+    ca_private_key: &[u8],
+    ca_public_key: &str,
+    ca_passphrase: &str,
+    user_public_key: &str,
     key_id: &str,
     principals: &[String],
-) -> Result<GeneratedTestBundle, String> {
+    validity_spec: &str,
+    serial: u64,
+) -> Result<String, String> {
     let tmp_dir = TempDir::new().map_err(|e| format!("Temp-Verzeichnis fehlgeschlagen: {e}"))?;
     fs::set_permissions(tmp_dir.path(), fs::Permissions::from_mode(0o700))
         .map_err(|e| format!("chmod 0700 fehlgeschlagen: {e}"))?;
 
     let ca_path = tmp_dir.path().join("ca");
-    let user_path = tmp_dir.path().join("zertifikat");
+    let ca_pub_path = tmp_dir.path().join("ca.pub");
+    let target_pub_path = tmp_dir.path().join("target.pub");
+    let target_cert_path = tmp_dir.path().join("target-cert.pub");
+    let pass_path = tmp_dir.path().join("passphrase");
+    let askpass_path = tmp_dir.path().join("askpass.sh");
 
-    let ca_out = Command::new("/usr/bin/ssh-keygen")
-        .args(["-q", "-t", "ed25519", "-N", "", "-C", "ssh-console-test-ca", "-f"])
+    if ca_private_key.ends_with(b"\n") {
+        fs::write(&ca_path, ca_private_key).map_err(|e| e.to_string())?;
+    } else {
+        let mut key_nl = Zeroizing::new(Vec::with_capacity(ca_private_key.len() + 1));
+        key_nl.extend_from_slice(ca_private_key);
+        key_nl.push(b'\n');
+        fs::write(&ca_path, key_nl.as_slice()).map_err(|e| e.to_string())?;
+    }
+    fs::set_permissions(&ca_path, fs::Permissions::from_mode(0o600))
+        .map_err(|e| format!("chmod 0600 fehlgeschlagen: {e}"))?;
+    fs::write(&ca_pub_path, format!("{}\n", ca_public_key.trim())).map_err(|e| e.to_string())?;
+    fs::write(&target_pub_path, format!("{}\n", user_public_key.trim()))
+        .map_err(|e| e.to_string())?;
+
+    let pass_line = Zeroizing::new(format!("{ca_passphrase}\n"));
+    fs::write(&pass_path, pass_line.as_bytes()).map_err(|e| e.to_string())?;
+    fs::set_permissions(&pass_path, fs::Permissions::from_mode(0o600))
+        .map_err(|e| format!("chmod 0600 fehlgeschlagen: {e}"))?;
+    fs::write(&askpass_path, "#!/bin/sh\ncat \"$TRIXIESSH_PASS_FILE\"\n")
+        .map_err(|e| e.to_string())?;
+    fs::set_permissions(&askpass_path, fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("chmod 0700 fehlgeschlagen: {e}"))?;
+
+    let mut cmd = Command::new("/usr/bin/ssh-keygen");
+    cmd.env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", tmp_dir.path())
+        .env("SSH_ASKPASS", &askpass_path)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("DISPLAY", "none:0")
+        .env("TRIXIESSH_PASS_FILE", &pass_path)
+        .stdin(Stdio::null())
+        .arg("-s")
         .arg(&ca_path)
-        .output()
-        .await
-        .map_err(|e| format!("ssh-keygen fehlgeschlagen: {e}"))?;
-    if !ca_out.status.success() {
-        return Err(format!(
-            "Test-CA konnte nicht erzeugt werden: {}",
-            String::from_utf8_lossy(&ca_out.stderr)
-        ));
+        .arg("-I")
+        .arg(key_id)
+        .arg("-n")
+        .arg(principals.join(","))
+        .arg("-V")
+        .arg(validity_spec)
+        .arg("-z")
+        .arg(serial.to_string())
+        .arg(&target_pub_path);
+
+    let out_res = timeout(Duration::from_secs(15), cmd.output()).await;
+
+    // Sensible Dateien vor Verlassen sofort mit Nullen überschreiben
+    let _ = fs::write(&ca_path, vec![0u8; ca_private_key.len().max(16)]);
+    let _ = fs::write(&pass_path, vec![0u8; ca_passphrase.len().max(16)]);
+    let _ = fs::remove_file(&pass_path);
+    let _ = fs::remove_file(&askpass_path);
+
+    let out = match out_res {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => {
+            return Err(format!(
+                "ssh-keygen konnte nicht gestartet werden (openssh-client installiert?): {e}"
+            ))
+        }
+        Err(_) => return Err("CA-Signierung wegen Zeitüberschreitung abgebrochen.".into()),
+    };
+
+    if !out.status.success() {
+        let stderr_text = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let lower = stderr_text.to_ascii_lowercase();
+        if lower.contains("incorrect passphrase")
+            || lower.contains("load key")
+            || lower.contains("bad passphrase")
+            || lower.contains("cannot decode")
+        {
+            return Err("CA-Schlüssel konnte nicht entsperrt werden (falsches CA-Passwort?).".into());
+        }
+        return Err(format!("CA-Signierung fehlgeschlagen: {stderr_text}"));
     }
 
+    let signed_cert = fs::read_to_string(&target_cert_path)
+        .map_err(|e| format!("Signiertes Zertifikat konnte nicht gelesen werden: {e}"))?;
+    Ok(format!("{}\n", signed_cert.trim()))
+}
+
+/// Erzeugt ein OpenSSH-Ed25519-Schlüsselpaar (zertifikat + zertifikat.pub)
+/// über `/usr/bin/ssh-keygen` ohne CA-Zertifikat, optional mit Passwort verschlüsselt.
+pub async fn generate_test_cert_bundle(
+    key_id: &str,
+    passphrase: &str,
+) -> Result<GeneratedTestBundle, String> {
+    let tmp_dir = TempDir::new().map_err(|e| format!("Temp-Verzeichnis fehlgeschlagen: {e}"))?;
+    fs::set_permissions(tmp_dir.path(), fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("chmod 0700 fehlgeschlagen: {e}"))?;
+
+    let user_path = tmp_dir.path().join("zertifikat");
+    let pub_path = tmp_dir.path().join("zertifikat.pub");
+
     let user_out = Command::new("/usr/bin/ssh-keygen")
-        .args(["-q", "-t", "ed25519", "-N", "", "-C", key_id, "-f"])
+        .args(["-q", "-t", "ed25519", "-N"])
+        .arg(passphrase)
+        .args(["-C", key_id, "-f"])
         .arg(&user_path)
         .output()
         .await
         .map_err(|e| format!("ssh-keygen fehlgeschlagen: {e}"))?;
     if !user_out.status.success() {
         return Err(format!(
-            "Testschlüssel konnte nicht erzeugt werden: {}",
+            "Zertifikat konnte nicht erzeugt werden: {}",
             String::from_utf8_lossy(&user_out.stderr)
-        ));
-    }
-
-    let principals_csv = if principals.is_empty() {
-        "root".to_string()
-    } else {
-        principals.join(",")
-    };
-    let pub_path = tmp_dir.path().join("zertifikat.pub");
-    let sign_out = Command::new("/usr/bin/ssh-keygen")
-        .arg("-q")
-        .arg("-s")
-        .arg(&ca_path)
-        .arg("-I")
-        .arg(key_id)
-        .arg("-n")
-        .arg(&principals_csv)
-        .arg("-V")
-        .arg("+90d")
-        .arg(&pub_path)
-        .output()
-        .await
-        .map_err(|e| format!("ssh-keygen Signatur fehlgeschlagen: {e}"))?;
-    if !sign_out.status.success() {
-        return Err(format!(
-            "Testzertifikat konnte nicht signiert werden: {}",
-            String::from_utf8_lossy(&sign_out.stderr)
         ));
     }
 
     let private_key = fs::read_to_string(&user_path).map_err(|e| e.to_string())?;
     let public_key = fs::read_to_string(&pub_path).map_err(|e| e.to_string())?;
-    let certificate =
-        fs::read_to_string(tmp_dir.path().join("zertifikat-cert.pub")).map_err(|e| e.to_string())?;
-    let ca_public_key =
-        fs::read_to_string(tmp_dir.path().join("ca.pub")).map_err(|e| e.to_string())?;
 
     Ok(GeneratedTestBundle {
         private_key,
         public_key,
-        certificate,
-        ca_public_key,
     })
 }
 

@@ -1,8 +1,9 @@
 use crate::models::{
-    AdminAuthSettingsPatchRequest, AuthPolicySettings, CertInspection, CommandStep, ExecutionLog,
-    ServerCategory, SshCommand, StoredCertificateForEdit, UserApiKeyPublic, UserCertificatePublic,
-    UserCertificateSecret, UserPublic, UserServer, WebAuthnCredentialPublic,
-    WebAuthnCredentialStored,
+    AdminAuthSettingsPatchRequest, AuthPolicySettings, CertInspection, CertificateAuthorityPublic,
+    CertificateAutoRenewConfig, CommandStep, ExecutionLog, GroupPermissions, ServerCategory,
+    SshCommand, StoredCertificateAuthorityForEdit, StoredCertificateForEdit,
+    StoredCertificateForSigning, UserApiKeyPublic, UserCertificatePublic, UserCertificateSecret,
+    UserGroup, UserPublic, UserServer, WebAuthnCredentialPublic, WebAuthnCredentialStored,
 };
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -31,11 +32,24 @@ impl Database {
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS user_groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
+                is_system INTEGER NOT NULL DEFAULT 0,
+                is_immutable INTEGER NOT NULL DEFAULT 0,
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                permissions_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
                 display_name TEXT NOT NULL,
                 role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+                group_id TEXT NOT NULL DEFAULT 'user',
                 default_ssh_user TEXT NOT NULL DEFAULT 'root',
                 active INTEGER NOT NULL DEFAULT 1,
                 ping_enabled INTEGER NOT NULL DEFAULT 1,
@@ -123,9 +137,31 @@ impl Database {
                 public_key TEXT NOT NULL,
                 certificate TEXT NOT NULL,
                 inspection_json TEXT NOT NULL,
+                auto_renew_json TEXT,
                 shared_with_all INTEGER NOT NULL DEFAULT 0,
                 shared_with_user_ids TEXT NOT NULL DEFAULT '[]',
                 uploaded_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS certificate_authorities (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                private_key_file TEXT NOT NULL DEFAULT 'ca',
+                public_key_file TEXT NOT NULL DEFAULT 'ca.pub',
+                private_key_enc BLOB NOT NULL,
+                private_key_nonce BLOB NOT NULL,
+                passphrase_enc BLOB,
+                passphrase_nonce BLOB,
+                public_key TEXT NOT NULL,
+                key_type TEXT NOT NULL DEFAULT 'ssh-ed25519',
+                fingerprint TEXT NOT NULL DEFAULT '',
+                private_key_format TEXT NOT NULL DEFAULT 'openssh-v1',
+                private_key_encrypted INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT NOT NULL DEFAULT '',
+                created_by_username TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS execution_logs (
@@ -214,6 +250,10 @@ impl Database {
             [],
         );
         let _ = conn.execute(
+            "ALTER TABLE user_certificates ADD COLUMN auto_renew_json TEXT",
+            [],
+        );
+        let _ = conn.execute(
             "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
             [],
         );
@@ -257,6 +297,41 @@ impl Database {
         );
         let _ = conn.execute(
             "ALTER TABLE ssh_commands ADD COLUMN workflow_json TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE users ADD COLUMN group_id TEXT NOT NULL DEFAULT 'user'",
+            [],
+        );
+
+        // Seed built-in system groups (Administratoren immutable, Benutzer editable default)
+        let now = Utc::now().to_rfc3339();
+        let all_perms_json =
+            serde_json::to_string(&GroupPermissions::all()).unwrap_or_else(|_| "{}".into());
+        let user_perms_json =
+            serde_json::to_string(&GroupPermissions::default_user()).unwrap_or_else(|_| "{}".into());
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO user_groups (id, name, description, is_system, is_immutable, is_admin, permissions_json, created_at, updated_at)
+             VALUES ('admin', 'Administratoren', 'Vollzugriff auf alle Systemfunktionen, Benutzer-, Gruppen- und Sicherheitseinstellungen. Aus Sicherheitsgründen nicht veränderbar.', 1, 1, 1, ?1, ?2, ?2)",
+            params![&all_perms_json, &now],
+        );
+        // Ensure Administratoren remains immutable and retains full permissions even if tampered on disk
+        let _ = conn.execute(
+            "UPDATE user_groups SET name = 'Administratoren', is_system = 1, is_immutable = 1, is_admin = 1, permissions_json = ?1 WHERE id = 'admin'",
+            params![&all_perms_json],
+        );
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO user_groups (id, name, description, is_system, is_immutable, is_admin, permissions_json, created_at, updated_at)
+             VALUES ('user', 'Benutzer', 'Standardgruppe für reguläre Benutzer mit allen gewohnten Arbeitsbereichsrechten (ohne Administration und ohne Freigabe).', 1, 0, 0, ?1, ?2, ?2)",
+            params![&user_perms_json, &now],
+        );
+        // Migrate existing admin users whose group_id was defaulted to 'user'
+        let _ = conn.execute(
+            "UPDATE users SET group_id = 'admin' WHERE role = 'admin' AND (group_id = '' OR group_id = 'user')",
+            [],
+        );
+        let _ = conn.execute(
+            "UPDATE users SET group_id = 'user' WHERE group_id = '' OR group_id NOT IN (SELECT id FROM user_groups)",
             [],
         );
 
@@ -352,6 +427,57 @@ impl Database {
         .max(0) as usize
     }
 
+    fn resolve_group_locked(conn: &Connection, group_id: &str, role: &str) -> (String, String, bool, GroupPermissions) {
+        let lookup_id = if !group_id.trim().is_empty() {
+            group_id.trim()
+        } else if role == "admin" {
+            "admin"
+        } else {
+            "user"
+        };
+        let row: Option<(String, String, bool, String)> = conn
+            .query_row(
+                "SELECT id, name, is_admin, permissions_json FROM user_groups WHERE id = ?1",
+                params![lookup_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)? == 1,
+                        r.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .unwrap_or(None);
+
+        if let Some((gid, gname, is_admin, pjson)) = row {
+            let perms = if is_admin {
+                GroupPermissions::all()
+            } else {
+                serde_json::from_str::<GroupPermissions>(&pjson)
+                    .unwrap_or_else(|_| GroupPermissions::default_user())
+            };
+            return (gid, gname, is_admin, perms);
+        }
+
+        if role == "admin" {
+            (
+                "admin".to_string(),
+                "Administratoren".to_string(),
+                true,
+                GroupPermissions::all(),
+            )
+        } else {
+            (
+                "user".to_string(),
+                "Benutzer".to_string(),
+                false,
+                GroupPermissions::default_user(),
+            )
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn build_user_public(
         conn: &Connection,
@@ -360,6 +486,7 @@ impl Database {
         username: String,
         display_name: String,
         role: String,
+        group_id: String,
         auth_provider: String,
         email: String,
         default_ssh_user: String,
@@ -369,6 +496,13 @@ impl Database {
         created_at: String,
         last_login_at: Option<String>,
     ) -> UserPublic {
+        let (resolved_group_id, group_name, is_admin, permissions) =
+            Self::resolve_group_locked(conn, &group_id, &role);
+        let resolved_role = if is_admin {
+            "admin".to_string()
+        } else {
+            "user".to_string()
+        };
         let security_key_count = Self::count_webauthn_locked(conn, &id, "security-key");
         let passkey_count = Self::count_webauthn_locked(conn, &id, "passkey");
         let has_two_factor = totp_enabled || security_key_count > 0;
@@ -382,7 +516,10 @@ impl Database {
             id,
             username,
             display_name,
-            role,
+            role: resolved_role,
+            group_id: resolved_group_id,
+            group_name,
+            permissions,
             auth_provider,
             email,
             default_ssh_user,
@@ -628,21 +765,264 @@ impl Database {
         false
     }
 
+    // ── User Groups & Granular Permissions ──────────────────────────────────
+
+    pub fn list_groups(&self) -> Result<Vec<UserGroup>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT g.id, g.name, g.description, g.is_system, g.is_immutable, g.is_admin, g.permissions_json, g.created_at, g.updated_at,
+                        (SELECT COUNT(*) FROM users u WHERE u.group_id = g.id) AS member_count
+                 FROM user_groups g
+                 ORDER BY CASE g.id WHEN 'admin' THEN 0 WHEN 'user' THEN 1 ELSE 2 END, LOWER(g.name) ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                let is_admin = r.get::<_, i64>(5)? == 1;
+                let pjson: String = r.get(6)?;
+                let perms = if is_admin {
+                    GroupPermissions::all()
+                } else {
+                    serde_json::from_str::<GroupPermissions>(&pjson)
+                        .unwrap_or_else(|_| GroupPermissions::default_user())
+                };
+                Ok(UserGroup {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    description: r.get(2)?,
+                    is_system: r.get::<_, i64>(3)? == 1,
+                    is_immutable: r.get::<_, i64>(4)? == 1,
+                    is_admin,
+                    permissions: perms,
+                    created_at: r.get(7)?,
+                    updated_at: r.get(8)?,
+                    member_count: r.get::<_, i64>(9)?.max(0) as usize,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn get_group(&self, id: &str) -> Result<Option<UserGroup>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT g.id, g.name, g.description, g.is_system, g.is_immutable, g.is_admin, g.permissions_json, g.created_at, g.updated_at,
+                    (SELECT COUNT(*) FROM users u WHERE u.group_id = g.id) AS member_count
+             FROM user_groups g WHERE g.id = ?1",
+            params![id],
+            |r| {
+                let is_admin = r.get::<_, i64>(5)? == 1;
+                let pjson: String = r.get(6)?;
+                let perms = if is_admin {
+                    GroupPermissions::all()
+                } else {
+                    serde_json::from_str::<GroupPermissions>(&pjson)
+                        .unwrap_or_else(|_| GroupPermissions::default_user())
+                };
+                Ok(UserGroup {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    description: r.get(2)?,
+                    is_system: r.get::<_, i64>(3)? == 1,
+                    is_immutable: r.get::<_, i64>(4)? == 1,
+                    is_admin,
+                    permissions: perms,
+                    created_at: r.get(7)?,
+                    updated_at: r.get(8)?,
+                    member_count: r.get::<_, i64>(9)?.max(0) as usize,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn create_group(
+        &self,
+        name: &str,
+        description: &str,
+        permissions: GroupPermissions,
+    ) -> Result<UserGroup, String> {
+        let clean_name: String = name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(64)
+            .collect();
+        if clean_name.chars().count() < 2 {
+            return Err("Der Gruppenname muss mindestens 2 Zeichen lang sein.".into());
+        }
+        let lower = clean_name.to_lowercase();
+        if lower == "administratoren" || lower == "administrator" {
+            return Err(format!(
+                "Eine Benutzergruppe mit dem Namen „{clean_name}“ existiert bereits."
+            ));
+        }
+        let clean_desc: String = description.trim().chars().take(240).collect();
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM user_groups WHERE LOWER(name) = LOWER(?1)",
+                params![&clean_name],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if exists > 0 {
+            return Err(format!(
+                "Eine Benutzergruppe mit dem Namen „{clean_name}“ existiert bereits."
+            ));
+        }
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let perms_json = serde_json::to_string(&permissions).map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO user_groups (id, name, description, is_system, is_immutable, is_admin, permissions_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?5, ?5)",
+            params![&id, &clean_name, &clean_desc, &perms_json, &now],
+        )
+        .map_err(|e| format!("Benutzergruppe konnte nicht gespeichert werden: {e}"))?;
+        Ok(UserGroup {
+            id,
+            name: clean_name,
+            description: clean_desc,
+            is_system: false,
+            is_immutable: false,
+            is_admin: false,
+            permissions,
+            member_count: 0,
+            created_at: now.clone(),
+            updated_at: now,
+        })
+    }
+
+    pub fn update_group(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
+        permissions: Option<GroupPermissions>,
+    ) -> Result<Option<UserGroup>, String> {
+        let Some(existing) = self.get_group(id)? else {
+            return Ok(None);
+        };
+        if existing.is_immutable || existing.id == "admin" {
+            return Err(
+                "Die Systemgruppe „Administratoren“ ist aus Sicherheitsgründen geschützt und kann nicht verändert werden."
+                    .into(),
+            );
+        }
+        let next_name = if let Some(n) = name {
+            if existing.is_system {
+                existing.name.clone()
+            } else {
+                let clean: String = n
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(64)
+                    .collect();
+                if clean.chars().count() < 2 {
+                    return Err("Der Gruppenname muss mindestens 2 Zeichen lang sein.".into());
+                }
+                let lower = clean.to_lowercase();
+                if lower == "administratoren" || lower == "administrator" {
+                    return Err(format!(
+                        "Eine Benutzergruppe mit dem Namen „{clean}“ existiert bereits."
+                    ));
+                }
+                clean
+            }
+        } else {
+            existing.name.clone()
+        };
+        let next_desc: String = description
+            .map(|d| d.trim().chars().take(240).collect())
+            .unwrap_or_else(|| existing.description.clone());
+        let next_perms = permissions.unwrap_or(existing.permissions);
+        let perms_json = serde_json::to_string(&next_perms).map_err(|e| e.to_string())?;
+        let now = Utc::now().to_rfc3339();
+
+        {
+            let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            if !existing.is_system {
+                let dup: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM user_groups WHERE id != ?1 AND LOWER(name) = LOWER(?2)",
+                        params![id, &next_name],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(0);
+                if dup > 0 {
+                    return Err(format!(
+                        "Eine Benutzergruppe mit dem Namen „{next_name}“ existiert bereits."
+                    ));
+                }
+            }
+            conn.execute(
+                "UPDATE user_groups SET name = ?1, description = ?2, permissions_json = ?3, updated_at = ?4 WHERE id = ?5",
+                params![&next_name, &next_desc, &perms_json, &now, id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        self.get_group(id)
+    }
+
+    pub fn delete_group(&self, id: &str) -> Result<usize, String> {
+        let Some(existing) = self.get_group(id)? else {
+            return Err("Benutzergruppe nicht gefunden.".into());
+        };
+        if existing.is_system || existing.is_immutable || existing.id == "admin" || existing.id == "user" {
+            return Err(
+                "Systemgruppen („Administratoren“ und „Benutzer“) können nicht gelöscht werden."
+                    .into(),
+            );
+        }
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let reassigned = conn
+            .execute(
+                "UPDATE users SET group_id = 'user', role = 'user' WHERE group_id = ?1",
+                params![id],
+            )
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM user_groups WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(reassigned)
+    }
+
     pub fn create_user(
         &self,
         username: &str,
         display_name: &str,
         role: &str,
+        group_id: Option<&str>,
         default_ssh_user: &str,
         password_hash: &str,
     ) -> Result<UserPublic, String> {
+        let target_group_id = match group_id.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(gid) => gid.to_string(),
+            None => {
+                if role == "admin" {
+                    "admin".to_string()
+                } else {
+                    "user".to_string()
+                }
+            }
+        };
+        let group = self
+            .get_group(&target_group_id)?
+            .ok_or_else(|| "Die ausgewählte Benutzergruppe existiert nicht.".to_string())?;
+        let resolved_role = if group.is_admin { "admin" } else { "user" };
+
         let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         conn.execute(
-            "INSERT INTO users (id, username, display_name, role, default_ssh_user, active, ping_enabled, password_hash, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, ?6, ?7)",
-            params![id, username, display_name, role, default_ssh_user, password_hash, now],
+            "INSERT INTO users (id, username, display_name, role, group_id, default_ssh_user, active, ping_enabled, password_hash, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 1, ?7, ?8)",
+            params![id, username, display_name, resolved_role, &group.id, default_ssh_user, password_hash, now],
         )
         .map_err(|e| format!("Benutzer konnte nicht gespeichert werden: {e}"))?;
 
@@ -653,7 +1033,8 @@ impl Database {
             id,
             username.to_string(),
             display_name.to_string(),
-            role.to_string(),
+            resolved_role.to_string(),
+            group.id,
             "local".to_string(),
             String::new(),
             default_ssh_user.to_string(),
@@ -670,7 +1051,7 @@ impl Database {
         let policy = Self::read_auth_policy_locked(&conn);
         let raw = conn
             .query_row(
-                "SELECT id, username, display_name, role, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at
+                "SELECT id, username, display_name, role, group_id, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at
                  FROM users WHERE id = ?1",
                 params![id],
                 |r| {
@@ -682,11 +1063,12 @@ impl Database {
                         r.get::<_, String>(4)?,
                         r.get::<_, String>(5)?,
                         r.get::<_, String>(6)?,
-                        r.get::<_, i64>(7)? == 1,
+                        r.get::<_, String>(7)?,
                         r.get::<_, i64>(8)? == 1,
                         r.get::<_, i64>(9)? == 1,
-                        r.get::<_, String>(10)?,
-                        r.get::<_, Option<String>>(11)?,
+                        r.get::<_, i64>(10)? == 1,
+                        r.get::<_, String>(11)?,
+                        r.get::<_, Option<String>>(12)?,
                     ))
                 },
             )
@@ -695,7 +1077,7 @@ impl Database {
 
         Ok(raw.map(|t| {
             Self::build_user_public(
-                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11,
+                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11, t.12,
             )
         }))
     }
@@ -705,6 +1087,7 @@ impl Database {
         id: &str,
         display_name: Option<&str>,
         role: Option<&str>,
+        group_id: Option<&str>,
         default_ssh_user: Option<&str>,
         active: Option<bool>,
         new_password_hash: Option<&str>,
@@ -712,18 +1095,46 @@ impl Database {
         let Some(existing) = self.get_user_by_id(id)? else {
             return Ok(None);
         };
+        let (next_group_id, next_role) = if let Some(gid) = group_id.map(str::trim).filter(|s| !s.is_empty()) {
+            let grp = self
+                .get_group(gid)?
+                .ok_or_else(|| "Die ausgewählte Benutzergruppe existiert nicht.".to_string())?;
+            (grp.id, if grp.is_admin { "admin".to_string() } else { "user".to_string() })
+        } else if let Some(r) = role {
+            let gid = if r == "admin" { "admin" } else { "user" };
+            (gid.to_string(), gid.to_string())
+        } else {
+            (existing.group_id.clone(), existing.role.clone())
+        };
+
         let next_display = display_name.unwrap_or(&existing.display_name).trim();
-        let next_role = role.unwrap_or(&existing.role);
         let next_ssh_user = default_ssh_user.unwrap_or(&existing.default_ssh_user).trim();
         let next_active = active.unwrap_or(existing.active);
 
         {
             let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+            // Protect against disabling or demoting the last active admin
+            if existing.role == "admin" && existing.active && (!next_active || next_role != "admin") {
+                let active_admins: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM users WHERE role = 'admin' AND active = 1",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(0);
+                if active_admins <= 1 {
+                    return Err(
+                        "Der letzte aktive Administrator kann nicht deaktiviert oder herabgestuft werden."
+                            .into(),
+                    );
+                }
+            }
             conn.execute(
-                "UPDATE users SET display_name = ?1, role = ?2, default_ssh_user = ?3, active = ?4 WHERE id = ?5",
+                "UPDATE users SET display_name = ?1, role = ?2, group_id = ?3, default_ssh_user = ?4, active = ?5 WHERE id = ?6",
                 params![
                     if next_display.is_empty() { &existing.username } else { next_display },
-                    next_role,
+                    &next_role,
+                    &next_group_id,
                     if next_ssh_user.is_empty() { "root" } else { next_ssh_user },
                     if next_active { 1i64 } else { 0i64 },
                     id
@@ -751,7 +1162,7 @@ impl Database {
         let policy = Self::read_auth_policy_locked(&conn);
         let raw = conn
             .query_row(
-                "SELECT id, username, display_name, role, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at, password_hash
+                "SELECT id, username, display_name, role, group_id, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at, password_hash
                  FROM users WHERE username = ?1",
                 params![username],
                 |r| {
@@ -763,12 +1174,13 @@ impl Database {
                         r.get::<_, String>(4)?,
                         r.get::<_, String>(5)?,
                         r.get::<_, String>(6)?,
-                        r.get::<_, i64>(7)? == 1,
+                        r.get::<_, String>(7)?,
                         r.get::<_, i64>(8)? == 1,
                         r.get::<_, i64>(9)? == 1,
-                        r.get::<_, String>(10)?,
-                        r.get::<_, Option<String>>(11)?,
-                        r.get::<_, String>(12)?,
+                        r.get::<_, i64>(10)? == 1,
+                        r.get::<_, String>(11)?,
+                        r.get::<_, Option<String>>(12)?,
+                        r.get::<_, String>(13)?,
                     ))
                 },
             )
@@ -777,9 +1189,9 @@ impl Database {
 
         Ok(raw.map(|t| {
             let user = Self::build_user_public(
-                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11,
+                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11, t.12,
             );
-            (user, t.12)
+            (user, t.13)
         }))
     }
 
@@ -808,7 +1220,7 @@ impl Database {
         let now = Utc::now().to_rfc3339();
         let raw = conn
             .query_row(
-                "SELECT u.id, u.username, u.display_name, u.role, u.auth_provider, u.email, u.default_ssh_user, u.active, u.ping_enabled, u.totp_enabled, u.created_at, u.last_login_at
+                "SELECT u.id, u.username, u.display_name, u.role, u.group_id, u.auth_provider, u.email, u.default_ssh_user, u.active, u.ping_enabled, u.totp_enabled, u.created_at, u.last_login_at
                  FROM sessions s
                  JOIN users u ON u.id = s.user_id
                  WHERE s.token = ?1 AND s.expires_at > ?2 AND u.active = 1",
@@ -822,11 +1234,12 @@ impl Database {
                         r.get::<_, String>(4)?,
                         r.get::<_, String>(5)?,
                         r.get::<_, String>(6)?,
-                        r.get::<_, i64>(7)? == 1,
+                        r.get::<_, String>(7)?,
                         r.get::<_, i64>(8)? == 1,
                         r.get::<_, i64>(9)? == 1,
-                        r.get::<_, String>(10)?,
-                        r.get::<_, Option<String>>(11)?,
+                        r.get::<_, i64>(10)? == 1,
+                        r.get::<_, String>(11)?,
+                        r.get::<_, Option<String>>(12)?,
                     ))
                 },
             )
@@ -835,7 +1248,7 @@ impl Database {
 
         Ok(raw.map(|t| {
             Self::build_user_public(
-                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11,
+                &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11, t.12,
             )
         }))
     }
@@ -908,7 +1321,7 @@ impl Database {
         let policy = Self::read_auth_policy_locked(&conn);
         let found = conn
             .query_row(
-                "SELECT k.id, u.id, u.username, u.display_name, u.role, u.auth_provider, u.email, u.default_ssh_user, u.active, u.ping_enabled, u.totp_enabled, u.created_at, u.last_login_at
+                "SELECT k.id, u.id, u.username, u.display_name, u.role, u.group_id, u.auth_provider, u.email, u.default_ssh_user, u.active, u.ping_enabled, u.totp_enabled, u.created_at, u.last_login_at
                  FROM user_api_keys k
                  JOIN users u ON u.id = k.user_id
                  WHERE k.key_hash = ?1 AND u.active = 1",
@@ -923,11 +1336,12 @@ impl Database {
                         r.get::<_, String>(5)?,
                         r.get::<_, String>(6)?,
                         r.get::<_, String>(7)?,
-                        r.get::<_, i64>(8)? == 1,
+                        r.get::<_, String>(8)?,
                         r.get::<_, i64>(9)? == 1,
                         r.get::<_, i64>(10)? == 1,
-                        r.get::<_, String>(11)?,
-                        r.get::<_, Option<String>>(12)?,
+                        r.get::<_, i64>(11)? == 1,
+                        r.get::<_, String>(12)?,
+                        r.get::<_, Option<String>>(13)?,
                     ))
                 },
             )
@@ -941,7 +1355,7 @@ impl Database {
                 params![now, &t.0],
             );
             let user = Self::build_user_public(
-                &conn, &policy, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11, t.12,
+                &conn, &policy, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11, t.12, t.13,
             );
             Ok(Some(user))
         } else {
@@ -954,7 +1368,7 @@ impl Database {
         let policy = Self::read_auth_policy_locked(&conn);
         let mut stmt = conn
             .prepare(
-                "SELECT id, username, display_name, role, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at
+                "SELECT id, username, display_name, role, group_id, auth_provider, email, default_ssh_user, active, ping_enabled, totp_enabled, created_at, last_login_at
                  FROM users ORDER BY created_at ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -968,11 +1382,12 @@ impl Database {
                     r.get::<_, String>(4)?,
                     r.get::<_, String>(5)?,
                     r.get::<_, String>(6)?,
-                    r.get::<_, i64>(7)? == 1,
+                    r.get::<_, String>(7)?,
                     r.get::<_, i64>(8)? == 1,
                     r.get::<_, i64>(9)? == 1,
-                    r.get::<_, String>(10)?,
-                    r.get::<_, Option<String>>(11)?,
+                    r.get::<_, i64>(10)? == 1,
+                    r.get::<_, String>(11)?,
+                    r.get::<_, Option<String>>(12)?,
                 ))
             })
             .map_err(|e| e.to_string())?
@@ -983,7 +1398,7 @@ impl Database {
             .into_iter()
             .map(|t| {
                 Self::build_user_public(
-                    &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11,
+                    &conn, &policy, t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9, t.10, t.11, t.12,
                 )
             })
             .collect())
@@ -1973,6 +2388,25 @@ impl Database {
         Ok(())
     }
 
+    pub fn find_owned_certificate_name(
+        &self,
+        user_id: &str,
+        name: &str,
+    ) -> Result<Option<String>, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT name FROM user_certificates WHERE user_id = ?1 AND LOWER(TRIM(name)) = LOWER(TRIM(?2)) LIMIT 1",
+            params![user_id, trimmed],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn save_certificate(
         &self,
@@ -2012,9 +2446,9 @@ impl Database {
                 .collect()
         };
 
-        let existing: Option<(String, bool, Vec<String>)> = conn
+        let existing: Option<(String, bool, Vec<String>, Option<String>)> = conn
             .query_row(
-                "SELECT id, shared_with_all, shared_with_user_ids
+                "SELECT id, shared_with_all, shared_with_user_ids, auto_renew_json
                  FROM user_certificates
                  WHERE user_id = ?1 AND LOWER(TRIM(name)) = LOWER(TRIM(?2))
                  ORDER BY uploaded_at DESC
@@ -2026,13 +2460,14 @@ impl Database {
                     let shared_json: String = r.get(2)?;
                     let existing_ids: Vec<String> =
                         serde_json::from_str(&shared_json).unwrap_or_default();
-                    Ok((existing_id, existing_all, existing_ids))
+                    let existing_ar: Option<String> = r.get(3)?;
+                    Ok((existing_id, existing_all, existing_ids, existing_ar))
                 },
             )
             .optional()
             .map_err(|e| e.to_string())?;
 
-        if let Some((existing_id, existing_all, existing_ids)) = existing {
+        if let Some((existing_id, existing_all, existing_ids, existing_ar_raw)) = existing {
             let keep_existing_sharing = !shared_with_all && explicit_shared_ids.is_empty();
             let next_all = if keep_existing_sharing {
                 existing_all
@@ -2048,13 +2483,29 @@ impl Database {
             };
             let shared_json = serde_json::to_string(&next_ids).map_err(|e| e.to_string())?;
 
+            let next_auto_renew: Option<CertificateAutoRenewConfig> = existing_ar_raw
+                .and_then(|s| serde_json::from_str::<CertificateAutoRenewConfig>(&s).ok())
+                .map(|mut ar| {
+                    if ar.enabled {
+                        ar.enabled = false;
+                        ar.revoked_at = Some(now.clone());
+                        ar.revoked_reason =
+                            Some("Zertifikatspaket wurde manuell ersetzt".to_string());
+                        ar.last_error = None;
+                    }
+                    ar
+                });
+            let next_auto_renew_json: Option<String> = next_auto_renew
+                .as_ref()
+                .and_then(|ar| serde_json::to_string(ar).ok());
+
             conn.execute(
                 "UPDATE user_certificates
                  SET owner_username = ?1, name = ?2, private_key_file = ?3, public_key_file = ?4, cert_file = ?5,
                      private_key_enc = ?6, private_key_nonce = ?7, passphrase_enc = ?8, passphrase_nonce = ?9,
                      public_key = ?10, certificate = ?11,
-                     inspection_json = ?12, shared_with_all = ?13, shared_with_user_ids = ?14, uploaded_at = ?15
-                 WHERE id = ?16 AND user_id = ?17",
+                     inspection_json = ?12, auto_renew_json = ?13, shared_with_all = ?14, shared_with_user_ids = ?15, uploaded_at = ?16
+                 WHERE id = ?17 AND user_id = ?18",
                 params![
                     owner_username,
                     effective_name,
@@ -2068,6 +2519,7 @@ impl Database {
                     pub_key,
                     cert,
                     inspection_json,
+                    next_auto_renew_json,
                     if next_all { 1i64 } else { 0i64 },
                     shared_json,
                     now,
@@ -2094,6 +2546,7 @@ impl Database {
                     cert_file_name: cert_file.to_string(),
                     metadata: inspection.clone(),
                     has_stored_passphrase,
+                    auto_renew: next_auto_renew,
                     shared_with_all: next_all,
                     shared_with_user_ids: next_ids,
                     uploaded_at: now,
@@ -2106,8 +2559,8 @@ impl Database {
         let shared_json = serde_json::to_string(&explicit_shared_ids).map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO user_certificates
-             (id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, private_key_enc, private_key_nonce, passphrase_enc, passphrase_nonce, public_key, certificate, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             (id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, private_key_enc, private_key_nonce, passphrase_enc, passphrase_nonce, public_key, certificate, inspection_json, auto_renew_json, shared_with_all, shared_with_user_ids, uploaded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17)",
             params![
                 id,
                 user_id,
@@ -2140,6 +2593,7 @@ impl Database {
                 cert_file_name: cert_file.to_string(),
                 metadata: inspection.clone(),
                 has_stored_passphrase,
+                auto_renew: None,
                 shared_with_all,
                 shared_with_user_ids: explicit_shared_ids,
                 uploaded_at: now,
@@ -2153,7 +2607,8 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at,
-                        CASE WHEN passphrase_enc IS NOT NULL AND passphrase_nonce IS NOT NULL THEN 1 ELSE 0 END
+                        CASE WHEN passphrase_enc IS NOT NULL AND passphrase_nonce IS NOT NULL THEN 1 ELSE 0 END,
+                        auto_renew_json
                  FROM user_certificates ORDER BY uploaded_at DESC",
             )
             .map_err(|e| e.to_string())?;
@@ -2164,6 +2619,9 @@ impl Database {
                 let shared_json: String = r.get(9)?;
                 let shared_with_user_ids: Vec<String> =
                     serde_json::from_str(&shared_json).unwrap_or_default();
+                let ar_json: Option<String> = r.get(12)?;
+                let auto_renew: Option<CertificateAutoRenewConfig> =
+                    ar_json.and_then(|s| serde_json::from_str(&s).ok());
                 Ok(UserCertificatePublic {
                     id: r.get(0)?,
                     user_id: r.get(1)?,
@@ -2174,6 +2632,7 @@ impl Database {
                     cert_file_name: r.get(6)?,
                     metadata,
                     has_stored_passphrase: r.get::<_, i64>(11)? == 1,
+                    auto_renew,
                     shared_with_all: r.get::<_, i64>(8)? == 1,
                     shared_with_user_ids,
                     uploaded_at: r.get(10)?,
@@ -2189,6 +2648,46 @@ impl Database {
                     || c.shared_with_user_ids.iter().any(|u| u == user_id)
             })
             .collect())
+    }
+
+    pub fn list_all_certificates(&self) -> Result<Vec<UserCertificatePublic>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at,
+                        CASE WHEN passphrase_enc IS NOT NULL AND passphrase_nonce IS NOT NULL THEN 1 ELSE 0 END,
+                        auto_renew_json
+                 FROM user_certificates ORDER BY uploaded_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                let json: String = r.get(7)?;
+                let metadata: CertInspection = serde_json::from_str(&json).unwrap_or_default();
+                let shared_json: String = r.get(9)?;
+                let shared_with_user_ids: Vec<String> =
+                    serde_json::from_str(&shared_json).unwrap_or_default();
+                let ar_json: Option<String> = r.get(12)?;
+                let auto_renew: Option<CertificateAutoRenewConfig> =
+                    ar_json.and_then(|s| serde_json::from_str(&s).ok());
+                Ok(UserCertificatePublic {
+                    id: r.get(0)?,
+                    user_id: r.get(1)?,
+                    owner_username: r.get(2)?,
+                    name: r.get(3)?,
+                    private_key_file_name: r.get(4)?,
+                    public_key_file_name: r.get(5)?,
+                    cert_file_name: r.get(6)?,
+                    metadata,
+                    has_stored_passphrase: r.get::<_, i64>(11)? == 1,
+                    auto_renew,
+                    shared_with_all: r.get::<_, i64>(8)? == 1,
+                    shared_with_user_ids,
+                    uploaded_at: r.get(10)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
     pub fn update_certificate_sharing(
@@ -2390,14 +2889,49 @@ impl Database {
         let now = Utc::now().to_rfc3339();
         let inspection_json = serde_json::to_string(inspection).map_err(|e| e.to_string())?;
         let has_stored_passphrase = passphrase_enc.is_some() && passphrase_nonce.is_some();
+
+        let prev_cert_and_ar: Option<(String, Option<String>)> = conn
+            .query_row(
+                "SELECT certificate, auto_renew_json FROM user_certificates WHERE id = ?1 AND user_id = ?2 LIMIT 1",
+                params![id, owner_user_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        let (prev_cert, prev_ar_raw) = match prev_cert_and_ar {
+            Some(pair) => pair,
+            None => {
+                return Err("Zertifikatspaket nicht gefunden oder keine Berechtigung.".to_string());
+            }
+        };
+
+        let cert_changed = prev_cert.trim() != cert.trim();
+        let next_auto_renew: Option<CertificateAutoRenewConfig> = prev_ar_raw
+            .and_then(|s| serde_json::from_str::<CertificateAutoRenewConfig>(&s).ok())
+            .map(|mut ar| {
+                if cert_changed && ar.enabled {
+                    ar.enabled = false;
+                    ar.revoked_at = Some(now.clone());
+                    ar.revoked_reason = Some(
+                        "Zertifikat (zertifikat-cert.pub) wurde manuell geändert".to_string(),
+                    );
+                    ar.last_error = None;
+                }
+                ar
+            });
+        let next_auto_renew_json: Option<String> = next_auto_renew
+            .as_ref()
+            .and_then(|ar| serde_json::to_string(ar).ok());
+
         let changed = conn
             .execute(
                 "UPDATE user_certificates
                  SET owner_username = ?1, name = ?2, private_key_file = ?3, public_key_file = ?4, cert_file = ?5,
                      private_key_enc = ?6, private_key_nonce = ?7, passphrase_enc = ?8, passphrase_nonce = ?9,
                      public_key = ?10, certificate = ?11,
-                     inspection_json = ?12, uploaded_at = ?13
-                 WHERE id = ?14 AND user_id = ?15",
+                     inspection_json = ?12, auto_renew_json = ?13, uploaded_at = ?14
+                 WHERE id = ?15 AND user_id = ?16",
                 params![
                     owner_username,
                     clean_name,
@@ -2411,6 +2945,7 @@ impl Database {
                     pub_key,
                     cert,
                     inspection_json,
+                    next_auto_renew_json,
                     now,
                     id,
                     owner_user_id
@@ -2431,6 +2966,7 @@ impl Database {
             cert_file_name: cert_file.to_string(),
             metadata: inspection.clone(),
             has_stored_passphrase,
+            auto_renew: next_auto_renew,
             shared_with_all,
             shared_with_user_ids: shared_with_user_ids.to_vec(),
             uploaded_at: now,
@@ -2445,6 +2981,355 @@ impl Database {
         )
         .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn delete_certificate_as_admin(&self, id: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let changed = conn
+            .execute("DELETE FROM user_certificates WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(changed > 0)
+    }
+
+    pub fn get_certificate_for_signing(
+        &self,
+        id: &str,
+    ) -> Result<Option<StoredCertificateForSigning>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file,
+                    private_key_enc, private_key_nonce, public_key, certificate, inspection_json, auto_renew_json
+             FROM user_certificates WHERE id = ?1 LIMIT 1",
+            params![id],
+            |r| {
+                let inspection_json: String = r.get(11)?;
+                let metadata: CertInspection =
+                    serde_json::from_str(&inspection_json).unwrap_or_default();
+                let certificate: String = r.get(10)?;
+                let ar_json: Option<String> = r.get(12)?;
+                let auto_renew: Option<CertificateAutoRenewConfig> =
+                    ar_json.and_then(|s| serde_json::from_str(&s).ok());
+                Ok(StoredCertificateForSigning {
+                    id: r.get(0)?,
+                    user_id: r.get(1)?,
+                    owner_username: r.get(2)?,
+                    name: r.get(3)?,
+                    private_key_file_name: r.get(4)?,
+                    public_key_file_name: r.get(5)?,
+                    cert_file_name: r.get(6)?,
+                    private_key_enc: r.get(7)?,
+                    private_key_nonce: r.get(8)?,
+                    public_key: r.get(9)?,
+                    has_certificate: metadata.has_certificate && !certificate.trim().is_empty(),
+                    existing_ca_fingerprint: metadata.ca_fingerprint,
+                    valid_after_unix: metadata.valid_after_unix,
+                    valid_before_unix: metadata.valid_before_unix,
+                    auto_renew,
+                    certificate,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn list_certificates_with_auto_renew(
+        &self,
+    ) -> Result<Vec<StoredCertificateForSigning>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file,
+                        private_key_enc, private_key_nonce, public_key, certificate, inspection_json, auto_renew_json
+                 FROM user_certificates WHERE auto_renew_json IS NOT NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                let inspection_json: String = r.get(11)?;
+                let metadata: CertInspection =
+                    serde_json::from_str(&inspection_json).unwrap_or_default();
+                let certificate: String = r.get(10)?;
+                let ar_json: Option<String> = r.get(12)?;
+                let auto_renew: Option<CertificateAutoRenewConfig> =
+                    ar_json.and_then(|s| serde_json::from_str(&s).ok());
+                Ok(StoredCertificateForSigning {
+                    id: r.get(0)?,
+                    user_id: r.get(1)?,
+                    owner_username: r.get(2)?,
+                    name: r.get(3)?,
+                    private_key_file_name: r.get(4)?,
+                    public_key_file_name: r.get(5)?,
+                    cert_file_name: r.get(6)?,
+                    private_key_enc: r.get(7)?,
+                    private_key_nonce: r.get(8)?,
+                    public_key: r.get(9)?,
+                    has_certificate: metadata.has_certificate && !certificate.trim().is_empty(),
+                    existing_ca_fingerprint: metadata.ca_fingerprint,
+                    valid_after_unix: metadata.valid_after_unix,
+                    valid_before_unix: metadata.valid_before_unix,
+                    auto_renew,
+                    certificate,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let all = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        Ok(all
+            .into_iter()
+            .filter(|c| c.auto_renew.as_ref().map(|a| a.enabled).unwrap_or(false))
+            .collect())
+    }
+
+    pub fn update_certificate_signed_cert(
+        &self,
+        id: &str,
+        cert_file_name: &str,
+        cert_content: &str,
+        inspection: &CertInspection,
+        auto_renew: Option<&CertificateAutoRenewConfig>,
+    ) -> Result<UserCertificatePublic, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let now = Utc::now().to_rfc3339();
+        let inspection_json = serde_json::to_string(inspection).map_err(|e| e.to_string())?;
+        let auto_renew_json: Option<String> = match auto_renew {
+            Some(cfg) => Some(serde_json::to_string(cfg).map_err(|e| e.to_string())?),
+            None => None,
+        };
+        let changed = conn
+            .execute(
+                "UPDATE user_certificates
+                 SET cert_file = ?1, certificate = ?2, inspection_json = ?3, auto_renew_json = ?4, uploaded_at = ?5
+                 WHERE id = ?6",
+                params![
+                    cert_file_name,
+                    cert_content.trim(),
+                    inspection_json,
+                    auto_renew_json,
+                    now,
+                    id
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Err("Zertifikatspaket nicht gefunden.".to_string());
+        }
+        conn.query_row(
+            "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at,
+                    CASE WHEN passphrase_enc IS NOT NULL AND passphrase_nonce IS NOT NULL THEN 1 ELSE 0 END,
+                    auto_renew_json
+             FROM user_certificates WHERE id = ?1 LIMIT 1",
+            params![id],
+            |r| {
+                let json: String = r.get(7)?;
+                let metadata: CertInspection = serde_json::from_str(&json).unwrap_or_default();
+                let shared_json: String = r.get(9)?;
+                let shared_with_user_ids: Vec<String> =
+                    serde_json::from_str(&shared_json).unwrap_or_default();
+                let ar_json: Option<String> = r.get(12)?;
+                let ar: Option<CertificateAutoRenewConfig> =
+                    ar_json.and_then(|s| serde_json::from_str(&s).ok());
+                Ok(UserCertificatePublic {
+                    id: r.get(0)?,
+                    user_id: r.get(1)?,
+                    owner_username: r.get(2)?,
+                    name: r.get(3)?,
+                    private_key_file_name: r.get(4)?,
+                    public_key_file_name: r.get(5)?,
+                    cert_file_name: r.get(6)?,
+                    metadata,
+                    has_stored_passphrase: r.get::<_, i64>(11)? == 1,
+                    auto_renew: ar,
+                    shared_with_all: r.get::<_, i64>(8)? == 1,
+                    shared_with_user_ids,
+                    uploaded_at: r.get(10)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn update_certificate_auto_renew(
+        &self,
+        id: &str,
+        auto_renew: Option<&CertificateAutoRenewConfig>,
+    ) -> Result<UserCertificatePublic, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let auto_renew_json: Option<String> = match auto_renew {
+            Some(cfg) => Some(serde_json::to_string(cfg).map_err(|e| e.to_string())?),
+            None => None,
+        };
+        let changed = conn
+            .execute(
+                "UPDATE user_certificates SET auto_renew_json = ?1 WHERE id = ?2",
+                params![auto_renew_json, id],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Err("Zertifikatspaket nicht gefunden.".to_string());
+        }
+        conn.query_row(
+            "SELECT id, user_id, owner_username, name, private_key_file, public_key_file, cert_file, inspection_json, shared_with_all, shared_with_user_ids, uploaded_at,
+                    CASE WHEN passphrase_enc IS NOT NULL AND passphrase_nonce IS NOT NULL THEN 1 ELSE 0 END,
+                    auto_renew_json
+             FROM user_certificates WHERE id = ?1 LIMIT 1",
+            params![id],
+            |r| {
+                let json: String = r.get(7)?;
+                let metadata: CertInspection = serde_json::from_str(&json).unwrap_or_default();
+                let shared_json: String = r.get(9)?;
+                let shared_with_user_ids: Vec<String> =
+                    serde_json::from_str(&shared_json).unwrap_or_default();
+                let ar_json: Option<String> = r.get(12)?;
+                let ar: Option<CertificateAutoRenewConfig> =
+                    ar_json.and_then(|s| serde_json::from_str(&s).ok());
+                Ok(UserCertificatePublic {
+                    id: r.get(0)?,
+                    user_id: r.get(1)?,
+                    owner_username: r.get(2)?,
+                    name: r.get(3)?,
+                    private_key_file_name: r.get(4)?,
+                    public_key_file_name: r.get(5)?,
+                    cert_file_name: r.get(6)?,
+                    metadata,
+                    has_stored_passphrase: r.get::<_, i64>(11)? == 1,
+                    auto_renew: ar,
+                    shared_with_all: r.get::<_, i64>(8)? == 1,
+                    shared_with_user_ids,
+                    uploaded_at: r.get(10)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn revoke_certificate_auto_renew(
+        &self,
+        id: &str,
+        reason: &str,
+    ) -> Result<Option<UserCertificatePublic>, String> {
+        let current = self.get_certificate_for_signing(id)?;
+        let Some(cert) = current else {
+            return Ok(None);
+        };
+        let next_ar = match cert.auto_renew {
+            Some(mut ar) => {
+                ar.enabled = false;
+                ar.revoked_at = Some(Utc::now().to_rfc3339());
+                ar.revoked_reason = Some(reason.to_string());
+                ar.last_error = None;
+                Some(ar)
+            }
+            None => None,
+        };
+        let updated = self.update_certificate_auto_renew(id, next_ar.as_ref())?;
+        Ok(Some(updated))
+    }
+
+    pub fn reconcile_auto_renewals(&self) -> Result<usize, String> {
+        let active_certs = self.list_certificates_with_auto_renew()?;
+        if active_certs.is_empty() {
+            return Ok(0);
+        }
+        let mut changed_count = 0usize;
+        for cert in active_certs {
+            let Some(ar) = cert.auto_renew else {
+                continue;
+            };
+            if !ar.enabled {
+                continue;
+            }
+            let owner = self.get_user_by_id(&cert.user_id)?;
+            let ca = self.get_certificate_authority_for_edit(&ar.ca_id)?;
+
+            let mut synced_ar: Option<CertificateAutoRenewConfig> = None;
+            let revoke_reason: Option<String> = match (owner, ca) {
+                (None, _) => Some("Benutzerkonto deaktiviert oder entfernt".to_string()),
+                (Some(ref u), _) if !u.active => {
+                    Some("Benutzerkonto deaktiviert oder entfernt".to_string())
+                }
+                (_, None) => Some("Zugehörige CA wurde gelöscht".to_string()),
+                (_, Some(ref c)) if c.passphrase_enc.is_none() || c.passphrase_nonce.is_none() => {
+                    Some("Gespeichertes CA-Passwort wurde entfernt".to_string())
+                }
+                (Some(ref u), Some(_)) if ar.mode == "user" => {
+                    if !u.permissions.self_sign_certificates || !u.permissions.auto_renew_certificates
+                    {
+                        Some("Rechteentzug: Selbstsignierung oder automatische Neuzertifizierung für Benutzergruppe deaktiviert".to_string())
+                    } else {
+                        match u
+                            .permissions
+                            .ca_signing_assignments
+                            .iter()
+                            .find(|a| a.ca_id == ar.ca_id)
+                        {
+                            None => Some(
+                                "Rechteentzug: CA ist der Benutzergruppe nicht mehr zugewiesen"
+                                    .to_string(),
+                            ),
+                            Some(assignment) => {
+                                let val_lower = assignment.validity.trim().to_ascii_lowercase();
+                                if val_lower == "forever"
+                                    || val_lower == "always"
+                                    || val_lower == "always:forever"
+                                {
+                                    Some("Rechteentzug: Gültigkeitsdauer für diese CA wurde auf unbegrenzt (forever) gesetzt".to_string())
+                                } else {
+                                    let has_principal = !assignment.principals.is_empty()
+                                        || (assignment.include_owner_principal
+                                            && crate::ssh::is_valid_principal_token(&u.username));
+                                    if !has_principal {
+                                        Some("Rechteentzug: Keine gültigen Principals (-n) mehr für diese CA zugewiesen".to_string())
+                                    } else {
+                                        let next_validity = if assignment.validity.trim().is_empty() {
+                                            "+30d".to_string()
+                                        } else {
+                                            assignment.validity.clone()
+                                        };
+                                        let next_lead = if assignment.auto_renew_before_seconds == 0 {
+                                            0
+                                        } else {
+                                            assignment.auto_renew_before_seconds.clamp(60, 180 * 86_400)
+                                        };
+                                        if ar.principals != assignment.principals
+                                            || ar.include_owner_principal != assignment.include_owner_principal
+                                            || ar.validity != next_validity
+                                            || ar.renew_before_seconds != next_lead
+                                        {
+                                            let mut next = ar.clone();
+                                            next.principals = assignment.principals.clone();
+                                            next.include_owner_principal = assignment.include_owner_principal;
+                                            next.validity = next_validity;
+                                            next.renew_before_seconds = next_lead;
+                                            synced_ar = Some(next);
+                                        }
+                                        None
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                (Some(_), Some(_)) => {
+                    if !ar.enabled_by_user_id.is_empty() {
+                        match self.get_user_by_id(&ar.enabled_by_user_id)? {
+                            Some(enabler) if enabler.active && enabler.role == "admin" => None,
+                            _ => Some("Rechteentzug: Freigebender Administrator ist nicht mehr aktiv oder kein Administrator".to_string()),
+                        }
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            if let Some(reason) = revoke_reason {
+                let _ = self.revoke_certificate_auto_renew(&cert.id, &reason);
+                changed_count += 1;
+            } else if let Some(ref next) = synced_ar {
+                let _ = self.update_certificate_auto_renew(&cert.id, Some(next));
+                changed_count += 1;
+            }
+        }
+        Ok(changed_count)
     }
 
     pub fn insert_log(&self, log: &ExecutionLog) -> Result<(), String> {
@@ -2900,8 +3785,8 @@ impl Database {
                 let id = Uuid::new_v4().to_string();
                 let now = Utc::now().to_rfc3339();
                 conn.execute(
-                    "INSERT INTO users (id, username, display_name, role, auth_provider, sso_subject, email, default_ssh_user, active, ping_enabled, password_hash, totp_enabled, created_at)
-                     VALUES (?1, ?2, ?3, 'user', 'sso', ?4, ?5, 'root', 1, 1, ?6, 0, ?7)",
+                    "INSERT INTO users (id, username, display_name, role, group_id, auth_provider, sso_subject, email, default_ssh_user, active, ping_enabled, password_hash, totp_enabled, created_at)
+                     VALUES (?1, ?2, ?3, 'user', 'user', 'sso', ?4, ?5, 'root', 1, 1, ?6, 0, ?7)",
                     params![&id, &candidate, display_name, &sso_key, email, dummy_password_hash, &now],
                 )
                 .map_err(|e| format!("SSO-Benutzer konnte nicht angelegt werden: {e}"))?;
@@ -3151,5 +4036,354 @@ impl Database {
             .map_err(|e| e.to_string())?;
         }
         self.get_user_by_id(user_id)
+    }
+
+    // ------------------------------------------------------------------
+    // SSH Certificate Authorities (ca & ca.pub)
+    // ------------------------------------------------------------------
+    pub fn list_certificate_authorities(&self) -> Result<Vec<CertificateAuthorityPublic>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, description, private_key_file, public_key_file, public_key,
+                        key_type, fingerprint, private_key_format, private_key_encrypted,
+                        passphrase_enc IS NOT NULL, created_by, created_by_username,
+                        created_at, updated_at
+                 FROM certificate_authorities
+                 ORDER BY updated_at DESC, created_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(CertificateAuthorityPublic {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    private_key_file_name: row.get(3)?,
+                    public_key_file_name: row.get(4)?,
+                    public_key: row.get(5)?,
+                    key_type: row.get(6)?,
+                    fingerprint: row.get(7)?,
+                    private_key_format: row.get(8)?,
+                    private_key_encrypted: row.get::<_, i64>(9)? != 0,
+                    has_stored_passphrase: row.get::<_, i64>(10)? != 0,
+                    created_by: row.get(11)?,
+                    created_by_username: row.get(12)?,
+                    created_at: row.get(13)?,
+                    updated_at: row.get(14)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    pub fn find_certificate_authority_name(&self, name: &str) -> Result<Option<String>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT name FROM certificate_authorities WHERE lower(trim(name)) = lower(trim(?1)) LIMIT 1",
+            params![name],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn get_certificate_authority_for_edit(
+        &self,
+        id: &str,
+    ) -> Result<Option<StoredCertificateAuthorityForEdit>, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        conn.query_row(
+            "SELECT id, name, description, private_key_file, public_key_file,
+                    private_key_enc, private_key_nonce, passphrase_enc, passphrase_nonce,
+                    public_key, key_type, fingerprint, private_key_format
+             FROM certificate_authorities WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(StoredCertificateAuthorityForEdit {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    private_key_file_name: row.get(3)?,
+                    public_key_file_name: row.get(4)?,
+                    private_key_enc: row.get(5)?,
+                    private_key_nonce: row.get(6)?,
+                    passphrase_enc: row.get(7)?,
+                    passphrase_nonce: row.get(8)?,
+                    public_key: row.get(9)?,
+                    key_type: row.get(10)?,
+                    fingerprint: row.get(11)?,
+                    private_key_format: row.get(12)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn save_certificate_authority(
+        &self,
+        name: &str,
+        description: &str,
+        private_key_file: &str,
+        public_key_file: &str,
+        private_key_enc: &[u8],
+        private_key_nonce: &[u8],
+        passphrase_enc: Option<&[u8]>,
+        passphrase_nonce: Option<&[u8]>,
+        public_key: &str,
+        key_type: &str,
+        fingerprint: &str,
+        private_key_format: &str,
+        created_by: &str,
+        created_by_username: &str,
+    ) -> Result<(CertificateAuthorityPublic, bool), String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let now = Utc::now().to_rfc3339();
+        let existing: Option<(String, String, String, String)> = conn
+            .query_row(
+                "SELECT id, created_by, created_by_username, created_at
+                 FROM certificate_authorities
+                 WHERE lower(trim(name)) = lower(trim(?1)) LIMIT 1",
+                params![name],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        let has_stored_passphrase = passphrase_enc.is_some();
+        if let Some((existing_id, orig_created_by, orig_created_by_username, orig_created_at)) =
+            existing
+        {
+            conn.execute(
+                "UPDATE certificate_authorities
+                 SET name = ?1, description = ?2, private_key_file = ?3, public_key_file = ?4,
+                     private_key_enc = ?5, private_key_nonce = ?6,
+                     passphrase_enc = ?7, passphrase_nonce = ?8,
+                     public_key = ?9, key_type = ?10, fingerprint = ?11,
+                     private_key_format = ?12, private_key_encrypted = 1, updated_at = ?13
+                 WHERE id = ?14",
+                params![
+                    name,
+                    description,
+                    private_key_file,
+                    public_key_file,
+                    private_key_enc,
+                    private_key_nonce,
+                    passphrase_enc,
+                    passphrase_nonce,
+                    public_key.trim(),
+                    key_type,
+                    fingerprint,
+                    private_key_format,
+                    now,
+                    existing_id
+                ],
+            )
+            .map_err(|e| format!("CA konnte nicht aktualisiert werden: {e}"))?;
+
+            return Ok((
+                CertificateAuthorityPublic {
+                    id: existing_id,
+                    name: name.to_string(),
+                    description: description.to_string(),
+                    private_key_file_name: private_key_file.to_string(),
+                    public_key_file_name: public_key_file.to_string(),
+                    public_key: public_key.trim().to_string(),
+                    key_type: key_type.to_string(),
+                    fingerprint: fingerprint.to_string(),
+                    private_key_format: private_key_format.to_string(),
+                    private_key_encrypted: true,
+                    has_stored_passphrase,
+                    created_by: orig_created_by,
+                    created_by_username: orig_created_by_username,
+                    created_at: orig_created_at,
+                    updated_at: now,
+                },
+                true,
+            ));
+        }
+
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO certificate_authorities
+             (id, name, description, private_key_file, public_key_file,
+              private_key_enc, private_key_nonce, passphrase_enc, passphrase_nonce,
+              public_key, key_type, fingerprint, private_key_format, private_key_encrypted,
+              created_by, created_by_username, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14, ?15, ?16, ?17)",
+            params![
+                id,
+                name,
+                description,
+                private_key_file,
+                public_key_file,
+                private_key_enc,
+                private_key_nonce,
+                passphrase_enc,
+                passphrase_nonce,
+                public_key.trim(),
+                key_type,
+                fingerprint,
+                private_key_format,
+                created_by,
+                created_by_username,
+                now,
+                now
+            ],
+        )
+        .map_err(|e| format!("CA konnte nicht gespeichert werden: {e}"))?;
+
+        Ok((
+            CertificateAuthorityPublic {
+                id,
+                name: name.to_string(),
+                description: description.to_string(),
+                private_key_file_name: private_key_file.to_string(),
+                public_key_file_name: public_key_file.to_string(),
+                public_key: public_key.trim().to_string(),
+                key_type: key_type.to_string(),
+                fingerprint: fingerprint.to_string(),
+                private_key_format: private_key_format.to_string(),
+                private_key_encrypted: true,
+                has_stored_passphrase,
+                created_by: created_by.to_string(),
+                created_by_username: created_by_username.to_string(),
+                created_at: now.clone(),
+                updated_at: now,
+            },
+            false,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_certificate_authority(
+        &self,
+        id: &str,
+        name: &str,
+        description: &str,
+        private_key_file: &str,
+        public_key_file: &str,
+        private_key_enc: &[u8],
+        private_key_nonce: &[u8],
+        passphrase_enc: Option<&[u8]>,
+        passphrase_nonce: Option<&[u8]>,
+        public_key: &str,
+        key_type: &str,
+        fingerprint: &str,
+        private_key_format: &str,
+    ) -> Result<CertificateAuthorityPublic, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let conflict: Option<String> = conn
+            .query_row(
+                "SELECT name FROM certificate_authorities
+                 WHERE id != ?1 AND lower(trim(name)) = lower(trim(?2)) LIMIT 1",
+                params![id, name],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if let Some(existing_name) = conflict {
+            return Err(format!(
+                "Eine CA mit dem Namen „{existing_name}“ existiert bereits."
+            ));
+        }
+
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE certificate_authorities
+             SET name = ?1, description = ?2, private_key_file = ?3, public_key_file = ?4,
+                 private_key_enc = ?5, private_key_nonce = ?6,
+                 passphrase_enc = ?7, passphrase_nonce = ?8,
+                 public_key = ?9, key_type = ?10, fingerprint = ?11,
+                 private_key_format = ?12, private_key_encrypted = 1, updated_at = ?13
+             WHERE id = ?14",
+            params![
+                name,
+                description,
+                private_key_file,
+                public_key_file,
+                private_key_enc,
+                private_key_nonce,
+                passphrase_enc,
+                passphrase_nonce,
+                public_key.trim(),
+                key_type,
+                fingerprint,
+                private_key_format,
+                now,
+                id
+            ],
+        )
+        .map_err(|e| format!("CA konnte nicht aktualisiert werden: {e}"))?;
+
+        conn.query_row(
+            "SELECT id, name, description, private_key_file, public_key_file, public_key,
+                    key_type, fingerprint, private_key_format, private_key_encrypted,
+                    passphrase_enc IS NOT NULL, created_by, created_by_username,
+                    created_at, updated_at
+             FROM certificate_authorities WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(CertificateAuthorityPublic {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    private_key_file_name: row.get(3)?,
+                    public_key_file_name: row.get(4)?,
+                    public_key: row.get(5)?,
+                    key_type: row.get(6)?,
+                    fingerprint: row.get(7)?,
+                    private_key_format: row.get(8)?,
+                    private_key_encrypted: row.get::<_, i64>(9)? != 0,
+                    has_stored_passphrase: row.get::<_, i64>(10)? != 0,
+                    created_by: row.get(11)?,
+                    created_by_username: row.get(12)?,
+                    created_at: row.get(13)?,
+                    updated_at: row.get(14)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn delete_certificate_authority(&self, id: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|_| "DB Lock Fehler".to_string())?;
+        let changed = conn
+            .execute(
+                "DELETE FROM certificate_authorities WHERE id = ?1",
+                params![id],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed > 0 {
+            let mut stmt = conn
+                .prepare("SELECT id, permissions_json FROM user_groups WHERE is_immutable = 0")
+                .map_err(|e| e.to_string())?;
+            let rows: Vec<(String, String)> = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(Result::ok)
+                .collect();
+            for (gid, pjson) in rows {
+                if let Ok(mut perms) = serde_json::from_str::<GroupPermissions>(&pjson) {
+                    let before = perms.ca_signing_assignments.len();
+                    perms.ca_signing_assignments.retain(|a| a.ca_id != id);
+                    if perms.ca_signing_assignments.len() != before {
+                        if let Ok(next_json) = serde_json::to_string(&perms) {
+                            let _ = conn.execute(
+                                "UPDATE user_groups SET permissions_json = ?1 WHERE id = ?2",
+                                params![next_json, gid],
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Ok(changed > 0)
     }
 }

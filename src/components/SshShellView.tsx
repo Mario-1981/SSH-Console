@@ -102,11 +102,14 @@ function SshShellTabPane({
 }: SshShellTabPaneProps) {
   const { tr } = useI18n();
 
+  const canUseCustomIp =
+    user.role === 'admin' || user.permissions?.useSshShellCustomIp !== false;
+
   const initialServer =
     servers.find((s) => s.id === initialServerId) ?? servers[0];
 
   const [targetMode, setTargetMode] = useState<'saved' | 'custom'>(
-    servers.length > 0 ? 'saved' : 'custom'
+    canUseCustomIp ? (servers.length > 0 ? 'saved' : 'custom') : 'saved'
   );
   const [selectedServerId, setSelectedServerId] = useState<string>(initialServer?.id ?? '');
   const [customIp, setCustomIp] = useState('');
@@ -135,18 +138,21 @@ function SshShellTabPane({
   const onSessionEndedRef = useRef(onSessionEnded);
   onSessionEndedRef.current = onSessionEnded;
 
-  // Keep server/cert selection valid if workspace data changes
+  // Keep server/cert selection valid if workspace data or permissions change
   useEffect(() => {
+    if (!canUseCustomIp && targetMode === 'custom') {
+      setTargetMode('saved');
+    }
     if (servers.length > 0 && !servers.some((s) => s.id === selectedServerId)) {
       setSelectedServerId(servers[0].id);
       if (targetMode === 'saved') {
         setSshUser(servers[0].sshUser || user.defaultSshUser || 'root');
       }
     }
-    if (servers.length === 0 && targetMode === 'saved') {
+    if (servers.length === 0 && targetMode === 'saved' && canUseCustomIp) {
       setTargetMode('custom');
     }
-  }, [servers, selectedServerId, targetMode, user.defaultSshUser]);
+  }, [servers, selectedServerId, targetMode, canUseCustomIp, user.defaultSshUser]);
 
   useEffect(() => {
     if (certificates.length > 0 && !certificates.some((c) => c.id === selectedCertId)) {
@@ -381,6 +387,16 @@ function SshShellTabPane({
       return;
     }
 
+    if (targetMode === 'custom' && !canUseCustomIp) {
+      setError(
+        tr(
+          'Ihre Benutzergruppe darf keine freie IP-Adresse in der SSH-Shell eingeben.',
+          'Your user group is not allowed to enter a custom IP address in the SSH shell.'
+        )
+      );
+      return;
+    }
+
     if (targetMode === 'custom' && !customIp.trim()) {
       setError(tr('Bitte geben Sie eine Ziel-IP-Adresse ein.', 'Please enter a target IP address.'));
       return;
@@ -551,6 +567,15 @@ function SshShellTabPane({
       setError(tr('Bitte wählen Sie zuerst einen Server aus.', 'Please select a server first.'));
       return;
     }
+    if (targetMode === 'custom' && !canUseCustomIp) {
+      setError(
+        tr(
+          'Ihre Benutzergruppe darf keine freie IP-Adresse in der SSH-Shell eingeben.',
+          'Your user group is not allowed to enter a custom IP address in the SSH shell.'
+        )
+      );
+      return;
+    }
     if (targetMode === 'custom' && !customIp.trim()) {
       setError(tr('Bitte geben Sie zuerst eine Ziel-IP-Adresse ein.', 'Please enter a target IP address first.'));
       return;
@@ -670,18 +695,20 @@ function SshShellTabPane({
             >
               {tr(`Gespeicherter Server (${servers.length})`, `Saved Server (${servers.length})`)}
             </button>
-            <button
-              type="button"
-              onClick={() => setTargetMode('custom')}
-              disabled={isLive}
-              className={`px-3 py-1.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
-                targetMode === 'custom'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tr('Freie IP-Adresse', 'Custom IP Address')}
-            </button>
+            {canUseCustomIp && (
+              <button
+                type="button"
+                onClick={() => setTargetMode('custom')}
+                disabled={isLive}
+                className={`px-3 py-1.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50 ${
+                  targetMode === 'custom'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tr('Freie IP-Adresse', 'Custom IP Address')}
+              </button>
+            )}
           </div>
 
           {selectedCert?.metadata.hasCertificate !== false && selectedCert?.metadata.isExpired && (
@@ -693,7 +720,7 @@ function SshShellTabPane({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-          {targetMode === 'saved' ? (
+          {targetMode === 'saved' || !canUseCustomIp ? (
             <div className="md:col-span-4">
               <label htmlFor={`${tabId}-server`} className="block text-xs font-medium text-slate-700 mb-1">
                 {tr('Ziel-Server (IP)', 'Target Server (IP)')}
@@ -702,14 +729,20 @@ function SshShellTabPane({
                 id={`${tabId}-server`}
                 value={selectedServerId}
                 onChange={(e) => handleSelectServer(e.target.value)}
-                disabled={isLive}
+                disabled={isLive || servers.length === 0}
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50"
               >
-                {servers.map((srv) => (
-                  <option key={srv.id} value={srv.id}>
-                    {srv.label} — {srv.ipAddress}:{srv.port}
+                {servers.length === 0 ? (
+                  <option value="">
+                    {tr('Kein gespeicherter Server verfügbar', 'No saved server available')}
                   </option>
-                ))}
+                ) : (
+                  servers.map((srv) => (
+                    <option key={srv.id} value={srv.id}>
+                      {srv.label} — {srv.ipAddress}:{srv.port}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           ) : (
@@ -816,7 +849,10 @@ function SshShellTabPane({
               <button
                 key="connect-btn"
                 type="submit"
-                disabled={certificates.length === 0}
+                disabled={
+                  certificates.length === 0 ||
+                  ((targetMode === 'saved' || !canUseCustomIp) && servers.length === 0)
+                }
                 className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors cursor-pointer whitespace-nowrap"
               >
                 {connState === 'closed' || connState === 'error' ? (
@@ -1202,7 +1238,8 @@ export function SshShellView({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {certificates.length === 0 && (
+          {certificates.length === 0 &&
+            (user.role === 'admin' || user.permissions?.uploadCertificates !== false) && (
             <button
               type="button"
               onClick={() => onNavigate('certificates')}
@@ -1212,7 +1249,8 @@ export function SshShellView({
               {tr('Zertifikat hochladen', 'Upload Certificate')}
             </button>
           )}
-          {servers.length === 0 && (
+          {servers.length === 0 &&
+            (user.role === 'admin' || user.permissions?.manageOwnServers !== false) && (
             <button
               type="button"
               onClick={() => onNavigate('servers')}

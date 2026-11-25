@@ -16,7 +16,7 @@ use axum::{
     },
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse},
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
@@ -351,6 +351,34 @@ fn require_admin(
     Ok(user)
 }
 
+fn require_perm(user: &UserPublic, allowed: bool, msg: &str) -> Result<(), ApiError> {
+    if user.role == "admin" || allowed {
+        Ok(())
+    } else {
+        Err(err_resp(StatusCode::FORBIDDEN, msg))
+    }
+}
+
+fn require_command_kind_perm(user: &UserPublic, kind: &str) -> Result<(), ApiError> {
+    match kind {
+        "workflow" => require_perm(
+            user,
+            user.permissions.create_workflow_commands,
+            "Ihre Benutzergruppe darf keine eigenen komplexen Befehle (JSON-Workflows) erstellen oder bearbeiten.",
+        ),
+        "chain" => require_perm(
+            user,
+            user.permissions.create_chain_commands,
+            "Ihre Benutzergruppe darf keine eigenen Befehlsketten erstellen oder bearbeiten.",
+        ),
+        _ => require_perm(
+            user,
+            user.permissions.create_single_commands,
+            "Ihre Benutzergruppe darf keine eigenen Einzelbefehle erstellen oder bearbeiten.",
+        ),
+    }
+}
+
 fn build_session_cookie(token: String) -> Cookie<'static> {
     Cookie::build((SESSION_COOKIE, token))
         .path("/")
@@ -387,18 +415,14 @@ async fn api_setup(
     }
     let username =
         auth::validate_username(&req.username).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
-    if req.password.len() < 8 {
-        return Err(err_resp(
-            StatusCode::BAD_REQUEST,
-            "Passwort muss mindestens 8 Zeichen lang sein.",
-        ));
-    }
+    auth::validate_password_complexity(&req.password)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
     let hash =
         auth::hash_password(&req.password).map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let display = req.display_name.unwrap_or_else(|| username.clone());
     let user = state
         .db
-        .create_user(&username, &display, "admin", "root", &hash)
+        .create_user(&username, &display, "admin", Some("admin"), "root", &hash)
         .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
 
     if let Some(inst) = req.instance_name {
@@ -1461,12 +1485,8 @@ async fn api_change_password(
     if !auth::verify_password(&req.current_password, &current_hash) {
         return Err(err_resp(StatusCode::BAD_REQUEST, "Das aktuelle Passwort ist nicht korrekt."));
     }
-    if req.new_password.len() < 8 {
-        return Err(err_resp(
-            StatusCode::BAD_REQUEST,
-            "Das neue Passwort muss mindestens 8 Zeichen lang sein.",
-        ));
-    }
+    auth::validate_password_complexity(&req.new_password)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
     if req.new_password == req.current_password {
         return Err(err_resp(
             StatusCode::BAD_REQUEST,
@@ -1488,6 +1508,11 @@ async fn api_list_api_keys(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.use_api,
+        "Ihre Benutzergruppe darf die API bzw. persönliche API-Schlüssel nicht nutzen.",
+    )?;
     let api_keys = state
         .db
         .list_api_keys(&user.id)
@@ -1502,6 +1527,11 @@ async fn api_create_api_key(
     Json(req): Json<CreateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let (user, _) = current_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.use_api,
+        "Ihre Benutzergruppe darf die API bzw. persönliche API-Schlüssel nicht nutzen.",
+    )?;
     let clean_name: String = req
         .name
         .as_deref()
@@ -1529,11 +1559,216 @@ async fn api_delete_api_key(
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.use_api,
+        "Ihre Benutzergruppe darf die API bzw. persönliche API-Schlüssel nicht nutzen.",
+    )?;
     state
         .db
         .delete_api_key(&id, &user.id)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn api_list_shareable_users(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.share_resources,
+        "Ihre Benutzergruppe darf keine Ressourcen mit anderen Benutzern teilen.",
+    )?;
+    let users: Vec<ShareableUser> = state
+        .db
+        .list_users()
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .into_iter()
+        .filter(|u| u.active)
+        .map(|u| ShareableUser {
+            id: u.id,
+            username: u.username,
+            display_name: u.display_name,
+            role: u.role,
+            group_id: u.group_id,
+            group_name: u.group_name,
+            active: u.active,
+        })
+        .collect();
+    Ok(Json(json!({ "users": users })))
+}
+
+async fn api_admin_list_groups(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _admin = require_admin(&state, &jar, &headers)?;
+    let groups = state
+        .db
+        .list_groups()
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(json!({ "groups": groups })))
+}
+
+fn sanitize_and_validate_group_permissions(
+    state: &SharedState,
+    perms: &mut GroupPermissions,
+) -> Result<(), ApiError> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut cleaned: Vec<GroupCaAssignment> = Vec::new();
+    for raw in &perms.ca_signing_assignments {
+        let ca_id = raw.ca_id.trim();
+        if ca_id.is_empty() || !seen.insert(ca_id.to_string()) {
+            continue;
+        }
+        let ca = state
+            .db
+            .get_certificate_authority_for_edit(ca_id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .ok_or_else(|| {
+                err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Eine der zugewiesenen CAs existiert nicht mehr.",
+                )
+            })?;
+
+        let mut principals: Vec<String> = Vec::new();
+        for p in &raw.principals {
+            let clean = p.trim();
+            if clean.is_empty() || !ssh::is_valid_principal_token(clean) {
+                continue;
+            }
+            if !principals.iter().any(|x| x == clean) {
+                principals.push(clean.to_string());
+            }
+            if principals.len() >= 32 {
+                break;
+            }
+        }
+        if principals.is_empty() && !raw.include_owner_principal {
+            return Err(err_resp(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Für die zugewiesene CA „{}“ muss mindestens ein Principal (-n) angegeben oder der automatische Benutzername aktiviert werden.",
+                    ca.name
+                ),
+            ));
+        }
+        let validity = ssh::validate_validity_spec(Some(raw.validity.as_str()))
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        let forward_sec = ssh::validity_forward_seconds(Some(validity.as_str()))
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+        let auto_renew_before_seconds = match forward_sec {
+            None => 0,
+            Some(fwd) => {
+                let lead = parse_auto_renew_before_seconds(Some(raw.auto_renew_before_seconds));
+                if lead > 0 && lead > fwd.saturating_sub(60) {
+                    return Err(err_resp(
+                        StatusCode::BAD_REQUEST,
+                        format!(
+                            "Für die zugewiesene CA „{}“ muss der Zeitpunkt für die automatische Neusignierung kürzer sein als die Gültigkeitsdauer ({}).",
+                            ca.name, validity
+                        ),
+                    ));
+                }
+                lead
+            }
+        };
+
+        cleaned.push(GroupCaAssignment {
+            ca_id: ca_id.to_string(),
+            principals,
+            include_owner_principal: raw.include_owner_principal,
+            validity,
+            auto_renew_before_seconds,
+        });
+        if cleaned.len() >= 50 {
+            break;
+        }
+    }
+    perms.ca_signing_assignments = cleaned;
+    Ok(())
+}
+
+async fn api_admin_create_group(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<CreateGroupRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let _admin = require_admin(&state, &jar, &headers)?;
+    if req.name.trim().is_empty() {
+        return Err(err_resp(StatusCode::BAD_REQUEST, "Ein Gruppenname ist erforderlich."));
+    }
+    let mut perms = req.permissions.unwrap_or_else(GroupPermissions::default_user);
+    sanitize_and_validate_group_permissions(&state, &mut perms)?;
+    let group = state
+        .db
+        .create_group(&req.name, req.description.as_deref().unwrap_or(""), perms)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    Ok((StatusCode::CREATED, Json(json!({ "group": group }))))
+}
+
+async fn api_admin_update_group(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+    Json(req): Json<UpdateGroupRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _admin = require_admin(&state, &jar, &headers)?;
+    let existing = state
+        .db
+        .get_group(&id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Benutzergruppe nicht gefunden."))?;
+    if existing.is_immutable || existing.id == "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Die Systemgruppe „Administratoren“ ist aus Sicherheitsgründen geschützt und kann nicht verändert werden.",
+        ));
+    }
+    let mut next_perms = req.permissions;
+    if let Some(ref mut p) = next_perms {
+        sanitize_and_validate_group_permissions(&state, p)?;
+    }
+    let updated = state
+        .db
+        .update_group(&id, req.name.as_deref(), req.description.as_deref(), next_perms)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Benutzergruppe nicht gefunden."))?;
+    let _ = state.db.reconcile_auto_renewals();
+    Ok(Json(json!({ "group": updated })))
+}
+
+async fn api_admin_delete_group(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _admin = require_admin(&state, &jar, &headers)?;
+    let existing = state
+        .db
+        .get_group(&id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Benutzergruppe nicht gefunden."))?;
+    if existing.is_system || existing.is_immutable || existing.id == "admin" || existing.id == "user" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Systemgruppen („Administratoren“ und „Benutzer“) können nicht gelöscht werden.",
+        ));
+    }
+    let reassigned = state
+        .db
+        .delete_group(&id)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    let _ = state.db.reconcile_auto_renewals();
+    Ok(Json(json!({ "ok": true, "reassignedUserCount": reassigned })))
 }
 
 async fn api_admin_list_users(
@@ -1558,10 +1793,13 @@ async fn api_admin_create_user(
     let _admin = require_admin(&state, &jar, &headers)?;
     let username =
         auth::validate_username(&req.username).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
-    if req.password.len() < 8 {
-        return Err(err_resp(StatusCode::BAD_REQUEST, "Passwort mindestens 8 Zeichen."));
-    }
-    let role = if req.role == "admin" { "admin" } else { "user" };
+    auth::validate_password_complexity(&req.password)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    let role = if req.role.as_deref() == Some("admin") {
+        "admin"
+    } else {
+        "user"
+    };
     let hash =
         auth::hash_password(&req.password).map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let user = state
@@ -1570,6 +1808,7 @@ async fn api_admin_create_user(
             &username,
             req.display_name.as_deref().unwrap_or(&username),
             role,
+            req.group_id.as_deref(),
             req.default_ssh_user.as_deref().unwrap_or("root"),
             &hash,
         )
@@ -1584,15 +1823,11 @@ async fn api_admin_update_user(
     AxumPath(id): AxumPath<String>,
     Json(req): Json<UpdateUserRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _admin = require_admin(&state, &jar, &headers)?;
+    let admin = require_admin(&state, &jar, &headers)?;
     let new_hash = match req.new_password.as_deref() {
         Some(pw) => {
-            if pw.len() < 8 {
-                return Err(err_resp(
-                    StatusCode::BAD_REQUEST,
-                    "Das neue Passwort muss mindestens 8 Zeichen lang sein.",
-                ));
-            }
+            auth::validate_password_complexity(pw)
+                .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
             Some(
                 auth::hash_password(pw)
                     .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?,
@@ -1605,18 +1840,41 @@ async fn api_admin_update_user(
         Some("user") => Some("user"),
         _ => None,
     };
+    if admin.id == id {
+        if req.active == Some(false) {
+            return Err(err_resp(
+                StatusCode::BAD_REQUEST,
+                "Das eigene aktive Administratorkonto kann nicht gesperrt werden.",
+            ));
+        }
+        if let Some(gid) = req.group_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if gid != "admin" {
+                return Err(err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Sie können sich selbst nicht aus der Gruppe „Administratoren“ entfernen.",
+                ));
+            }
+        } else if role == Some("user") {
+            return Err(err_resp(
+                StatusCode::BAD_REQUEST,
+                "Sie können sich selbst nicht aus der Gruppe „Administratoren“ entfernen.",
+            ));
+        }
+    }
     let updated = state
         .db
         .update_user(
             &id,
             req.display_name.as_deref(),
             role,
+            req.group_id.as_deref(),
             req.default_ssh_user.as_deref(),
             req.active,
             new_hash.as_deref(),
         )
-        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?
         .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Benutzer nicht gefunden."))?;
+    let _ = state.db.reconcile_auto_renewals();
     Ok(Json(json!({ "user": updated })))
 }
 
@@ -1634,6 +1892,7 @@ async fn api_admin_delete_user(
         .db
         .delete_user(&id)
         .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    let _ = state.db.reconcile_auto_renewals();
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1665,6 +1924,14 @@ async fn api_create_command(
 
     let is_chain = req.kind.as_deref() == Some("chain");
     let is_workflow = req.kind.as_deref() == Some("workflow");
+    let requested_kind = if is_workflow {
+        "workflow"
+    } else if is_chain {
+        "chain"
+    } else {
+        "single"
+    };
+    require_command_kind_perm(&user, requested_kind)?;
     let mut stop_on_error = req.stop_on_error.unwrap_or(true);
 
     let (kind, compiled_cmd, steps, workflow_json, min_timeout) = if is_workflow {
@@ -1700,9 +1967,9 @@ async fn api_create_command(
         ("single", single.trim().to_string(), Vec::new(), String::new(), 5)
     };
 
-    let is_admin = user.role == "admin";
-    let shared_all = is_admin && req.shared_with_all.unwrap_or(false);
-    let shared_ids = if is_admin {
+    let can_share = user.role == "admin" || user.permissions.share_resources;
+    let shared_all = can_share && req.shared_with_all.unwrap_or(false);
+    let shared_ids = if can_share {
         req.shared_with_user_ids.unwrap_or_default()
     } else {
         Vec::new()
@@ -1767,6 +2034,7 @@ async fn api_update_command(
         .filter(|s| !s.is_empty())
         .unwrap_or(&existing.category);
     let next_kind = req.kind.as_deref().unwrap_or(&existing.kind);
+    require_command_kind_perm(&user, next_kind)?;
     let mut next_stop = req.stop_on_error.unwrap_or(existing.stop_on_error);
     let next_desc = req
         .description
@@ -1844,6 +2112,7 @@ async fn api_load_presets(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_command_kind_perm(&user, "single")?;
     let own = state
         .db
         .list_own_commands(&user.id)
@@ -1926,10 +2195,15 @@ async fn api_share_command(
     AxumPath(id): AxumPath<String>,
     Json(req): Json<ShareUpdateRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let admin = require_admin(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.share_resources,
+        "Ihre Benutzergruppe darf keine Ressourcen mit anderen Benutzern teilen.",
+    )?;
     let updated = state
         .db
-        .update_command_sharing(&id, &admin.id, req.shared_with_all, &req.shared_with_user_ids)
+        .update_command_sharing(&id, &user.id, req.shared_with_all, &req.shared_with_user_ids)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
         .ok_or_else(|| err_resp(StatusCode::FORBIDDEN, "Sie können nur eigene SSH-Befehle teilen."))?;
     Ok(Json(json!({ "command": updated })))
@@ -1954,11 +2228,11 @@ async fn api_bulk_update_commands(
             "Maximal 500 Befehle pro Sammeleinstellung erlaubt.",
         ));
     }
-    let is_admin = user.role == "admin";
-    if req.sharing.is_some() && !is_admin {
+    let can_share = user.role == "admin" || user.permissions.share_resources;
+    if req.sharing.is_some() && !can_share {
         return Err(err_resp(
             StatusCode::FORBIDDEN,
-            "Nur Administratoren dürfen Freigaben ändern.",
+            "Ihre Benutzergruppe darf keine Ressourcen mit anderen Benutzern teilen.",
         ));
     }
     let cat_opt = req
@@ -1972,6 +2246,15 @@ async fn api_bulk_update_commands(
             "Bitte wählen Sie mindestens eine zu ändernde Einstellung aus.",
         ));
     }
+    if cat_opt.is_some() || req.enabled.is_some() {
+        for cid in &req.command_ids {
+            if let Ok(Some(cmd)) = state.db.get_command(cid) {
+                if cmd.user_id == user.id {
+                    require_command_kind_perm(&user, &cmd.kind)?;
+                }
+            }
+        }
+    }
     let sharing_tuple = req
         .sharing
         .as_ref()
@@ -1981,7 +2264,7 @@ async fn api_bulk_update_commands(
         .bulk_update_commands(
             &req.command_ids,
             &user.id,
-            is_admin,
+            can_share,
             cat_opt,
             req.enabled,
             sharing_tuple,
@@ -2018,6 +2301,7 @@ async fn api_delete_command(
                 "Sie können nur selbst angelegte SSH-Befehle löschen.",
             ));
         }
+        require_command_kind_perm(&user, &existing.kind)?;
     }
     state
         .db
@@ -2059,6 +2343,11 @@ async fn api_create_server_category(
     Json(req): Json<CreateServerCategoryRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.manage_own_servers,
+        "Ihre Benutzergruppe darf keine eigenen Server (IPs) oder Kategorien verwalten.",
+    )?;
     let category = state
         .db
         .create_server_category(&user.id, &req.name)
@@ -2073,6 +2362,11 @@ async fn api_delete_server_category(
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.manage_own_servers,
+        "Ihre Benutzergruppe darf keine eigenen Server (IPs) oder Kategorien verwalten.",
+    )?;
     let deleted = state
         .db
         .delete_server_category(&id, &user.id)
@@ -2090,6 +2384,11 @@ async fn api_create_server(
     Json(req): Json<CreateServerRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.manage_own_servers,
+        "Ihre Benutzergruppe darf keine eigenen Server (IPs) oder Kategorien verwalten.",
+    )?;
     let ip = ssh::validate_ip(&req.ip_address).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
     let bmc_ip = match req.bmc_ip_address.as_deref().map(str::trim) {
         Some(v) if !v.is_empty() => {
@@ -2109,9 +2408,9 @@ async fn api_create_server(
         .label
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| ip.clone());
-    let is_admin = user.role == "admin";
-    let shared_all = is_admin && req.shared_with_all.unwrap_or(false);
-    let shared_ids = if is_admin {
+    let can_share = user.role == "admin" || user.permissions.share_resources;
+    let shared_all = can_share && req.shared_with_all.unwrap_or(false);
+    let shared_ids = if can_share {
         req.shared_with_user_ids.unwrap_or_default()
     } else {
         Vec::new()
@@ -2170,6 +2469,11 @@ async fn api_update_server(
     Json(req): Json<UpdateServerRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.manage_own_servers,
+        "Ihre Benutzergruppe darf keine eigenen Server (IPs) oder Kategorien verwalten.",
+    )?;
     let Some(existing) = state
         .db
         .get_accessible_server(&id, &user.id)
@@ -2315,10 +2619,15 @@ async fn api_share_server(
     AxumPath(id): AxumPath<String>,
     Json(req): Json<ShareUpdateRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let admin = require_admin(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.share_resources,
+        "Ihre Benutzergruppe darf keine Ressourcen mit anderen Benutzern teilen.",
+    )?;
     let updated = state
         .db
-        .update_server_sharing(&id, &admin.id, req.shared_with_all, &req.shared_with_user_ids)
+        .update_server_sharing(&id, &user.id, req.shared_with_all, &req.shared_with_user_ids)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
         .ok_or_else(|| err_resp(StatusCode::FORBIDDEN, "Sie können nur eigene Server (IPs) teilen."))?;
     Ok(Json(json!({ "server": updated })))
@@ -2343,11 +2652,11 @@ async fn api_bulk_update_servers(
             "Maximal 500 Server pro Sammeleinstellung erlaubt.",
         ));
     }
-    let is_admin = user.role == "admin";
-    if req.sharing.is_some() && !is_admin {
+    let can_share = user.role == "admin" || user.permissions.share_resources;
+    if req.sharing.is_some() && !can_share {
         return Err(err_resp(
             StatusCode::FORBIDDEN,
-            "Nur Administratoren dürfen Freigaben ändern.",
+            "Ihre Benutzergruppe darf keine Ressourcen mit anderen Benutzern teilen.",
         ));
     }
     let cat_action = match req.categories_action.as_deref() {
@@ -2379,6 +2688,13 @@ async fn api_bulk_update_servers(
             "Bitte wählen Sie mindestens eine zu ändernde Einstellung aus.",
         ));
     }
+    if req.ping_enabled.is_some() || req.ignore_host_key.is_some() || cat_action.is_some() {
+        require_perm(
+            &user,
+            user.permissions.manage_own_servers,
+            "Ihre Benutzergruppe darf keine eigenen Server (IPs) oder Kategorien verwalten.",
+        )?;
+    }
 
     let cats = req.categories.unwrap_or_default();
     let sharing_tuple = req
@@ -2391,7 +2707,7 @@ async fn api_bulk_update_servers(
         .bulk_update_servers(
             &req.server_ids,
             &user.id,
-            is_admin,
+            can_share,
             req.ping_enabled,
             req.ignore_host_key,
             cat_action,
@@ -2435,6 +2751,11 @@ async fn api_delete_server(
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.manage_own_servers,
+        "Ihre Benutzergruppe darf keine eigenen Server (IPs) oder Kategorien verwalten.",
+    )?;
     state
         .db
         .delete_server(&id, &user.id)
@@ -2462,7 +2783,29 @@ async fn api_upload_cert(
     Json(req): Json<UploadCertBundleRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.upload_certificates,
+        "Ihre Benutzergruppe darf keine SSH-Zertifikate oder Schlüssel hochladen oder verwalten.",
+    )?;
+    if let Some(pass) = req.passphrase.as_deref().filter(|p| !p.is_empty()) {
+        require_perm(
+            &user,
+            user.permissions.store_certificate_passphrase,
+            "Ihre Benutzergruppe darf keine Zertifikats-Passwörter auf dem Server speichern.",
+        )?;
+        auth::validate_password_complexity(pass)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    }
+
     let clean_cert = req.cert_content.as_deref().unwrap_or("").trim();
+    if !clean_cert.is_empty() {
+        require_perm(
+            &user,
+            user.permissions.upload_signed_cert,
+            "Ihre Benutzergruppe darf keine eigenen signierten Zertifikate (zertifikat-cert.pub) hochladen.",
+        )?;
+    }
     let inspection = ssh::inspect_certificate_bundle(
         &req.private_key_content,
         &req.public_key_content,
@@ -2474,6 +2817,16 @@ async fn api_upload_cert(
     )
     .await
     .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    if user.role != "admin"
+        && user.permissions.require_certificate_passphrase
+        && !inspection.private_key_encrypted
+    {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Ihre Benutzergruppe erfordert passwortgeschützte (verschlüsselte) SSH-Zertifikate.",
+        ));
+    }
 
     let (enc, nonce) = state
         .vault
@@ -2491,9 +2844,9 @@ async fn api_upload_cert(
         None => (None, None),
     };
 
-    let is_admin = user.role == "admin";
-    let shared_all = is_admin && req.shared_with_all.unwrap_or(false);
-    let shared_ids = if is_admin {
+    let can_share = user.role == "admin" || user.permissions.share_resources;
+    let shared_all = can_share && req.shared_with_all.unwrap_or(false);
+    let shared_ids = if can_share {
         req.shared_with_user_ids.unwrap_or_default()
     } else {
         Vec::new()
@@ -2507,12 +2860,40 @@ async fn api_upload_cert(
             .unwrap_or("zertifikat-cert.pub")
     };
 
+    let effective_name = req
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            let kid = inspection.key_id.trim();
+            if kid.is_empty() {
+                "SSH-Zertifikat"
+            } else {
+                kid
+            }
+        });
+    if !req.overwrite.unwrap_or(false) {
+        if let Some(existing_name) = state
+            .db
+            .find_owned_certificate_name(&user.id, effective_name)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        {
+            return Err(err_resp(
+                StatusCode::CONFLICT,
+                format!(
+                    "Ein Zertifikat mit dem Namen „{existing_name}“ existiert bereits. Bitte bestätigen Sie das Überschreiben oder wählen Sie einen anderen Namen."
+                ),
+            ));
+        }
+    }
+
     let (saved, replaced) = state
         .db
         .save_certificate(
             &user.id,
             &user.username,
-            req.name.as_deref().unwrap_or(&inspection.key_id),
+            effective_name,
             req.private_key_file_name
                 .as_deref()
                 .unwrap_or("zertifikat"),
@@ -2542,29 +2923,483 @@ async fn api_generate_test_cert(
     Json(req): Json<GenerateTestCertRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.generate_test_certificates,
+        "Ihre Benutzergruppe darf keine Zertifikate erzeugen.",
+    )?;
     let key_id = req
         .key_id
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.chars().take(64).collect::<String>())
-        .unwrap_or_else(|| format!("{}-trixie-cert", user.username));
-    let principals = req.principals.unwrap_or_else(|| {
-        let mut p = vec![user.default_ssh_user.clone()];
-        if !p.iter().any(|x| x == "deploy") {
-            p.push("deploy".into());
-        }
-        p
-    });
-    let generated = ssh::generate_test_cert_bundle(&key_id, &principals)
+        .unwrap_or_else(|| format!("{}-ed25519", user.username));
+    let passphrase = req.passphrase.as_deref().unwrap_or("");
+    if user.role != "admin"
+        && user.permissions.require_certificate_passphrase
+        && passphrase.is_empty()
+    {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Ihre Benutzergruppe erfordert ein Passwort beim Erzeugen von Zertifikaten.",
+        ));
+    }
+    if !passphrase.is_empty() {
+        auth::validate_password_complexity(passphrase)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    }
+    let generated = ssh::generate_test_cert_bundle(&key_id, passphrase)
         .await
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(json!({
         "privateKey": generated.private_key,
-        "publicKey": generated.public_key,
-        "certificate": generated.certificate,
-        "caPublicKey": generated.ca_public_key
+        "publicKey": generated.public_key
     })))
+}
+
+async fn api_admin_list_cas(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    let cas = state
+        .db
+        .list_certificate_authorities()
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(json!({ "cas": cas })))
+}
+
+async fn api_admin_generate_ca(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<GenerateCaRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    let clean_name = req
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(64).collect::<String>())
+        .unwrap_or_else(|| format!("{}-ca", user.username));
+    let clean_desc = req
+        .description
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(300)
+        .collect::<String>();
+
+    if req.passphrase.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Für ein CA-Zertifikat ist zwingend ein Passwort erforderlich.",
+        ));
+    }
+    auth::validate_password_complexity(&req.passphrase)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    if let Some(existing_name) = state
+        .db
+        .find_certificate_authority_name(&clean_name)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+    {
+        if !req.overwrite.unwrap_or(false) {
+            return Err(err_resp(
+                StatusCode::CONFLICT,
+                format!(
+                    "Eine CA mit dem Namen „{existing_name}“ existiert bereits. Bitte bestätigen Sie das Überschreiben oder wählen Sie einen anderen Namen."
+                ),
+            ));
+        }
+    }
+
+    let generated = ssh::generate_test_cert_bundle(&clean_name, &req.passphrase)
+        .await
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let inspection =
+        ssh::inspect_certificate_bundle(&generated.private_key, &generated.public_key, None)
+            .await
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    if !inspection.private_key_encrypted {
+        return Err(err_resp(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Erzeugter CA-Privatschlüssel ist nicht verschlüsselt.",
+        ));
+    }
+
+    let (priv_enc, priv_nonce) = state
+        .vault
+        .encrypt(generated.private_key.as_bytes())
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let (pass_enc, pass_nonce) = if req.store_passphrase.unwrap_or(false) {
+        let (pe, pn) = state
+            .vault
+            .encrypt(req.passphrase.as_bytes())
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        (Some(pe), Some(pn))
+    } else {
+        (None, None)
+    };
+
+    let (ca, replaced) = state
+        .db
+        .save_certificate_authority(
+            &clean_name,
+            &clean_desc,
+            "ca",
+            "ca.pub",
+            &priv_enc,
+            &priv_nonce,
+            pass_enc.as_deref(),
+            pass_nonce.as_deref(),
+            &generated.public_key,
+            &inspection.pub_key_algorithm,
+            &inspection.pub_key_fingerprint,
+            &inspection.private_key_format,
+            &user.id,
+            &user.username,
+        )
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "ca": ca,
+            "replaced": replaced,
+            "generated": {
+                "privateKey": generated.private_key,
+                "publicKey": generated.public_key
+            }
+        })),
+    ))
+}
+
+async fn api_admin_upload_ca(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<UploadCaRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    if req.private_key_content.trim().is_empty() || req.public_key_content.trim().is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Privater CA-Schlüssel (ca) und öffentlicher CA-Schlüssel (ca.pub) sind erforderlich.",
+        ));
+    }
+
+    let clean_passphrase = req.passphrase.as_deref().filter(|p| !p.is_empty());
+    if let Some(pass) = clean_passphrase {
+        auth::validate_password_complexity(pass)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    }
+
+    let inspection =
+        ssh::inspect_certificate_bundle(&req.private_key_content, &req.public_key_content, None)
+            .await
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    if !inspection.private_key_encrypted {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Ein CA-Privatschlüssel (ca) muss zwingend passwortgeschützt (verschlüsselt) sein. Unverschlüsselte CA-Schlüssel werden nicht akzeptiert.",
+        ));
+    }
+
+    let clean_name = req
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(64).collect::<String>())
+        .unwrap_or_else(|| {
+            if !inspection.key_id.trim().is_empty() {
+                inspection.key_id.trim().chars().take(64).collect()
+            } else {
+                "ssh-ca".to_string()
+            }
+        });
+    let clean_desc = req
+        .description
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(300)
+        .collect::<String>();
+
+    if let Some(existing_name) = state
+        .db
+        .find_certificate_authority_name(&clean_name)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+    {
+        if !req.overwrite.unwrap_or(false) {
+            return Err(err_resp(
+                StatusCode::CONFLICT,
+                format!(
+                    "Eine CA mit dem Namen „{existing_name}“ existiert bereits. Bitte bestätigen Sie das Überschreiben oder wählen Sie einen anderen Namen."
+                ),
+            ));
+        }
+    }
+
+    let (priv_enc, priv_nonce) = state
+        .vault
+        .encrypt(req.private_key_content.as_bytes())
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let (pass_enc, pass_nonce) = if let Some(pass) = clean_passphrase {
+        let (pe, pn) = state
+            .vault
+            .encrypt(pass.as_bytes())
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        (Some(pe), Some(pn))
+    } else {
+        (None, None)
+    };
+
+    let priv_file = req
+        .private_key_file_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("ca");
+    let pub_file = req
+        .public_key_file_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("ca.pub");
+
+    let (ca, replaced) = state
+        .db
+        .save_certificate_authority(
+            &clean_name,
+            &clean_desc,
+            priv_file,
+            pub_file,
+            &priv_enc,
+            &priv_nonce,
+            pass_enc.as_deref(),
+            pass_nonce.as_deref(),
+            &req.public_key_content,
+            &inspection.pub_key_algorithm,
+            &inspection.pub_key_fingerprint,
+            &inspection.private_key_format,
+            &user.id,
+            &user.username,
+        )
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "ca": ca, "replaced": replaced })),
+    ))
+}
+
+async fn api_admin_update_ca(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+    Json(req): Json<UpdateCaRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+
+    let existing = state
+        .db
+        .get_certificate_authority_for_edit(&id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "CA-Zertifikat nicht gefunden."))?;
+
+    let clear_pass = req.clear_passphrase.unwrap_or(false);
+    let clean_passphrase = if clear_pass {
+        None
+    } else {
+        req.passphrase.as_deref().filter(|p| !p.is_empty())
+    };
+    if let Some(pass) = clean_passphrase {
+        auth::validate_password_complexity(pass)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    }
+
+    let next_name = match req.name.as_deref() {
+        Some(n) => {
+            let trimmed = n.trim();
+            if trimmed.is_empty() {
+                return Err(err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Bitte eine Bezeichnung für die CA angeben.",
+                ));
+            }
+            trimmed.chars().take(64).collect::<String>()
+        }
+        None => existing.name.clone(),
+    };
+    let next_desc = match req.description.as_deref() {
+        Some(d) => d.trim().chars().take(300).collect::<String>(),
+        None => existing.description.clone(),
+    };
+
+    let new_priv_opt = req.private_key_content.as_deref().filter(|s| !s.trim().is_empty());
+    let new_pub_opt = req.public_key_content.as_deref().filter(|s| !s.trim().is_empty());
+
+    let (next_priv_enc, next_priv_nonce, next_pub, next_key_type, next_fp, next_fmt) =
+        if new_priv_opt.is_some() || new_pub_opt.is_some() {
+            let effective_priv = if let Some(p) = new_priv_opt {
+                p.to_string()
+            } else {
+                let bytes = state
+                    .vault
+                    .decrypt(&existing.private_key_enc, &existing.private_key_nonce)
+                    .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+                String::from_utf8(bytes)
+                    .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            };
+            let effective_pub = new_pub_opt.unwrap_or(&existing.public_key);
+            let inspection = ssh::inspect_certificate_bundle(&effective_priv, effective_pub, None)
+                .await
+                .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+            if !inspection.private_key_encrypted {
+                return Err(err_resp(
+                    StatusCode::BAD_REQUEST,
+                    "Ein CA-Privatschlüssel (ca) muss zwingend passwortgeschützt (verschlüsselt) sein. Unverschlüsselte CA-Schlüssel werden nicht akzeptiert.",
+                ));
+            }
+            let (pe, pn) = if new_priv_opt.is_some() {
+                state
+                    .vault
+                    .encrypt(effective_priv.as_bytes())
+                    .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            } else {
+                (existing.private_key_enc, existing.private_key_nonce)
+            };
+            (
+                pe,
+                pn,
+                effective_pub.trim().to_string(),
+                inspection.pub_key_algorithm,
+                inspection.pub_key_fingerprint,
+                inspection.private_key_format,
+            )
+        } else {
+            (
+                existing.private_key_enc,
+                existing.private_key_nonce,
+                existing.public_key,
+                existing.key_type,
+                existing.fingerprint,
+                existing.private_key_format,
+            )
+        };
+
+    let (next_pass_enc, next_pass_nonce) = if clear_pass {
+        (None, None)
+    } else if let Some(pass) = clean_passphrase {
+        let (pe, pn) = state
+            .vault
+            .encrypt(pass.as_bytes())
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        (Some(pe), Some(pn))
+    } else {
+        (existing.passphrase_enc, existing.passphrase_nonce)
+    };
+
+    let next_priv_file = req
+        .private_key_file_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&existing.private_key_file_name);
+    let next_pub_file = req
+        .public_key_file_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&existing.public_key_file_name);
+
+    let updated = state
+        .db
+        .update_certificate_authority(
+            &existing.id,
+            &next_name,
+            &next_desc,
+            next_priv_file,
+            next_pub_file,
+            &next_priv_enc,
+            &next_priv_nonce,
+            next_pass_enc.as_deref(),
+            next_pass_nonce.as_deref(),
+            &next_pub,
+            &next_key_type,
+            &next_fp,
+            &next_fmt,
+        )
+        .map_err(|e| {
+            let status = if e.contains("existiert bereits") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            err_resp(status, e)
+        })?;
+
+    let _ = state.db.reconcile_auto_renewals();
+    Ok(Json(json!({ "ca": updated })))
+}
+
+async fn api_admin_delete_ca(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Administratorrechte erforderlich.",
+        ));
+    }
+    let deleted = state
+        .db
+        .delete_certificate_authority(&id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !deleted {
+        return Err(err_resp(
+            StatusCode::NOT_FOUND,
+            "CA-Zertifikat nicht gefunden.",
+        ));
+    }
+    let _ = state.db.reconcile_auto_renewals();
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn api_share_cert(
@@ -2574,10 +3409,15 @@ async fn api_share_cert(
     AxumPath(id): AxumPath<String>,
     Json(req): Json<ShareUpdateRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let admin = require_admin(&state, &jar, &headers)?;
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.share_resources,
+        "Ihre Benutzergruppe darf keine Ressourcen mit anderen Benutzern teilen.",
+    )?;
     let updated = state
         .db
-        .update_certificate_sharing(&id, &admin.id, req.shared_with_all, &req.shared_with_user_ids)
+        .update_certificate_sharing(&id, &user.id, req.shared_with_all, &req.shared_with_user_ids)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
         .ok_or_else(|| err_resp(StatusCode::FORBIDDEN, "Sie können nur eigene Zertifikatspakete teilen."))?;
     Ok(Json(json!({ "certificate": updated })))
@@ -2590,11 +3430,1245 @@ async fn api_delete_cert(
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.upload_certificates,
+        "Ihre Benutzergruppe darf keine SSH-Zertifikate oder Schlüssel hochladen oder verwalten.",
+    )?;
     state
         .db
         .delete_certificate(&id, &user.id)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn api_admin_list_certs(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(StatusCode::FORBIDDEN, "Nur Administratoren haben Zugriff."));
+    }
+    let certs = state
+        .db
+        .list_all_certificates()
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(json!({ "certificates": certs })))
+}
+
+async fn api_admin_delete_cert(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(StatusCode::FORBIDDEN, "Nur Administratoren haben Zugriff."));
+    }
+    let removed = state
+        .db
+        .delete_certificate_as_admin(&id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !removed {
+        return Err(err_resp(
+            StatusCode::NOT_FOUND,
+            "Zertifikatspaket nicht gefunden.",
+        ));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+fn parse_auto_renew_before_seconds(raw: Option<u64>) -> u64 {
+    match raw {
+        None | Some(0) => 0,
+        Some(v) => v.clamp(60, 180 * 86_400),
+    }
+}
+
+fn compute_effective_lead_seconds(
+    valid_after_unix: i64,
+    valid_before_unix: i64,
+    configured_lead_sec: u64,
+) -> i64 {
+    let lifetime_sec = (valid_before_unix - valid_after_unix).max(120);
+    if configured_lead_sec > 0 {
+        let max_explicit = ((lifetime_sec * 9) / 10).min(lifetime_sec - 60).max(60);
+        return (configured_lead_sec as i64).min(max_explicit).max(60);
+    }
+    let half_life = (lifetime_sec / 2).max(60);
+    let auto_lead = ((lifetime_sec as f64) * 0.2).round() as i64;
+    let min_auto = 300i64.min(half_life);
+    auto_lead.min(7 * 86_400).min(half_life).max(min_auto)
+}
+
+async fn api_admin_sign_certs(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<AdminSignCertificatesRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Nur Administratoren haben Zugriff.",
+        ));
+    }
+
+    let ca_id = req.ca_id.trim();
+    if ca_id.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte wählen Sie eine Zertifizierungsstelle (CA) aus.",
+        ));
+    }
+    let ca = state
+        .db
+        .get_certificate_authority_for_edit(ca_id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Ausgewählte CA nicht gefunden."))?;
+
+    let mut unique_ids: Vec<String> = Vec::new();
+    for raw_id in &req.certificate_ids {
+        let clean = raw_id.trim();
+        if !clean.is_empty() && !unique_ids.iter().any(|x| x == clean) {
+            unique_ids.push(clean.to_string());
+        }
+    }
+    if unique_ids.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte mindestens ein Zertifikat zum Signieren auswählen.",
+        ));
+    }
+    if unique_ids.len() > 200 {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Maximal 200 Zertifikate können gleichzeitig signiert werden.",
+        ));
+    }
+
+    if !req.confirm_overwrite_foreign_ca {
+        let mut foreign_conflicts: Vec<serde_json::Value> = Vec::new();
+        let mut conflict_names: Vec<String> = Vec::new();
+        for cert_id in &unique_ids {
+            if let Some(target) = state
+                .db
+                .get_certificate_for_signing(cert_id)
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            {
+                if target.has_certificate
+                    && !target.certificate.trim().is_empty()
+                    && !ssh::is_signed_by_same_ca(&target.existing_ca_fingerprint, &ca.fingerprint)
+                {
+                    if conflict_names.len() < 5 {
+                        conflict_names.push(format!("„{}“", target.name));
+                    }
+                    foreign_conflicts.push(json!({
+                        "certificateId": target.id,
+                        "certificateName": target.name,
+                        "ownerUsername": target.owner_username,
+                        "existingCaFingerprint": target.existing_ca_fingerprint
+                    }));
+                }
+            }
+        }
+        if !foreign_conflicts.is_empty() {
+            let count = foreign_conflicts.len();
+            let extra = if count > 5 {
+                format!(" und {} weitere", count - 5)
+            } else {
+                String::new()
+            };
+            let prefix = if count == 1 {
+                "Das Zertifikat".to_string()
+            } else {
+                format!("{count} Zertifikate")
+            };
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": format!(
+                        "Warnung: {prefix} ({}{extra}) besitzt bereits ein zertifikat-cert.pub einer anderen CA. Bitte bestätigen Sie das Überschreiben ausdrücklich.",
+                        conflict_names.join(", ")
+                    ),
+                    "foreignCaConflicts": foreign_conflicts
+                })),
+            ));
+        }
+    }
+
+    let base_principals = ssh::parse_and_validate_principals(&req.principals)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    let validity_spec = ssh::validate_validity_spec(req.validity.as_deref())
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    let explicit_pass = req
+        .ca_passphrase
+        .as_deref()
+        .filter(|p| !p.is_empty())
+        .map(|p| zeroize::Zeroizing::new(p.to_string()));
+    let effective_pass: zeroize::Zeroizing<String> = if let Some(p) = explicit_pass {
+        p
+    } else if let (Some(enc), Some(nonce)) = (&ca.passphrase_enc, &ca.passphrase_nonce) {
+        let bytes = zeroize::Zeroizing::new(state.vault.decrypt(enc, nonce).map_err(|_| {
+            err_resp(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Hinterlegtes CA-Passwort konnte nicht entschlüsselt werden.",
+            )
+        })?);
+        zeroize::Zeroizing::new(String::from_utf8_lossy(&bytes).to_string())
+    } else {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Für diese CA ist kein Passwort hinterlegt. Bitte geben Sie das CA-Passwort zum Signieren ein.",
+        ));
+    };
+
+    let wants_auto_renew = req.auto_renew == Some(true);
+    let renew_before_sec = parse_auto_renew_before_seconds(req.auto_renew_before_seconds);
+    if wants_auto_renew && (ca.passphrase_enc.is_none() || ca.passphrase_nonce.is_none()) {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Automatische Neuzertifizierung erfordert ein auf dem Server gespeichertes CA-Passwort. Bitte hinterlegen Sie das Passwort zuerst unter Administration → CA-Verwaltung.",
+        ));
+    }
+
+    let ca_priv_plain = zeroize::Zeroizing::new(
+        state
+            .vault
+            .decrypt(&ca.private_key_enc, &ca.private_key_nonce)
+            .map_err(|_| {
+                err_resp(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "CA-Privatschlüssel konnte nicht entschlüsselt werden.",
+                )
+            })?,
+    );
+
+    let custom_key_id = req.key_id.as_deref().map(str::trim).unwrap_or("");
+    let is_batch = unique_ids.len() > 1;
+    let base_serial = Utc::now().timestamp_millis().max(1) as u64;
+
+    let mut signed_certs: Vec<UserCertificatePublic> = Vec::new();
+    let mut errors: Vec<serde_json::Value> = Vec::new();
+
+    for (idx, cert_id) in unique_ids.iter().enumerate() {
+        let target_opt = state
+            .db
+            .get_certificate_for_signing(cert_id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let Some(target) = target_opt else {
+            errors.push(json!({
+                "certificateId": cert_id,
+                "error": "Zertifikatspaket nicht gefunden."
+            }));
+            continue;
+        };
+
+        let mut effective_principals = base_principals.clone();
+        if req.include_owner_principal
+            && ssh::is_valid_principal_token(&target.owner_username)
+            && !effective_principals.iter().any(|p| p == &target.owner_username)
+            && effective_principals.len() < 32
+        {
+            effective_principals.push(target.owner_username.clone());
+        }
+
+        let default_key_id = format!(
+            "{}-{}",
+            if target.owner_username.is_empty() {
+                "user"
+            } else {
+                &target.owner_username
+            },
+            target.name
+        );
+        let raw_key_id = if custom_key_id.is_empty() {
+            default_key_id
+        } else if is_batch {
+            format!("{custom_key_id}-{default_key_id}")
+        } else {
+            custom_key_id.to_string()
+        };
+        let cert_key_id = ssh::sanitize_key_id(&raw_key_id, "ssh-cert");
+
+        let signed_cert = match ssh::sign_user_public_key_with_ca(
+            ca_priv_plain.as_slice(),
+            &ca.public_key,
+            effective_pass.as_str(),
+            &target.public_key,
+            &cert_key_id,
+            &effective_principals,
+            &validity_spec,
+            base_serial.saturating_add(idx as u64),
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(msg) => {
+                if msg.contains("falsches CA-Passwort") || msg.contains("nicht entsperrt werden") {
+                    return Err(err_resp(StatusCode::BAD_REQUEST, msg));
+                }
+                errors.push(json!({
+                    "certificateId": target.id,
+                    "certificateName": target.name,
+                    "error": msg
+                }));
+                continue;
+            }
+        };
+
+        let target_priv_plain = match state
+            .vault
+            .decrypt(&target.private_key_enc, &target.private_key_nonce)
+        {
+            Ok(b) => zeroize::Zeroizing::new(b),
+            Err(_) => {
+                errors.push(json!({
+                    "certificateId": target.id,
+                    "certificateName": target.name,
+                    "error": "Zertifikat konnte nicht verifiziert werden."
+                }));
+                continue;
+            }
+        };
+        let target_priv_str = zeroize::Zeroizing::new(String::from_utf8_lossy(&target_priv_plain).to_string());
+
+        let inspection = match ssh::inspect_certificate_bundle(
+            &target_priv_str,
+            &target.public_key,
+            Some(&signed_cert),
+        )
+        .await
+        {
+            Ok(m) => m,
+            Err(e) => {
+                errors.push(json!({
+                    "certificateId": target.id,
+                    "certificateName": target.name,
+                    "error": e
+                }));
+                continue;
+            }
+        };
+
+        let cert_file_name = ssh::derive_cert_file_name(
+            &target.cert_file_name,
+            &target.public_key_file_name,
+            &target.private_key_file_name,
+        );
+        let now_iso = Utc::now().to_rfc3339();
+        let next_auto_renew: Option<CertificateAutoRenewConfig> = if wants_auto_renew {
+            Some(CertificateAutoRenewConfig {
+                enabled: true,
+                mode: "admin".to_string(),
+                ca_id: ca.id.clone(),
+                ca_name: ca.name.clone(),
+                principals: base_principals.clone(),
+                include_owner_principal: req.include_owner_principal,
+                validity: validity_spec.clone(),
+                key_id_prefix: custom_key_id.to_string(),
+                renew_before_seconds: renew_before_sec,
+                enabled_by_user_id: user.id.clone(),
+                enabled_by_username: user.username.clone(),
+                enabled_at: now_iso.clone(),
+                last_renewed_at: Some(now_iso.clone()),
+                last_checked_at: Some(now_iso),
+                last_error: None,
+                revoked_at: None,
+                revoked_reason: None,
+            })
+        } else if req.auto_renew == Some(false) {
+            target.auto_renew.clone().map(|mut ar| {
+                if ar.enabled {
+                    ar.enabled = false;
+                    ar.revoked_at = Some(now_iso.clone());
+                    ar.revoked_reason = Some(format!(
+                        "Deaktiviert bei manueller Admin-Signierung ({})",
+                        user.username
+                    ));
+                    ar.last_error = None;
+                }
+                ar
+            })
+        } else {
+            target.auto_renew.clone().map(|mut ar| {
+                if ar.enabled && ar.ca_id != ca.id {
+                    ar.enabled = false;
+                    ar.revoked_at = Some(now_iso.clone());
+                    ar.revoked_reason = Some(format!(
+                        "Überschrieben durch manuelle Admin-Signierung mit CA „{}“",
+                        ca.name
+                    ));
+                    ar.last_error = None;
+                }
+                ar
+            })
+        };
+
+        match state.db.update_certificate_signed_cert(
+            &target.id,
+            &cert_file_name,
+            &signed_cert,
+            &inspection,
+            next_auto_renew.as_ref(),
+        ) {
+            Ok(updated) => signed_certs.push(updated),
+            Err(e) => errors.push(json!({
+                "certificateId": target.id,
+                "certificateName": target.name,
+                "error": e
+            })),
+        }
+    }
+
+    if signed_certs.is_empty() {
+        let first_err = errors
+            .first()
+            .and_then(|e| e.get("error"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Kein Zertifikat konnte signiert werden.");
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": first_err, "errors": errors })),
+        ));
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "caName": ca.name,
+        "caFingerprint": ca.fingerprint,
+        "principals": base_principals,
+        "validity": validity_spec,
+        "signedCount": signed_certs.len(),
+        "failedCount": errors.len(),
+        "certificates": signed_certs,
+        "errors": errors
+    })))
+}
+
+async fn api_list_signing_cas(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    if !user.permissions.self_sign_certificates {
+        return Ok(Json(json!({ "canSelfSign": false, "cas": [] })));
+    }
+    let mut assigned: Vec<AssignedSigningCaPublic> = Vec::new();
+    for assignment in &user.permissions.ca_signing_assignments {
+        if let Some(ca) = state
+            .db
+            .get_certificate_authority_for_edit(&assignment.ca_id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        {
+            let mut effective_principals = assignment.principals.clone();
+            if assignment.include_owner_principal
+                && ssh::is_valid_principal_token(&user.username)
+                && !effective_principals.iter().any(|p| p == &user.username)
+                && effective_principals.len() < 32
+            {
+                effective_principals.push(user.username.clone());
+            }
+            assigned.push(AssignedSigningCaPublic {
+                id: ca.id,
+                name: ca.name,
+                description: ca.description,
+                key_type: ca.key_type,
+                fingerprint: ca.fingerprint,
+                has_stored_passphrase: ca.passphrase_enc.is_some(),
+                principals: assignment.principals.clone(),
+                include_owner_principal: assignment.include_owner_principal,
+                effective_principals,
+                validity: if assignment.validity.trim().is_empty() {
+                    "+30d".to_string()
+                } else {
+                    assignment.validity.clone()
+                },
+                auto_renew_before_seconds: parse_auto_renew_before_seconds(Some(
+                    assignment.auto_renew_before_seconds,
+                )),
+            });
+        }
+    }
+    Ok(Json(json!({ "canSelfSign": true, "cas": assigned })))
+}
+
+async fn api_self_sign_certs(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<UserSelfSignCertificatesRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.self_sign_certificates,
+        "Ihre Benutzergruppe hat keine Berechtigung, SSH-Zertifikate selbst mit einer CA zu signieren.",
+    )?;
+
+    let ca_id = req.ca_id.trim();
+    if ca_id.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte wählen Sie eine zugewiesene CA aus.",
+        ));
+    }
+
+    let wants_auto_renew = req.auto_renew == Some(true);
+    if wants_auto_renew && !user.permissions.auto_renew_certificates {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Ihre Benutzergruppe hat keine Berechtigung, die automatische Neuzertifizierung für SSH-Zertifikate zu aktivieren.",
+        ));
+    }
+
+    let assignment = user
+        .permissions
+        .ca_signing_assignments
+        .iter()
+        .find(|a| a.ca_id == ca_id)
+        .ok_or_else(|| {
+            err_resp(
+                StatusCode::FORBIDDEN,
+                "Diese Zertifizierungsstelle (CA) ist Ihrer Benutzergruppe nicht zur Selbstsignierung zugewiesen.",
+            )
+        })?;
+    let renew_before_sec = parse_auto_renew_before_seconds(Some(assignment.auto_renew_before_seconds));
+    let assignment_validity_lower = assignment.validity.trim().to_ascii_lowercase();
+    if wants_auto_renew
+        && (assignment_validity_lower == "forever"
+            || assignment_validity_lower == "always"
+            || assignment_validity_lower == "always:forever")
+    {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Für unbegrenzt gültige Zertifikate (forever) ist eine automatische Neuzertifizierung nicht möglich.",
+        ));
+    }
+
+    let ca = state
+        .db
+        .get_certificate_authority_for_edit(&assignment.ca_id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| {
+            err_resp(
+                StatusCode::NOT_FOUND,
+                "Die zugewiesene CA existiert nicht mehr.",
+            )
+        })?;
+
+    let (pass_enc, pass_nonce) = match (&ca.passphrase_enc, &ca.passphrase_nonce) {
+        (Some(enc), Some(nonce)) => (enc, nonce),
+        _ => {
+            return Err(err_resp(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Für die zugewiesene CA „{}“ ist noch kein Passwort auf dem Server hinterlegt. Bitte wenden Sie sich an einen Administrator.",
+                    ca.name
+                ),
+            ));
+        }
+    };
+
+    let mut unique_ids: Vec<String> = Vec::new();
+    for raw_id in &req.certificate_ids {
+        let clean = raw_id.trim();
+        if !clean.is_empty() && !unique_ids.iter().any(|x| x == clean) {
+            unique_ids.push(clean.to_string());
+        }
+    }
+    if unique_ids.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte mindestens eines Ihrer Zertifikate zum Signieren auswählen.",
+        ));
+    }
+    if unique_ids.len() > 200 {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Maximal 200 Zertifikate können gleichzeitig signiert werden.",
+        ));
+    }
+
+    // Strict ownership check for all requested certificates BEFORE signing
+    let mut owned_targets: Vec<StoredCertificateForSigning> = Vec::new();
+    for cert_id in &unique_ids {
+        let target = state
+            .db
+            .get_certificate_for_signing(cert_id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .ok_or_else(|| {
+                err_resp(
+                    StatusCode::NOT_FOUND,
+                    "Mindestens ein ausgewähltes Zertifikat wurde nicht gefunden.",
+                )
+            })?;
+        if target.user_id != user.id {
+            return Err(err_resp(
+                StatusCode::FORBIDDEN,
+                "Sie dürfen nur Ihre eigenen SSH-Zertifikate selbst signieren.",
+            ));
+        }
+        owned_targets.push(target);
+    }
+
+    if !req.confirm_overwrite_foreign_ca {
+        let mut foreign_conflicts: Vec<serde_json::Value> = Vec::new();
+        let mut conflict_names: Vec<String> = Vec::new();
+        for target in &owned_targets {
+            if target.has_certificate
+                && !target.certificate.trim().is_empty()
+                && !ssh::is_signed_by_same_ca(&target.existing_ca_fingerprint, &ca.fingerprint)
+            {
+                if conflict_names.len() < 5 {
+                    conflict_names.push(format!("„{}“", target.name));
+                }
+                foreign_conflicts.push(json!({
+                    "certificateId": target.id,
+                    "certificateName": target.name,
+                    "ownerUsername": target.owner_username,
+                    "existingCaFingerprint": target.existing_ca_fingerprint
+                }));
+            }
+        }
+        if !foreign_conflicts.is_empty() {
+            let count = foreign_conflicts.len();
+            let extra = if count > 5 {
+                format!(" und {} weitere", count - 5)
+            } else {
+                String::new()
+            };
+            let prefix = if count == 1 {
+                "Das Zertifikat".to_string()
+            } else {
+                format!("{count} Zertifikate")
+            };
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": format!(
+                        "Warnung: {prefix} ({}{extra}) besitzt bereits ein zertifikat-cert.pub einer anderen CA. Bitte bestätigen Sie das Überschreiben ausdrücklich.",
+                        conflict_names.join(", ")
+                    ),
+                    "foreignCaConflicts": foreign_conflicts
+                })),
+            ));
+        }
+    }
+
+    // Compute principals (-n) & validity (-V) strictly from group policy
+    let mut effective_principals = assignment.principals.clone();
+    if assignment.include_owner_principal
+        && ssh::is_valid_principal_token(&user.username)
+        && !effective_principals.iter().any(|p| p == &user.username)
+        && effective_principals.len() < 32
+    {
+        effective_principals.push(user.username.clone());
+    }
+    if effective_principals.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Für die CA „{}“ sind in Ihrer Benutzergruppe keine gültigen Principals (-n) konfiguriert.",
+                ca.name
+            ),
+        ));
+    }
+
+    let validity_spec = ssh::validate_validity_spec(Some(assignment.validity.as_str()))
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    let pass_bytes = zeroize::Zeroizing::new(state.vault.decrypt(pass_enc, pass_nonce).map_err(|_| {
+        err_resp(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Hinterlegtes CA-Passwort konnte nicht entschlüsselt werden.",
+        )
+    })?);
+    let effective_pass = zeroize::Zeroizing::new(String::from_utf8_lossy(&pass_bytes).to_string());
+
+    let ca_priv_plain = zeroize::Zeroizing::new(
+        state
+            .vault
+            .decrypt(&ca.private_key_enc, &ca.private_key_nonce)
+            .map_err(|_| {
+                err_resp(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "CA-Privatschlüssel konnte nicht entschlüsselt werden.",
+                )
+            })?,
+    );
+
+    let base_serial = Utc::now().timestamp_millis().max(1) as u64;
+    let mut signed_certs: Vec<UserCertificatePublic> = Vec::new();
+    let mut errors: Vec<serde_json::Value> = Vec::new();
+
+    for (idx, target) in owned_targets.iter().enumerate() {
+        let cert_key_id = ssh::sanitize_key_id(&format!("{}-{}", user.username, target.name), "ssh-cert");
+        let signed_cert = match ssh::sign_user_public_key_with_ca(
+            ca_priv_plain.as_slice(),
+            &ca.public_key,
+            effective_pass.as_str(),
+            &target.public_key,
+            &cert_key_id,
+            &effective_principals,
+            &validity_spec,
+            base_serial.saturating_add(idx as u64),
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(msg) => {
+                if msg.contains("falsches CA-Passwort") || msg.contains("nicht entsperrt werden") {
+                    return Err(err_resp(
+                        StatusCode::BAD_REQUEST,
+                        format!(
+                            "Die zugewiesene CA „{}“ konnte mit dem hinterlegten Passwort nicht entsperrt werden. Bitte informieren Sie einen Administrator.",
+                            ca.name
+                        ),
+                    ));
+                }
+                errors.push(json!({
+                    "certificateId": target.id,
+                    "certificateName": target.name,
+                    "error": msg
+                }));
+                continue;
+            }
+        };
+
+        let target_priv_plain = match state
+            .vault
+            .decrypt(&target.private_key_enc, &target.private_key_nonce)
+        {
+            Ok(b) => zeroize::Zeroizing::new(b),
+            Err(_) => {
+                errors.push(json!({
+                    "certificateId": target.id,
+                    "certificateName": target.name,
+                    "error": "Zertifikat konnte nicht verifiziert werden."
+                }));
+                continue;
+            }
+        };
+        let target_priv_str =
+            zeroize::Zeroizing::new(String::from_utf8_lossy(&target_priv_plain).to_string());
+
+        let inspection = match ssh::inspect_certificate_bundle(
+            &target_priv_str,
+            &target.public_key,
+            Some(&signed_cert),
+        )
+        .await
+        {
+            Ok(m) => m,
+            Err(e) => {
+                errors.push(json!({
+                    "certificateId": target.id,
+                    "certificateName": target.name,
+                    "error": e
+                }));
+                continue;
+            }
+        };
+
+        let cert_file_name = ssh::derive_cert_file_name(
+            &target.cert_file_name,
+            &target.public_key_file_name,
+            &target.private_key_file_name,
+        );
+        let now_iso = Utc::now().to_rfc3339();
+        let next_auto_renew: Option<CertificateAutoRenewConfig> = if wants_auto_renew {
+            Some(CertificateAutoRenewConfig {
+                enabled: true,
+                mode: "user".to_string(),
+                ca_id: ca.id.clone(),
+                ca_name: ca.name.clone(),
+                principals: assignment.principals.clone(),
+                include_owner_principal: assignment.include_owner_principal,
+                validity: validity_spec.clone(),
+                key_id_prefix: String::new(),
+                renew_before_seconds: renew_before_sec,
+                enabled_by_user_id: user.id.clone(),
+                enabled_by_username: user.username.clone(),
+                enabled_at: now_iso.clone(),
+                last_renewed_at: Some(now_iso.clone()),
+                last_checked_at: Some(now_iso),
+                last_error: None,
+                revoked_at: None,
+                revoked_reason: None,
+            })
+        } else if req.auto_renew == Some(false) {
+            target.auto_renew.clone().map(|mut ar| {
+                if ar.enabled {
+                    ar.enabled = false;
+                    ar.revoked_at = Some(now_iso.clone());
+                    ar.revoked_reason = Some(format!(
+                        "Deaktiviert bei manueller Selbstsignierung ({})",
+                        user.username
+                    ));
+                    ar.last_error = None;
+                }
+                ar
+            })
+        } else {
+            target.auto_renew.clone().map(|mut ar| {
+                if ar.enabled && ar.ca_id != ca.id {
+                    ar.enabled = false;
+                    ar.revoked_at = Some(now_iso.clone());
+                    ar.revoked_reason = Some(format!(
+                        "Überschrieben durch Selbstsignierung mit CA „{}“",
+                        ca.name
+                    ));
+                    ar.last_error = None;
+                }
+                ar
+            })
+        };
+
+        match state.db.update_certificate_signed_cert(
+            &target.id,
+            &cert_file_name,
+            &signed_cert,
+            &inspection,
+            next_auto_renew.as_ref(),
+        ) {
+            Ok(updated) => signed_certs.push(updated),
+            Err(e) => errors.push(json!({
+                "certificateId": target.id,
+                "certificateName": target.name,
+                "error": e
+            })),
+        }
+    }
+
+    if signed_certs.is_empty() {
+        let first_err = errors
+            .first()
+            .and_then(|e| e.get("error"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Kein Zertifikat konnte signiert werden.");
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": first_err, "errors": errors })),
+        ));
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "caName": ca.name,
+        "caFingerprint": ca.fingerprint,
+        "principals": effective_principals,
+        "validity": validity_spec,
+        "signedCount": signed_certs.len(),
+        "failedCount": errors.len(),
+        "certificates": signed_certs,
+        "errors": errors
+    })))
+}
+
+async fn api_revoke_cert_auto_renew(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let target = state
+        .db
+        .get_certificate_for_signing(&id)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Zertifikatspaket nicht gefunden."))?;
+
+    if target.user_id != user.id && user.role != "admin" {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Sie dürfen die automatische Neuzertifizierung nur für Ihre eigenen Zertifikate widerrufen.",
+        ));
+    }
+    let actor_label = if user.role == "admin" && target.user_id != user.id {
+        format!("Administrator ({})", user.username)
+    } else {
+        format!("Benutzer ({})", user.username)
+    };
+    let updated = state
+        .db
+        .revoke_certificate_auto_renew(&target.id, &format!("Widerrufen durch {actor_label}"))
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Zertifikatspaket nicht gefunden."))?;
+    Ok(Json(json!({ "ok": true, "certificate": updated })))
+}
+
+async fn api_revoke_cert_auto_renew_batch(
+    State(state): State<SharedState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(req): Json<RevokeAutoRenewBatchRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    let mut unique_ids: Vec<String> = Vec::new();
+    for raw in &req.certificate_ids {
+        let clean = raw.trim();
+        if !clean.is_empty() && !unique_ids.iter().any(|x| x == clean) {
+            unique_ids.push(clean.to_string());
+            if unique_ids.len() >= 200 {
+                break;
+            }
+        }
+    }
+    if unique_ids.is_empty() {
+        return Err(err_resp(
+            StatusCode::BAD_REQUEST,
+            "Bitte mindestens ein Zertifikat auswählen.",
+        ));
+    }
+    let mut targets: Vec<StoredCertificateForSigning> = Vec::new();
+    for cert_id in &unique_ids {
+        if let Some(target) = state
+            .db
+            .get_certificate_for_signing(cert_id)
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
+        {
+            if target.user_id != user.id && user.role != "admin" {
+                return Err(err_resp(
+                    StatusCode::FORBIDDEN,
+                    "Sie dürfen die automatische Neuzertifizierung nur für Ihre eigenen Zertifikate widerrufen.",
+                ));
+            }
+            targets.push(target);
+        }
+    }
+    let mut updated_certs: Vec<UserCertificatePublic> = Vec::new();
+    for target in targets {
+        if !target.auto_renew.as_ref().map(|a| a.enabled).unwrap_or(false) {
+            continue;
+        }
+        let actor_label = if user.role == "admin" && target.user_id != user.id {
+            format!("Administrator ({})", user.username)
+        } else {
+            format!("Benutzer ({})", user.username)
+        };
+        if let Ok(Some(updated)) = state
+            .db
+            .revoke_certificate_auto_renew(&target.id, &format!("Widerrufen durch {actor_label}"))
+        {
+            updated_certs.push(updated);
+        }
+    }
+    Ok(Json(json!({
+        "ok": true,
+        "revokedCount": updated_certs.len(),
+        "certificates": updated_certs
+    })))
+}
+
+async fn run_auto_renew_cycle(state: &SharedState) {
+    let _ = state.db.reconcile_auto_renewals();
+    let active_certs = match state.db.list_certificates_with_auto_renew() {
+        Ok(list) => list,
+        Err(e) => {
+            tracing::warn!("Auto-Renew konnte Zertifikate nicht laden: {e}");
+            return;
+        }
+    };
+    let now_dt = Utc::now();
+    let now_unix = now_dt.timestamp();
+
+    for cert in active_certs {
+        let Some(ar) = cert.auto_renew.clone() else {
+            continue;
+        };
+        if !ar.enabled {
+            continue;
+        }
+
+        let owner = match state.db.get_user_by_id(&cert.user_id) {
+            Ok(Some(u)) if u.active => u,
+            _ => {
+                let _ = state
+                    .db
+                    .revoke_certificate_auto_renew(&cert.id, "Benutzerkonto deaktiviert oder entfernt");
+                continue;
+            }
+        };
+        let ca = match state.db.get_certificate_authority_for_edit(&ar.ca_id) {
+            Ok(Some(c)) => c,
+            _ => {
+                let _ = state
+                    .db
+                    .revoke_certificate_auto_renew(&cert.id, "Zugehörige CA wurde gelöscht");
+                continue;
+            }
+        };
+        let (pass_enc, pass_nonce) = match (&ca.passphrase_enc, &ca.passphrase_nonce) {
+            (Some(enc), Some(nonce)) => (enc, nonce),
+            _ => {
+                let _ = state.db.revoke_certificate_auto_renew(
+                    &cert.id,
+                    "Gespeichertes CA-Passwort wurde entfernt",
+                );
+                continue;
+            }
+        };
+
+        let mut stored_principals = ar.principals.clone();
+        let mut include_owner = ar.include_owner_principal;
+        let mut validity_raw = ar.validity.clone();
+        let mut effective_renew_before_sec =
+            parse_auto_renew_before_seconds(Some(ar.renew_before_seconds));
+        let mut effective_principals: Vec<String>;
+
+        if ar.mode == "user" {
+            if !owner.permissions.self_sign_certificates || !owner.permissions.auto_renew_certificates
+            {
+                let _ = state.db.revoke_certificate_auto_renew(
+                    &cert.id,
+                    "Rechteentzug: Selbstsignierung oder automatische Neuzertifizierung für Benutzergruppe deaktiviert",
+                );
+                continue;
+            }
+            let Some(assignment) = owner
+                .permissions
+                .ca_signing_assignments
+                .iter()
+                .find(|a| a.ca_id == ar.ca_id)
+            else {
+                let _ = state.db.revoke_certificate_auto_renew(
+                    &cert.id,
+                    "Rechteentzug: CA ist der Benutzergruppe nicht mehr zugewiesen",
+                );
+                continue;
+            };
+            let val_lower = assignment.validity.trim().to_ascii_lowercase();
+            if val_lower == "forever" || val_lower == "always" || val_lower == "always:forever" {
+                let _ = state.db.revoke_certificate_auto_renew(
+                    &cert.id,
+                    "Rechteentzug: Gültigkeitsdauer für diese CA wurde auf unbegrenzt (forever) gesetzt",
+                );
+                continue;
+            }
+            stored_principals = assignment.principals.clone();
+            include_owner = assignment.include_owner_principal;
+            validity_raw = assignment.validity.clone();
+            effective_renew_before_sec =
+                parse_auto_renew_before_seconds(Some(assignment.auto_renew_before_seconds));
+            effective_principals = assignment.principals.clone();
+            if assignment.include_owner_principal
+                && ssh::is_valid_principal_token(&owner.username)
+                && !effective_principals.iter().any(|p| p == &owner.username)
+                && effective_principals.len() < 32
+            {
+                effective_principals.push(owner.username.clone());
+            }
+            if effective_principals.is_empty() {
+                let _ = state.db.revoke_certificate_auto_renew(
+                    &cert.id,
+                    "Rechteentzug: Keine gültigen Principals (-n) mehr für diese CA zugewiesen",
+                );
+                continue;
+            }
+        } else {
+            if !ar.enabled_by_user_id.is_empty() {
+                let valid_enabler = matches!(
+                    state.db.get_user_by_id(&ar.enabled_by_user_id),
+                    Ok(Some(ref enabler)) if enabler.active && enabler.role == "admin"
+                );
+                if !valid_enabler {
+                    let _ = state.db.revoke_certificate_auto_renew(
+                        &cert.id,
+                        "Rechteentzug: Freigebender Administrator ist nicht mehr aktiv oder kein Administrator",
+                    );
+                    continue;
+                }
+            }
+            effective_principals = ar.principals.clone();
+            if ar.include_owner_principal
+                && ssh::is_valid_principal_token(&owner.username)
+                && !effective_principals.iter().any(|p| p == &owner.username)
+                && effective_principals.len() < 32
+            {
+                effective_principals.push(owner.username.clone());
+            }
+            if effective_principals.is_empty() {
+                let _ = state.db.revoke_certificate_auto_renew(
+                    &cert.id,
+                    "Keine gültigen Principals (-n) für die automatische Neuzertifizierung konfiguriert",
+                );
+                continue;
+            }
+        }
+
+        let lead_sec = compute_effective_lead_seconds(
+            cert.valid_after_unix,
+            cert.valid_before_unix,
+            effective_renew_before_sec,
+        );
+        let is_expired_or_missing =
+            !cert.has_certificate || cert.valid_before_unix <= 0 || now_unix >= cert.valid_before_unix;
+        let is_due = is_expired_or_missing || now_unix >= (cert.valid_before_unix - lead_sec);
+        if !is_due {
+            continue;
+        }
+
+        if !is_expired_or_missing {
+            if let Some(ref last_renewed) = ar.last_renewed_at {
+                if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(last_renewed) {
+                    if (now_unix - parsed.timestamp()) < 60 {
+                        continue;
+                    }
+                }
+            }
+        }
+        if ar.last_error.is_some() {
+            if let Some(ref last_checked) = ar.last_checked_at {
+                if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(last_checked) {
+                    if (now_unix - parsed.timestamp()) < 300 {
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let attempt_iso = Utc::now().to_rfc3339();
+        let validity_spec = match ssh::validate_validity_spec(Some(validity_raw.as_str())) {
+            Ok(v) => v,
+            Err(e) => {
+                let mut next = ar.clone();
+                next.ca_name = ca.name.clone();
+                next.last_checked_at = Some(attempt_iso);
+                next.last_error = Some(e);
+                let _ = state.db.update_certificate_auto_renew(&cert.id, Some(&next));
+                continue;
+            }
+        };
+
+        let pass_bytes = match state.vault.decrypt(pass_enc, pass_nonce) {
+            Ok(b) => zeroize::Zeroizing::new(b),
+            Err(_) => {
+                let mut next = ar.clone();
+                next.ca_name = ca.name.clone();
+                next.last_checked_at = Some(attempt_iso);
+                next.last_error = Some("Hinterlegtes CA-Passwort konnte nicht entschlüsselt werden.".to_string());
+                let _ = state.db.update_certificate_auto_renew(&cert.id, Some(&next));
+                continue;
+            }
+        };
+        let effective_pass = zeroize::Zeroizing::new(String::from_utf8_lossy(&pass_bytes).to_string());
+        let ca_priv_plain = match state.vault.decrypt(&ca.private_key_enc, &ca.private_key_nonce) {
+            Ok(b) => zeroize::Zeroizing::new(b),
+            Err(_) => {
+                let mut next = ar.clone();
+                next.ca_name = ca.name.clone();
+                next.last_checked_at = Some(attempt_iso);
+                next.last_error = Some("CA-Privatschlüssel konnte nicht entschlüsselt werden.".to_string());
+                let _ = state.db.update_certificate_auto_renew(&cert.id, Some(&next));
+                continue;
+            }
+        };
+
+        let default_key_id = format!(
+            "{}-{}",
+            if owner.username.is_empty() {
+                "user"
+            } else {
+                &owner.username
+            },
+            cert.name
+        );
+        let raw_key_id = if ar.key_id_prefix.trim().is_empty() {
+            default_key_id
+        } else {
+            format!("{}-{default_key_id}", ar.key_id_prefix.trim())
+        };
+        let cert_key_id = ssh::sanitize_key_id(&raw_key_id, "ssh-cert");
+        let serial = Utc::now().timestamp_millis().max(1) as u64;
+
+        let signed_cert = match ssh::sign_user_public_key_with_ca(
+            ca_priv_plain.as_slice(),
+            &ca.public_key,
+            effective_pass.as_str(),
+            &cert.public_key,
+            &cert_key_id,
+            &effective_principals,
+            &validity_spec,
+            serial,
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let mut next = ar.clone();
+                next.ca_name = ca.name.clone();
+                next.last_checked_at = Some(attempt_iso);
+                next.last_error = Some(e);
+                let _ = state.db.update_certificate_auto_renew(&cert.id, Some(&next));
+                continue;
+            }
+        };
+
+        let target_priv_plain = match state
+            .vault
+            .decrypt(&cert.private_key_enc, &cert.private_key_nonce)
+        {
+            Ok(b) => zeroize::Zeroizing::new(b),
+            Err(_) => {
+                let mut next = ar.clone();
+                next.ca_name = ca.name.clone();
+                next.last_checked_at = Some(attempt_iso);
+                next.last_error = Some("Zertifikat konnte nicht verifiziert werden.".to_string());
+                let _ = state.db.update_certificate_auto_renew(&cert.id, Some(&next));
+                continue;
+            }
+        };
+        let target_priv_str =
+            zeroize::Zeroizing::new(String::from_utf8_lossy(&target_priv_plain).to_string());
+
+        let inspection = match ssh::inspect_certificate_bundle(
+            &target_priv_str,
+            &cert.public_key,
+            Some(&signed_cert),
+        )
+        .await
+        {
+            Ok(m) => m,
+            Err(e) => {
+                let mut next = ar.clone();
+                next.ca_name = ca.name.clone();
+                next.last_checked_at = Some(attempt_iso);
+                next.last_error = Some(e);
+                let _ = state.db.update_certificate_auto_renew(&cert.id, Some(&next));
+                continue;
+            }
+        };
+
+        let cert_file_name = ssh::derive_cert_file_name(
+            &cert.cert_file_name,
+            &cert.public_key_file_name,
+            &cert.private_key_file_name,
+        );
+        let mut next_ar = ar.clone();
+        next_ar.ca_name = ca.name.clone();
+        next_ar.principals = stored_principals;
+        next_ar.include_owner_principal = include_owner;
+        next_ar.validity = validity_spec;
+        next_ar.renew_before_seconds = effective_renew_before_sec;
+        next_ar.last_renewed_at = Some(attempt_iso.clone());
+        next_ar.last_checked_at = Some(attempt_iso);
+        next_ar.last_error = None;
+
+        let _ = state.db.update_certificate_signed_cert(
+            &cert.id,
+            &cert_file_name,
+            &signed_cert,
+            &inspection,
+            Some(&next_ar),
+        );
+    }
 }
 
 #[derive(Default)]
@@ -2790,6 +4864,20 @@ async fn apply_partial_cert_update(
         .trim()
         .to_string();
 
+    if !payload.remove_cert
+        && payload
+            .cert_content
+            .as_deref()
+            .map(|c| !c.trim().is_empty())
+            .unwrap_or(false)
+    {
+        require_perm(
+            user,
+            user.permissions.upload_signed_cert,
+            "Ihre Benutzergruppe darf keine eigenen signierten Zertifikate (zertifikat-cert.pub) hochladen.",
+        )?;
+    }
+
     let effective_cert = if payload.remove_cert {
         String::new()
     } else if let Some(new_cert) = payload.cert_content.as_deref() {
@@ -2810,9 +4898,27 @@ async fn apply_partial_cert_update(
     .await
     .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
 
+    if payload.private_key_content.is_some()
+        && user.role != "admin"
+        && user.permissions.require_certificate_passphrase
+        && !inspection.private_key_encrypted
+    {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Ihre Benutzergruppe erfordert passwortgeschützte (verschlüsselte) SSH-Zertifikate.",
+        ));
+    }
+
     let (next_pass_enc, next_pass_nonce) = if payload.clear_passphrase {
         (None, None)
     } else if let Some(ref new_pass) = payload.passphrase {
+        require_perm(
+            user,
+            user.permissions.store_certificate_passphrase,
+            "Ihre Benutzergruppe darf keine Zertifikats-Passwörter auf dem Server speichern.",
+        )?;
+        auth::validate_password_complexity(new_pass)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
         let (pe, pn) = state
             .vault
             .encrypt(new_pass.as_bytes())
@@ -2877,6 +4983,11 @@ async fn api_update_cert(
     req: AxumRequest,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.upload_certificates,
+        "Ihre Benutzergruppe darf keine SSH-Zertifikate oder Schlüssel hochladen oder verwalten.",
+    )?;
     let owner = state
         .db
         .get_certificate_owner(&id)
@@ -2914,11 +5025,17 @@ fn require_api_key_user(state: &SharedState, headers: &HeaderMap) -> Result<User
         return Err(err_resp(StatusCode::UNAUTHORIZED, "Ungültiger API-Schlüssel."));
     }
     let key_hash = hash_api_key(&api_key);
-    state
+    let user = state
         .db
         .user_by_api_key_hash(&key_hash)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?
-        .ok_or_else(|| err_resp(StatusCode::UNAUTHORIZED, "Ungültiger oder widerrufener API-Schlüssel."))
+        .ok_or_else(|| err_resp(StatusCode::UNAUTHORIZED, "Ungültiger oder widerrufener API-Schlüssel."))?;
+    require_perm(
+        &user,
+        user.permissions.use_api,
+        "Ihre Benutzergruppe darf die API bzw. persönliche API-Schlüssel nicht nutzen.",
+    )?;
+    Ok(user)
 }
 
 async fn api_v1_list_certs(
@@ -2942,6 +5059,11 @@ async fn api_v1_upload_cert(
     req: AxumRequest,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let user = require_api_key_user(&state, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.upload_certificates,
+        "Ihre Benutzergruppe darf keine SSH-Zertifikate oder Schlüssel hochladen oder verwalten.",
+    )?;
     let payload = parse_cert_payload(&headers, req, &state).await?;
 
     let priv_content = payload.private_key_content.clone().unwrap_or_default();
@@ -2982,7 +5104,24 @@ async fn api_v1_upload_cert(
         ));
     }
 
+    if let Some(pass) = payload.passphrase.as_deref().filter(|p| !p.is_empty()) {
+        require_perm(
+            &user,
+            user.permissions.store_certificate_passphrase,
+            "Ihre Benutzergruppe darf keine Zertifikats-Passwörter auf dem Server speichern.",
+        )?;
+        auth::validate_password_complexity(pass)
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+    }
+
     let clean_cert = cert_content.trim();
+    if !clean_cert.is_empty() {
+        require_perm(
+            &user,
+            user.permissions.upload_signed_cert,
+            "Ihre Benutzergruppe darf keine eigenen signierten Zertifikate (zertifikat-cert.pub) hochladen.",
+        )?;
+    }
     let inspection = ssh::inspect_certificate_bundle(
         &priv_content,
         &pub_content,
@@ -2994,6 +5133,16 @@ async fn api_v1_upload_cert(
     )
     .await
     .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
+
+    if user.role != "admin"
+        && user.permissions.require_certificate_passphrase
+        && !inspection.private_key_encrypted
+    {
+        return Err(err_resp(
+            StatusCode::FORBIDDEN,
+            "Ihre Benutzergruppe erfordert passwortgeschützte (verschlüsselte) SSH-Zertifikate.",
+        ));
+    }
 
     let (enc, nonce) = state
         .vault
@@ -3067,6 +5216,11 @@ async fn api_v1_update_cert(
     req: AxumRequest,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user = require_api_key_user(&state, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.upload_certificates,
+        "Ihre Benutzergruppe darf keine SSH-Zertifikate oder Schlüssel hochladen oder verwalten.",
+    )?;
     let existing = state
         .db
         .get_owned_certificate_by_id_or_name(&user.id, &id_or_name)
@@ -3119,6 +5273,11 @@ async fn api_shell_ticket(
     Json(req): Json<shell::ShellTicketRequest>,
 ) -> Result<Json<shell::ShellTicketResponse>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.use_ssh_shell,
+        "Ihre Benutzergruppe darf die interaktive SSH-Shell nicht nutzen.",
+    )?;
     let cert = state
         .db
         .get_accessible_certificate_secret(&req.certificate_id, &user.id)
@@ -3168,6 +5327,11 @@ async fn api_shell_ticket(
                 effective_ignore,
             )
         } else {
+            require_perm(
+                &user,
+                user.permissions.use_ssh_shell_custom_ip,
+                "Ihre Benutzergruppe darf in der SSH-Shell keine freie IP-Adresse eingeben (nur gespeicherte/freigegebene Server).",
+            )?;
             let raw_ip = req.ip_address.as_deref().unwrap_or("");
             let ip = ssh::validate_ip(raw_ip).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
             let port = req.port.unwrap_or(22).clamp(1, 65535);
@@ -3293,6 +5457,11 @@ async fn api_execute(
     Json(req): Json<ExecuteRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.execute_commands,
+        "Ihre Benutzergruppe darf keine SSH-Befehle ausführen.",
+    )?;
     let cmd = state
         .db
         .get_accessible_command(&req.command_id, &user.id)
@@ -3466,6 +5635,11 @@ async fn api_list_logs(
     Query(query): Query<ListLogsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.view_own_logs,
+        "Ihre Benutzergruppe darf das Ausführungsprotokoll nicht einsehen.",
+    )?;
     let logs = state
         .db
         .list_logs(&user, query.user_id.as_deref())
@@ -3791,6 +5965,11 @@ async fn api_execute_batch(
     Json(req): Json<BatchExecuteRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.execute_commands,
+        "Ihre Benutzergruppe darf keine SSH-Befehle ausführen.",
+    )?;
     let cert = state
         .db
         .get_accessible_certificate_secret(&req.certificate_id, &user.id)
@@ -3951,6 +6130,11 @@ async fn api_execute_batch_async(
     Json(req): Json<BatchExecuteRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let (user, _) = current_compliant_user(&state, &jar, &headers)?;
+    require_perm(
+        &user,
+        user.permissions.execute_commands,
+        "Ihre Benutzergruppe darf keine SSH-Befehle ausführen.",
+    )?;
     let cert = state
         .db
         .get_accessible_certificate_secret(&req.certificate_id, &user.id)
@@ -4386,6 +6570,11 @@ async fn api_reset_user_host_key(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
+        require_perm(
+            &user,
+            user.permissions.use_ssh_shell_custom_ip,
+            "Ihre Benutzergruppe darf in der SSH-Shell keine freie IP-Adresse eingeben (nur gespeicherte/freigegebene Server).",
+        )?;
         let ip = ssh::validate_ip(raw_ip).map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))?;
         let port = req.port.unwrap_or(22);
         if port == 0 {
@@ -4707,6 +6896,18 @@ async fn main() {
         }
     });
 
+    // Hintergrund-Worker für automatische Neuzertifizierung (bis auf Widerruf oder Rechteentzug)
+    let auto_renew_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            run_auto_renew_cycle(&auto_renew_state).await;
+        }
+    });
+
     let static_dir = PathBuf::from(
         std::env::var("SSH_CONSOLE_STATIC_DIR")
             .or_else(|_| std::env::var("TRIXIESSH_STATIC_DIR"))
@@ -4736,6 +6937,15 @@ async fn main() {
         .route("/api/auth/change-password", post(api_change_password))
         .route("/api/auth/api-keys", get(api_list_api_keys).post(api_create_api_key))
         .route("/api/auth/api-keys/:id", delete(api_delete_api_key))
+        .route("/api/users/shareable", get(api_list_shareable_users))
+        .route(
+            "/api/admin/groups",
+            get(api_admin_list_groups).post(api_admin_create_group),
+        )
+        .route(
+            "/api/admin/groups/:id",
+            patch(api_admin_update_group).delete(api_admin_delete_group),
+        )
         .route("/api/admin/users", get(api_admin_list_users).post(api_admin_create_user))
         .route(
             "/api/admin/users/:id",
@@ -4779,13 +6989,32 @@ async fn main() {
             "/api/admin/host-keys",
             get(api_admin_host_key_stats).delete(api_admin_clear_host_keys),
         )
+        .route("/api/admin/ca", get(api_admin_list_cas).post(api_admin_upload_ca))
+        .route("/api/admin/ca/generate", post(api_admin_generate_ca))
+        .route(
+            "/api/admin/ca/:id",
+            put(api_admin_update_ca).delete(api_admin_delete_ca),
+        )
         .route("/api/certificates", get(api_list_certs).post(api_upload_cert))
         .route("/api/certificates/generate-test", post(api_generate_test_cert))
+        .route("/api/certificates/signing-cas", get(api_list_signing_cas))
+        .route("/api/certificates/self-sign", post(api_self_sign_certs))
+        .route(
+            "/api/certificates/auto-renew/revoke",
+            post(api_revoke_cert_auto_renew_batch),
+        )
         .route(
             "/api/certificates/:id",
             patch(api_update_cert).delete(api_delete_cert),
         )
+        .route(
+            "/api/certificates/:id/auto-renew",
+            delete(api_revoke_cert_auto_renew),
+        )
         .route("/api/certificates/:id/share", patch(api_share_cert))
+        .route("/api/admin/certificates", get(api_admin_list_certs))
+        .route("/api/admin/certificates/sign", post(api_admin_sign_certs))
+        .route("/api/admin/certificates/:id", delete(api_admin_delete_cert))
         .route("/api/v1/certificates", get(api_v1_list_certs))
         .route("/api/v1/certificates/upload", post(api_v1_upload_cert))
         .route(

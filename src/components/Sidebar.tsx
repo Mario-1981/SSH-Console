@@ -12,6 +12,7 @@ import {
   Lock,
   X,
   Activity,
+  FileKey2,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { ActiveTab, User } from '../types';
@@ -45,18 +46,28 @@ export function Sidebar({
 }: SidebarProps) {
   const { tr } = useI18n();
 
+  const isAdmin = user.role === 'admin';
+  const canUseShell = isAdmin || user.permissions?.useSshShell !== false;
+  const canViewLogs = isAdmin || user.permissions?.viewOwnLogs !== false;
+  const canExecuteCommands = isAdmin || user.permissions?.executeCommands !== false;
+
   const workspaceItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'shell', label: 'SSH-Shell', icon: Terminal },
-    { id: 'jobs', label: tr('Hintergrundprozesse', 'Background Jobs'), icon: Activity },
+    ...(canUseShell ? [{ id: 'shell' as ActiveTab, label: 'SSH-Shell', icon: Terminal }] : []),
+    ...(canExecuteCommands || activeJobsCount > 0
+      ? [{ id: 'jobs' as ActiveTab, label: tr('Hintergrundprozesse', 'Background Jobs'), icon: Activity }]
+      : []),
     { id: 'admin-commands', label: tr('SSH-Befehle', 'SSH Commands'), icon: SlidersHorizontal },
     { id: 'servers', label: tr('Meine Server (IPs)', 'My Servers (IPs)'), icon: Server },
     { id: 'certificates', label: tr('SSH-Zertifikate', 'SSH Certificates'), icon: KeyRound },
-    { id: 'logs', label: tr('Ausführungsprotokoll', 'Execution Log'), icon: History },
+    ...(canViewLogs
+      ? [{ id: 'logs' as ActiveTab, label: tr('Ausführungsprotokoll', 'Execution Log'), icon: History }]
+      : []),
   ];
 
   const adminItems: NavItem[] = [
-    { id: 'admin-users', label: tr('Benutzerverwaltung', 'User Management'), icon: Users },
+    { id: 'admin-users', label: tr('Benutzer & Gruppen', 'Users & Groups'), icon: Users },
+    { id: 'admin-ca', label: tr('CA-Zertifikate', 'CA Certificates'), icon: FileKey2 },
     { id: 'admin-auth', label: tr('Authentifizierung & SSO', 'Auth & SSO'), icon: ShieldCheck },
   ];
 
@@ -164,7 +175,7 @@ export function Sidebar({
             <p className="text-sm font-medium text-slate-900 truncate">{user.displayName}</p>
             <p className="text-xs text-slate-500 truncate">
               <span className="font-mono">{user.username}</span> ·{' '}
-              {user.role === 'admin' ? 'Administrator' : tr('Benutzer', 'User')}
+              {user.groupName || (user.role === 'admin' ? 'Administratoren' : tr('Benutzer', 'User'))}
             </p>
           </div>
           <button

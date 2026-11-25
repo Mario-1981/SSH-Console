@@ -1,6 +1,144 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_validity() -> String {
+    "+30d".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupCaAssignment {
+    pub ca_id: String,
+    #[serde(default)]
+    pub principals: Vec<String>,
+    #[serde(default)]
+    pub include_owner_principal: bool,
+    #[serde(default = "default_validity")]
+    pub validity: String,
+    #[serde(default)]
+    pub auto_renew_before_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupPermissions {
+    #[serde(default = "default_true")]
+    pub manage_own_servers: bool,
+    #[serde(default = "default_true")]
+    pub create_single_commands: bool,
+    #[serde(default = "default_true")]
+    pub create_chain_commands: bool,
+    #[serde(default = "default_true")]
+    pub create_workflow_commands: bool,
+    #[serde(default = "default_true")]
+    pub upload_certificates: bool,
+    #[serde(default = "default_true")]
+    pub upload_signed_cert: bool,
+    #[serde(default = "default_true")]
+    pub generate_test_certificates: bool,
+    #[serde(default)]
+    pub require_certificate_passphrase: bool,
+    #[serde(default = "default_true")]
+    pub store_certificate_passphrase: bool,
+    #[serde(default)]
+    pub self_sign_certificates: bool,
+    #[serde(default)]
+    pub auto_renew_certificates: bool,
+    #[serde(default = "default_true")]
+    pub use_api: bool,
+    #[serde(default)]
+    pub share_resources: bool,
+    #[serde(default = "default_true")]
+    pub use_ssh_shell: bool,
+    #[serde(default = "default_true")]
+    pub use_ssh_shell_custom_ip: bool,
+    #[serde(default = "default_true")]
+    pub execute_commands: bool,
+    #[serde(default = "default_true")]
+    pub view_own_logs: bool,
+    #[serde(default)]
+    pub ca_signing_assignments: Vec<GroupCaAssignment>,
+}
+
+impl GroupPermissions {
+    pub fn all() -> Self {
+        Self {
+            manage_own_servers: true,
+            create_single_commands: true,
+            create_chain_commands: true,
+            create_workflow_commands: true,
+            upload_certificates: true,
+            upload_signed_cert: true,
+            generate_test_certificates: true,
+            require_certificate_passphrase: false,
+            store_certificate_passphrase: true,
+            self_sign_certificates: true,
+            auto_renew_certificates: true,
+            use_api: true,
+            share_resources: true,
+            use_ssh_shell: true,
+            use_ssh_shell_custom_ip: true,
+            execute_commands: true,
+            view_own_logs: true,
+            ca_signing_assignments: Vec::new(),
+        }
+    }
+
+    pub fn default_user() -> Self {
+        Self {
+            manage_own_servers: true,
+            create_single_commands: true,
+            create_chain_commands: true,
+            create_workflow_commands: true,
+            upload_certificates: true,
+            upload_signed_cert: true,
+            generate_test_certificates: true,
+            require_certificate_passphrase: false,
+            store_certificate_passphrase: true,
+            self_sign_certificates: false,
+            auto_renew_certificates: false,
+            use_api: true,
+            share_resources: false,
+            use_ssh_shell: true,
+            use_ssh_shell_custom_ip: true,
+            execute_commands: true,
+            view_own_logs: true,
+            ca_signing_assignments: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserGroup {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub is_system: bool,
+    pub is_immutable: bool,
+    pub is_admin: bool,
+    pub permissions: GroupPermissions,
+    pub member_count: usize,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareableUser {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub role: String,
+    pub group_id: String,
+    pub group_name: String,
+    pub active: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserPublic {
@@ -8,6 +146,9 @@ pub struct UserPublic {
     pub username: String,
     pub display_name: String,
     pub role: String, // "admin" | "user"
+    pub group_id: String,
+    pub group_name: String,
+    pub permissions: GroupPermissions,
     pub auth_provider: String, // "local" | "sso"
     pub email: String,
     pub default_ssh_user: String,
@@ -254,6 +395,42 @@ impl Default for CertInspection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CertificateAutoRenewConfig {
+    pub enabled: bool,
+    pub mode: String, // "admin" | "user"
+    pub ca_id: String,
+    #[serde(default)]
+    pub ca_name: String,
+    #[serde(default)]
+    pub principals: Vec<String>,
+    #[serde(default)]
+    pub include_owner_principal: bool,
+    #[serde(default = "default_validity")]
+    pub validity: String,
+    #[serde(default)]
+    pub key_id_prefix: String,
+    #[serde(default)]
+    pub renew_before_seconds: u64,
+    #[serde(default)]
+    pub enabled_by_user_id: String,
+    #[serde(default)]
+    pub enabled_by_username: String,
+    #[serde(default)]
+    pub enabled_at: String,
+    #[serde(default)]
+    pub last_renewed_at: Option<String>,
+    #[serde(default)]
+    pub last_checked_at: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub revoked_at: Option<String>,
+    #[serde(default)]
+    pub revoked_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UserCertificatePublic {
     pub id: String,
     pub user_id: String,
@@ -265,6 +442,8 @@ pub struct UserCertificatePublic {
     pub metadata: CertInspection,
     #[serde(default)]
     pub has_stored_passphrase: bool,
+    #[serde(default)]
+    pub auto_renew: Option<CertificateAutoRenewConfig>,
     pub shared_with_all: bool,
     pub shared_with_user_ids: Vec<String>,
     pub uploaded_at: String,
@@ -282,6 +461,63 @@ pub struct UserCertificateSecret {
     pub public_key: String,
     pub certificate: String,
     pub key_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredCertificateForSigning {
+    pub id: String,
+    pub user_id: String,
+    pub owner_username: String,
+    pub name: String,
+    pub private_key_file_name: String,
+    pub public_key_file_name: String,
+    pub cert_file_name: String,
+    pub private_key_enc: Vec<u8>,
+    pub private_key_nonce: Vec<u8>,
+    pub public_key: String,
+    pub certificate: String,
+    pub has_certificate: bool,
+    pub existing_ca_fingerprint: String,
+    pub valid_after_unix: i64,
+    pub valid_before_unix: i64,
+    pub auto_renew: Option<CertificateAutoRenewConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CertificateAuthorityPublic {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub private_key_file_name: String,
+    pub public_key_file_name: String,
+    pub public_key: String,
+    pub key_type: String,
+    pub fingerprint: String,
+    pub private_key_format: String,
+    pub private_key_encrypted: bool,
+    pub has_stored_passphrase: bool,
+    pub created_by: String,
+    pub created_by_username: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredCertificateAuthorityForEdit {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub private_key_file_name: String,
+    pub public_key_file_name: String,
+    pub private_key_enc: Vec<u8>,
+    pub private_key_nonce: Vec<u8>,
+    pub passphrase_enc: Option<Vec<u8>>,
+    pub passphrase_nonce: Option<Vec<u8>>,
+    pub public_key: String,
+    pub key_type: String,
+    pub fingerprint: String,
+    pub private_key_format: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,7 +569,10 @@ pub struct CreateUserRequest {
     #[serde(alias = "display_name")]
     pub display_name: Option<String>,
     pub password: String,
-    pub role: String,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(alias = "group_id")]
+    pub group_id: Option<String>,
     #[serde(alias = "default_ssh_user")]
     pub default_ssh_user: Option<String>,
 }
@@ -344,11 +583,29 @@ pub struct UpdateUserRequest {
     #[serde(alias = "display_name")]
     pub display_name: Option<String>,
     pub role: Option<String>,
+    #[serde(alias = "group_id")]
+    pub group_id: Option<String>,
     #[serde(alias = "default_ssh_user")]
     pub default_ssh_user: Option<String>,
     pub active: Option<bool>,
     #[serde(alias = "new_password")]
     pub new_password: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateGroupRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub permissions: Option<GroupPermissions>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateGroupRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub permissions: Option<GroupPermissions>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -514,6 +771,8 @@ pub struct UploadCertBundleRequest {
     pub cert_content: Option<String>,
     #[serde(default, alias = "key_passphrase", alias = "keyPassphrase")]
     pub passphrase: Option<String>,
+    #[serde(default)]
+    pub overwrite: Option<bool>,
     #[serde(alias = "shared_with_all")]
     pub shared_with_all: Option<bool>,
     #[serde(alias = "shared_with_user_ids")]
@@ -569,7 +828,57 @@ pub struct StoredCertificateForEdit {
 pub struct GenerateTestCertRequest {
     #[serde(alias = "key_id")]
     pub key_id: Option<String>,
-    pub principals: Option<Vec<String>>,
+    pub passphrase: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateCaRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub passphrase: String,
+    #[serde(default, alias = "store_passphrase")]
+    pub store_passphrase: Option<bool>,
+    #[serde(default)]
+    pub overwrite: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadCaRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    #[serde(alias = "private_key_file_name")]
+    pub private_key_file_name: Option<String>,
+    #[serde(alias = "public_key_file_name")]
+    pub public_key_file_name: Option<String>,
+    #[serde(alias = "private_key_content")]
+    pub private_key_content: String,
+    #[serde(alias = "public_key_content")]
+    pub public_key_content: String,
+    #[serde(default)]
+    pub passphrase: Option<String>,
+    #[serde(default)]
+    pub overwrite: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCaRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    #[serde(alias = "private_key_file_name")]
+    pub private_key_file_name: Option<String>,
+    #[serde(alias = "public_key_file_name")]
+    pub public_key_file_name: Option<String>,
+    #[serde(alias = "private_key_content")]
+    pub private_key_content: Option<String>,
+    #[serde(alias = "public_key_content")]
+    pub public_key_content: Option<String>,
+    #[serde(default)]
+    pub passphrase: Option<String>,
+    #[serde(default, alias = "clear_passphrase")]
+    pub clear_passphrase: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -758,4 +1067,66 @@ pub struct AdminDeleteHostKeysRequest {
     #[serde(default)]
     pub port: Option<u16>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminSignCertificatesRequest {
+    pub ca_id: String,
+    #[serde(default)]
+    pub ca_passphrase: Option<String>,
+    #[serde(default)]
+    pub certificate_ids: Vec<String>,
+    #[serde(default)]
+    pub principals: serde_json::Value,
+    #[serde(default)]
+    pub include_owner_principal: bool,
+    #[serde(default)]
+    pub validity: Option<String>,
+    #[serde(default)]
+    pub key_id: Option<String>,
+    #[serde(default)]
+    pub confirm_overwrite_foreign_ca: bool,
+    #[serde(default)]
+    pub auto_renew: Option<bool>,
+    #[serde(default)]
+    pub auto_renew_before_seconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserSelfSignCertificatesRequest {
+    pub ca_id: String,
+    #[serde(default)]
+    pub certificate_ids: Vec<String>,
+    #[serde(default)]
+    pub confirm_overwrite_foreign_ca: bool,
+    #[serde(default)]
+    pub auto_renew: Option<bool>,
+    #[serde(default)]
+    pub auto_renew_before_seconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeAutoRenewBatchRequest {
+    #[serde(default)]
+    pub certificate_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignedSigningCaPublic {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub key_type: String,
+    pub fingerprint: String,
+    pub has_stored_passphrase: bool,
+    pub principals: Vec<String>,
+    pub include_owner_principal: bool,
+    pub effective_principals: Vec<String>,
+    pub validity: String,
+    pub auto_renew_before_seconds: u64,
+}
+
 

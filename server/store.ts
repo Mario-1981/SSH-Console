@@ -8,6 +8,255 @@ export type UserRole = 'admin' | 'user';
 export type AuthProvider = 'local' | 'sso';
 export type WebAuthnCredentialKind = 'security-key' | 'passkey';
 
+export const ADMIN_GROUP_ID = 'admin';
+export const USER_GROUP_ID = 'user';
+
+export interface GroupCaAssignment {
+  caId: string;
+  principals: string[];
+  includeOwnerPrincipal: boolean;
+  validity: string;
+  autoRenewBeforeSeconds: number;
+}
+
+export interface GroupPermissions {
+  manageOwnServers: boolean;
+  createSingleCommands: boolean;
+  createChainCommands: boolean;
+  createWorkflowCommands: boolean;
+  uploadCertificates: boolean;
+  uploadSignedCert: boolean;
+  generateTestCertificates: boolean;
+  requireCertificatePassphrase: boolean;
+  storeCertificatePassphrase: boolean;
+  selfSignCertificates: boolean;
+  autoRenewCertificates: boolean;
+  useApi: boolean;
+  shareResources: boolean;
+  useSshShell: boolean;
+  useSshShellCustomIp: boolean;
+  executeCommands: boolean;
+  viewOwnLogs: boolean;
+  caSigningAssignments: GroupCaAssignment[];
+}
+
+export type PermissionKey = Exclude<keyof GroupPermissions, 'caSigningAssignments'>;
+
+const PRINCIPAL_TOKEN_RE = /^[a-zA-Z0-9._@+-]{1,64}$/;
+
+export function normalizeAutoRenewBeforeSeconds(raw: unknown): number {
+  if (raw === undefined || raw === null || raw === '') return 0;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.max(Math.floor(n), 60), 180 * 86400);
+}
+
+export function normalizeGroupCaAssignments(
+  input: unknown,
+  fallback: GroupCaAssignment[] = []
+): GroupCaAssignment[] {
+  if (!Array.isArray(input)) {
+    return fallback.map((a) => ({
+      caId: a.caId,
+      principals: [...a.principals],
+      includeOwnerPrincipal: Boolean(a.includeOwnerPrincipal),
+      validity: a.validity || '+30d',
+      autoRenewBeforeSeconds: normalizeAutoRenewBeforeSeconds(a.autoRenewBeforeSeconds),
+    }));
+  }
+  const seen = new Set<string>();
+  const out: GroupCaAssignment[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const obj = raw as Record<string, unknown>;
+    const caId = typeof obj.caId === 'string' ? obj.caId.trim() : '';
+    if (!caId || seen.has(caId)) continue;
+    seen.add(caId);
+
+    const rawPrincipals = Array.isArray(obj.principals)
+      ? obj.principals
+      : typeof obj.principals === 'string'
+        ? obj.principals.split(/[,;\n\r\s]+/)
+        : [];
+    const principals: string[] = [];
+    for (const p of rawPrincipals) {
+      if (typeof p !== 'string') continue;
+      const clean = p.trim();
+      if (!clean || !PRINCIPAL_TOKEN_RE.test(clean)) continue;
+      if (!principals.includes(clean)) {
+        principals.push(clean);
+      }
+      if (principals.length >= 32) break;
+    }
+
+    const rawValidity = typeof obj.validity === 'string' ? obj.validity.trim() : '';
+    const validity = rawValidity || '+30d';
+    const isForever = ['forever', 'always', 'always:forever'].includes(validity.toLowerCase());
+    const autoRenewBeforeSeconds = isForever
+      ? 0
+      : normalizeAutoRenewBeforeSeconds(obj.autoRenewBeforeSeconds);
+    out.push({
+      caId,
+      principals,
+      includeOwnerPrincipal: Boolean(obj.includeOwnerPrincipal),
+      validity,
+      autoRenewBeforeSeconds,
+    });
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+export const ALL_GROUP_PERMISSIONS: GroupPermissions = {
+  manageOwnServers: true,
+  createSingleCommands: true,
+  createChainCommands: true,
+  createWorkflowCommands: true,
+  uploadCertificates: true,
+  uploadSignedCert: true,
+  generateTestCertificates: true,
+  requireCertificatePassphrase: false,
+  storeCertificatePassphrase: true,
+  selfSignCertificates: true,
+  autoRenewCertificates: true,
+  useApi: true,
+  shareResources: true,
+  useSshShell: true,
+  useSshShellCustomIp: true,
+  executeCommands: true,
+  viewOwnLogs: true,
+  caSigningAssignments: [],
+};
+
+export const DEFAULT_USER_GROUP_PERMISSIONS: GroupPermissions = {
+  manageOwnServers: true,
+  createSingleCommands: true,
+  createChainCommands: true,
+  createWorkflowCommands: true,
+  uploadCertificates: true,
+  uploadSignedCert: true,
+  generateTestCertificates: true,
+  requireCertificatePassphrase: false,
+  storeCertificatePassphrase: true,
+  selfSignCertificates: false,
+  autoRenewCertificates: false,
+  useApi: true,
+  shareResources: false,
+  useSshShell: true,
+  useSshShellCustomIp: true,
+  executeCommands: true,
+  viewOwnLogs: true,
+  caSigningAssignments: [],
+};
+
+export function normalizeGroupPermissions(
+  input: Partial<GroupPermissions> | Record<string, unknown> | null | undefined,
+  fallback: GroupPermissions = DEFAULT_USER_GROUP_PERMISSIONS
+): GroupPermissions {
+  const src: Record<string, unknown> =
+    input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  return {
+    manageOwnServers:
+      typeof src.manageOwnServers === 'boolean' ? src.manageOwnServers : fallback.manageOwnServers,
+    createSingleCommands:
+      typeof src.createSingleCommands === 'boolean'
+        ? src.createSingleCommands
+        : fallback.createSingleCommands,
+    createChainCommands:
+      typeof src.createChainCommands === 'boolean'
+        ? src.createChainCommands
+        : fallback.createChainCommands,
+    createWorkflowCommands:
+      typeof src.createWorkflowCommands === 'boolean'
+        ? src.createWorkflowCommands
+        : fallback.createWorkflowCommands,
+    uploadCertificates:
+      typeof src.uploadCertificates === 'boolean'
+        ? src.uploadCertificates
+        : fallback.uploadCertificates,
+    uploadSignedCert:
+      typeof src.uploadSignedCert === 'boolean'
+        ? src.uploadSignedCert
+        : fallback.uploadSignedCert,
+    generateTestCertificates:
+      typeof src.generateTestCertificates === 'boolean'
+        ? src.generateTestCertificates
+        : fallback.generateTestCertificates,
+    requireCertificatePassphrase:
+      typeof src.requireCertificatePassphrase === 'boolean'
+        ? src.requireCertificatePassphrase
+        : fallback.requireCertificatePassphrase,
+    storeCertificatePassphrase:
+      typeof src.storeCertificatePassphrase === 'boolean'
+        ? src.storeCertificatePassphrase
+        : fallback.storeCertificatePassphrase,
+    selfSignCertificates:
+      typeof src.selfSignCertificates === 'boolean'
+        ? src.selfSignCertificates
+        : fallback.selfSignCertificates,
+    autoRenewCertificates:
+      typeof src.autoRenewCertificates === 'boolean'
+        ? src.autoRenewCertificates
+        : fallback.autoRenewCertificates,
+    useApi: typeof src.useApi === 'boolean' ? src.useApi : fallback.useApi,
+    shareResources:
+      typeof src.shareResources === 'boolean' ? src.shareResources : fallback.shareResources,
+    useSshShell: typeof src.useSshShell === 'boolean' ? src.useSshShell : fallback.useSshShell,
+    useSshShellCustomIp:
+      typeof src.useSshShellCustomIp === 'boolean'
+        ? src.useSshShellCustomIp
+        : fallback.useSshShellCustomIp,
+    executeCommands:
+      typeof src.executeCommands === 'boolean' ? src.executeCommands : fallback.executeCommands,
+    viewOwnLogs: typeof src.viewOwnLogs === 'boolean' ? src.viewOwnLogs : fallback.viewOwnLogs,
+    caSigningAssignments: normalizeGroupCaAssignments(
+      src.caSigningAssignments,
+      fallback.caSigningAssignments
+    ),
+  };
+}
+
+export interface UserGroup {
+  id: string;
+  name: string;
+  description: string;
+  isSystem: boolean;
+  isImmutable: boolean;
+  isAdmin: boolean;
+  permissions: GroupPermissions;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function createDefaultGroups(now = new Date().toISOString()): UserGroup[] {
+  return [
+    {
+      id: ADMIN_GROUP_ID,
+      name: 'Administratoren',
+      description:
+        'Vollzugriff auf alle Systemfunktionen, Benutzer-, Gruppen- und Sicherheitseinstellungen. Aus Sicherheitsgründen nicht veränderbar.',
+      isSystem: true,
+      isImmutable: true,
+      isAdmin: true,
+      permissions: { ...ALL_GROUP_PERMISSIONS },
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: USER_GROUP_ID,
+      name: 'Benutzer',
+      description:
+        'Standardgruppe für reguläre Benutzer mit allen gewohnten Arbeitsbereichsrechten (ohne Administration und ohne Freigabe).',
+      isSystem: true,
+      isImmutable: false,
+      isAdmin: false,
+      permissions: { ...DEFAULT_USER_GROUP_PERMISSIONS },
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
 export interface StoredWebAuthnCredential {
   id: string;
   userId: string;
@@ -26,6 +275,7 @@ export interface StoredUser {
   username: string;
   displayName: string;
   role: UserRole;
+  groupId: string;
   authProvider: AuthProvider;
   ssoSubject: string | null;
   email: string;
@@ -144,6 +394,28 @@ export interface EncryptedBlob {
   ciphertext: string;
 }
 
+export type CertificateAutoRenewMode = 'admin' | 'user';
+
+export interface CertificateAutoRenewConfig {
+  enabled: boolean;
+  mode: CertificateAutoRenewMode;
+  caId: string;
+  caName: string;
+  principals: string[];
+  includeOwnerPrincipal: boolean;
+  validity: string;
+  keyIdPrefix: string;
+  renewBeforeSeconds: number;
+  enabledByUserId: string;
+  enabledByUsername: string;
+  enabledAt: string;
+  lastRenewedAt: string | null;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
 export interface UserCertificateBundle {
   id: string;
   userId: string;
@@ -157,9 +429,29 @@ export interface UserCertificateBundle {
   publicKeyContent: string;
   certContent: string;
   metadata: ParsedCertMetadata;
+  autoRenew?: CertificateAutoRenewConfig | null;
   sharedWithAll: boolean;
   sharedWithUserIds: string[];
   uploadedAt: string;
+}
+
+export interface StoredCertificateAuthority {
+  id: string;
+  name: string;
+  description: string;
+  privateKeyFileName: string;
+  publicKeyFileName: string;
+  privateKeyEncrypted: EncryptedBlob;
+  passphraseEncrypted?: EncryptedBlob;
+  publicKey: string;
+  keyType: string;
+  fingerprint: string;
+  privateKeyFormat: ParsedCertMetadata['privateKeyFormat'];
+  privateKeyIsEncrypted: boolean;
+  createdBy: string;
+  createdByUsername: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ExecutionLog {
@@ -219,6 +511,7 @@ export interface AppSettings {
 
 interface DatabaseSchema {
   settings: AppSettings;
+  groups: UserGroup[];
   users: StoredUser[];
   sessions: StoredSession[];
   apiKeys: StoredApiKey[];
@@ -227,6 +520,7 @@ interface DatabaseSchema {
   servers: UserServer[];
   serverCategories: ServerCategory[];
   certificates: UserCertificateBundle[];
+  certificateAuthorities: StoredCertificateAuthority[];
   logs: ExecutionLog[];
 }
 
@@ -327,6 +621,7 @@ function emptyDb(): DatabaseSchema {
       publicUrl: '',
       maxBackgroundJobs: 5,
     },
+    groups: createDefaultGroups(),
     users: [],
     sessions: [],
     apiKeys: [],
@@ -335,6 +630,7 @@ function emptyDb(): DatabaseSchema {
     servers: [],
     serverCategories: [],
     certificates: [],
+    certificateAuthorities: [],
     logs: [],
   };
 }
@@ -370,16 +666,76 @@ class Store {
     }
     try {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) as DatabaseSchema;
-      const users: StoredUser[] = (parsed.users ?? []).map((u) => ({
-        ...u,
-        authProvider: u.authProvider === 'sso' ? 'sso' : 'local',
-        ssoSubject: typeof u.ssoSubject === 'string' && u.ssoSubject ? u.ssoSubject : null,
-        email: typeof u.email === 'string' ? u.email : '',
-        pingEnabled: typeof u.pingEnabled === 'boolean' ? u.pingEnabled : true,
-        totpEnabled: Boolean(u.totpEnabled),
-        totpSecretEncrypted: u.totpSecretEncrypted ?? null,
-        totpRecoveryHashes: Array.isArray(u.totpRecoveryHashes) ? u.totpRecoveryHashes : [],
-      }));
+      const nowIso = new Date().toISOString();
+      const defaultGroups = createDefaultGroups(nowIso);
+      const rawGroups = Array.isArray(parsed.groups) ? parsed.groups : [];
+      const customGroups: UserGroup[] = [];
+      let persistedUserGroup: UserGroup | undefined;
+
+      for (const g of rawGroups) {
+        if (!g || typeof g.id !== 'string' || !g.id.trim()) continue;
+        if (g.id === ADMIN_GROUP_ID) {
+          // Built-in Administratoren group is always immutable with full permissions
+          continue;
+        }
+        if (g.id === USER_GROUP_ID) {
+          persistedUserGroup = {
+            id: USER_GROUP_ID,
+            name: 'Benutzer',
+            description:
+              typeof g.description === 'string' && g.description.trim()
+                ? g.description.trim().slice(0, 240)
+                : defaultGroups[1].description,
+            isSystem: true,
+            isImmutable: false,
+            isAdmin: false,
+            permissions: normalizeGroupPermissions(g.permissions, DEFAULT_USER_GROUP_PERMISSIONS),
+            createdAt: typeof g.createdAt === 'string' ? g.createdAt : nowIso,
+            updatedAt: typeof g.updatedAt === 'string' ? g.updatedAt : nowIso,
+          };
+          continue;
+        }
+        const cleanName = typeof g.name === 'string' ? g.name.trim().slice(0, 64) : '';
+        if (!cleanName) continue;
+        customGroups.push({
+          id: g.id.trim(),
+          name: cleanName,
+          description: typeof g.description === 'string' ? g.description.trim().slice(0, 240) : '',
+          isSystem: false,
+          isImmutable: false,
+          isAdmin: false,
+          permissions: normalizeGroupPermissions(g.permissions, DEFAULT_USER_GROUP_PERMISSIONS),
+          createdAt: typeof g.createdAt === 'string' ? g.createdAt : nowIso,
+          updatedAt: typeof g.updatedAt === 'string' ? g.updatedAt : nowIso,
+        });
+      }
+
+      const groups: UserGroup[] = [
+        defaultGroups[0],
+        persistedUserGroup ?? defaultGroups[1],
+        ...customGroups,
+      ];
+      const groupMap = new Map(groups.map((g) => [g.id, g]));
+
+      const users: StoredUser[] = (parsed.users ?? []).map((u) => {
+        const rawGroupId = typeof (u as Partial<StoredUser>).groupId === 'string' ? u.groupId : '';
+        const resolvedGroup =
+          groupMap.get(rawGroupId) ??
+          groupMap.get(u.role === 'admin' ? ADMIN_GROUP_ID : USER_GROUP_ID) ??
+          defaultGroups[1];
+        return {
+          ...u,
+          groupId: resolvedGroup.id,
+          role: resolvedGroup.isAdmin ? 'admin' : 'user',
+          authProvider: u.authProvider === 'sso' ? 'sso' : 'local',
+          ssoSubject: typeof u.ssoSubject === 'string' && u.ssoSubject ? u.ssoSubject : null,
+          email: typeof u.email === 'string' ? u.email : '',
+          pingEnabled: typeof u.pingEnabled === 'boolean' ? u.pingEnabled : true,
+          totpEnabled: Boolean(u.totpEnabled),
+          totpSecretEncrypted: u.totpSecretEncrypted ?? null,
+          totpRecoveryHashes: Array.isArray(u.totpRecoveryHashes) ? u.totpRecoveryHashes : [],
+        };
+      });
       const usernameToId = new Map(users.map((u) => [u.username.toLowerCase(), u.id]));
       const idToUsername = new Map(users.map((u) => [u.id, u.username]));
       const fallbackAdminId = users.find((u) => u.role === 'admin')?.id ?? '';
@@ -511,6 +867,7 @@ class Store {
       return {
         ...emptyDb(),
         ...parsed,
+        groups,
         users,
         settings: migratedSettings,
         apiKeys: Array.isArray(parsed.apiKeys) ? parsed.apiKeys : [],
@@ -519,6 +876,9 @@ class Store {
         servers: migratedServers,
         serverCategories: migratedServerCategories,
         certificates: migratedCertificates,
+        certificateAuthorities: Array.isArray(parsed.certificateAuthorities)
+          ? parsed.certificateAuthorities
+          : [],
       };
     } catch {
       return emptyDb();
@@ -623,6 +983,7 @@ class Store {
       username: params.username.trim().toLowerCase(),
       displayName: params.displayName.trim() || params.username.trim(),
       role: 'admin',
+      groupId: ADMIN_GROUP_ID,
       authProvider: 'local',
       ssoSubject: null,
       email: '',
@@ -876,6 +1237,7 @@ class Store {
       username: candidate,
       displayName: profile.displayName || candidate,
       role: 'user',
+      groupId: USER_GROUP_ID,
       authProvider: 'sso',
       ssoSubject: ssoKey,
       email: profile.email || '',
@@ -895,6 +1257,168 @@ class Store {
     return { user: createdUser, created: true };
   }
 
+  // ── User Groups & Granular Permissions ────────────────────────────────────
+
+  listGroups(): Array<UserGroup & { memberCount: number }> {
+    const counts = new Map<string, number>();
+    for (const u of this.db.users) {
+      const gid = u.groupId || (u.role === 'admin' ? ADMIN_GROUP_ID : USER_GROUP_ID);
+      counts.set(gid, (counts.get(gid) ?? 0) + 1);
+    }
+    return this.db.groups.map((g) => ({
+      ...g,
+      permissions: g.isAdmin ? { ...ALL_GROUP_PERMISSIONS } : { ...g.permissions },
+      memberCount: counts.get(g.id) ?? 0,
+    }));
+  }
+
+  getGroup(id: string): UserGroup | undefined {
+    const found = this.db.groups.find((g) => g.id === id);
+    if (!found) return undefined;
+    return {
+      ...found,
+      permissions: found.isAdmin ? { ...ALL_GROUP_PERMISSIONS } : { ...found.permissions },
+    };
+  }
+
+  getUserGroup(user: Pick<StoredUser, 'groupId' | 'role'>): UserGroup {
+    const byId = user.groupId ? this.db.groups.find((g) => g.id === user.groupId) : undefined;
+    if (byId) {
+      return {
+        ...byId,
+        permissions: byId.isAdmin ? { ...ALL_GROUP_PERMISSIONS } : { ...byId.permissions },
+      };
+    }
+    const fallbackId = user.role === 'admin' ? ADMIN_GROUP_ID : USER_GROUP_ID;
+    const fallback = this.db.groups.find((g) => g.id === fallbackId) ?? createDefaultGroups()[1];
+    return {
+      ...fallback,
+      permissions: fallback.isAdmin ? { ...ALL_GROUP_PERMISSIONS } : { ...fallback.permissions },
+    };
+  }
+
+  getUserPermissions(user: Pick<StoredUser, 'groupId' | 'role'>): GroupPermissions {
+    const group = this.getUserGroup(user);
+    if (group.isAdmin || user.role === 'admin') {
+      return {
+        ...ALL_GROUP_PERMISSIONS,
+        caSigningAssignments: [],
+      };
+    }
+    return {
+      ...group.permissions,
+      caSigningAssignments: normalizeGroupCaAssignments(group.permissions.caSigningAssignments),
+    };
+  }
+
+  hasPermission(user: Pick<StoredUser, 'groupId' | 'role'>, permission: PermissionKey): boolean {
+    const perms = this.getUserPermissions(user);
+    return Boolean(perms[permission]);
+  }
+
+  createGroup(params: {
+    name: string;
+    description?: string;
+    permissions?: Partial<Record<string, unknown>>;
+  }): UserGroup & { memberCount: number } {
+    const cleanName = params.name.trim().replace(/\s+/g, ' ').slice(0, 64);
+    if (cleanName.length < 2) {
+      throw new Error('Der Gruppenname muss mindestens 2 Zeichen lang sein.');
+    }
+    const lower = cleanName.toLowerCase();
+    if (
+      lower === 'administratoren' ||
+      lower === 'administrator' ||
+      this.db.groups.some((g) => g.name.toLowerCase() === lower)
+    ) {
+      throw new Error(`Eine Benutzergruppe mit dem Namen „${cleanName}“ existiert bereits.`);
+    }
+    const now = new Date().toISOString();
+    const group: UserGroup = {
+      id: crypto.randomUUID(),
+      name: cleanName,
+      description: typeof params.description === 'string' ? params.description.trim().slice(0, 240) : '',
+      isSystem: false,
+      isImmutable: false,
+      isAdmin: false,
+      permissions: normalizeGroupPermissions(params.permissions, DEFAULT_USER_GROUP_PERMISSIONS),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.groups.push(group);
+    this.save();
+    return { ...group, memberCount: 0 };
+  }
+
+  updateGroup(
+    id: string,
+    patch: {
+      name?: string;
+      description?: string;
+      permissions?: Partial<Record<string, unknown>>;
+    }
+  ): UserGroup & { memberCount: number } {
+    const group = this.db.groups.find((g) => g.id === id);
+    if (!group) {
+      throw new Error('Benutzergruppe nicht gefunden.');
+    }
+    if (group.isImmutable || group.id === ADMIN_GROUP_ID) {
+      throw new Error('Die Systemgruppe „Administratoren“ ist aus Sicherheitsgründen geschützt und kann nicht verändert werden.');
+    }
+
+    if (patch.name !== undefined && !group.isSystem) {
+      const cleanName = patch.name.trim().replace(/\s+/g, ' ').slice(0, 64);
+      if (cleanName.length < 2) {
+        throw new Error('Der Gruppenname muss mindestens 2 Zeichen lang sein.');
+      }
+      const lower = cleanName.toLowerCase();
+      if (
+        lower === 'administratoren' ||
+        lower === 'administrator' ||
+        this.db.groups.some((g) => g.id !== id && g.name.toLowerCase() === lower)
+      ) {
+        throw new Error(`Eine Benutzergruppe mit dem Namen „${cleanName}“ existiert bereits.`);
+      }
+      group.name = cleanName;
+    }
+
+    if (patch.description !== undefined) {
+      group.description = patch.description.trim().slice(0, 240);
+    }
+
+    if (patch.permissions !== undefined) {
+      group.permissions = normalizeGroupPermissions(patch.permissions, group.permissions);
+    }
+
+    group.updatedAt = new Date().toISOString();
+    this.reconcileAutoRenewals(false);
+    this.save();
+    const memberCount = this.db.users.filter((u) => u.groupId === group.id).length;
+    return { ...group, permissions: { ...group.permissions }, memberCount };
+  }
+
+  deleteGroup(id: string): { reassignedUserCount: number } {
+    const group = this.db.groups.find((g) => g.id === id);
+    if (!group) {
+      throw new Error('Benutzergruppe nicht gefunden.');
+    }
+    if (group.isSystem || group.isImmutable || group.id === ADMIN_GROUP_ID || group.id === USER_GROUP_ID) {
+      throw new Error('Systemgruppen („Administratoren“ und „Benutzer“) können nicht gelöscht werden.');
+    }
+    let reassignedUserCount = 0;
+    for (const u of this.db.users) {
+      if (u.groupId === id) {
+        u.groupId = USER_GROUP_ID;
+        u.role = 'user';
+        reassignedUserCount++;
+      }
+    }
+    this.db.groups = this.db.groups.filter((g) => g.id !== id);
+    this.reconcileAutoRenewals(false);
+    this.save();
+    return { reassignedUserCount };
+  }
+
   listUsers(): StoredUser[] {
     return [...this.db.users].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
@@ -903,7 +1427,8 @@ class Store {
     username: string;
     displayName: string;
     password: string;
-    role: UserRole;
+    role?: UserRole;
+    groupId?: string;
     defaultSshUser: string;
   }): StoredUser {
     const normalized = params.username.trim().toLowerCase();
@@ -913,12 +1438,18 @@ class Store {
     if (this.db.users.some((u) => u.username === normalized)) {
       throw new Error(`Benutzer "${normalized}" existiert bereits.`);
     }
+    const targetGroupId = params.groupId?.trim() || (params.role === 'admin' ? ADMIN_GROUP_ID : USER_GROUP_ID);
+    const group = this.db.groups.find((g) => g.id === targetGroupId);
+    if (!group) {
+      throw new Error('Die ausgewählte Benutzergruppe existiert nicht.');
+    }
     const { salt, hash } = hashPassword(params.password);
     const user: StoredUser = {
       id: crypto.randomUUID(),
       username: normalized,
       displayName: params.displayName.trim() || normalized,
-      role: params.role,
+      role: group.isAdmin ? 'admin' : 'user',
+      groupId: group.id,
       authProvider: 'local',
       ssoSubject: null,
       email: '',
@@ -1058,6 +1589,7 @@ class Store {
     patch: {
       displayName?: string;
       role?: UserRole;
+      groupId?: string;
       defaultSshUser?: string;
       active?: boolean;
       newPassword?: string;
@@ -1066,19 +1598,35 @@ class Store {
     const user = this.db.users.find((u) => u.id === id);
     if (!user) throw new Error('Benutzer nicht gefunden.');
 
+    let nextGroup: UserGroup | undefined;
+    if (patch.groupId !== undefined && patch.groupId.trim()) {
+      nextGroup = this.db.groups.find((g) => g.id === patch.groupId!.trim());
+      if (!nextGroup) {
+        throw new Error('Die ausgewählte Benutzergruppe existiert nicht.');
+      }
+    } else if (patch.role !== undefined) {
+      const fallbackId = patch.role === 'admin' ? ADMIN_GROUP_ID : USER_GROUP_ID;
+      nextGroup = this.db.groups.find((g) => g.id === fallbackId);
+    }
+
+    const nextRole: UserRole = nextGroup ? (nextGroup.isAdmin ? 'admin' : 'user') : user.role;
+
     // Protect against removing/disabling the last active admin
     const activeAdmins = this.db.users.filter((u) => u.role === 'admin' && u.active);
     if (
       user.role === 'admin' &&
       user.active &&
       activeAdmins.length <= 1 &&
-      (patch.active === false || patch.role === 'user')
+      (patch.active === false || nextRole === 'user')
     ) {
       throw new Error('Der letzte aktive Administrator kann nicht deaktiviert oder herabgestuft werden.');
     }
 
     if (patch.displayName !== undefined) user.displayName = patch.displayName.trim() || user.username;
-    if (patch.role !== undefined) user.role = patch.role;
+    if (nextGroup) {
+      user.groupId = nextGroup.id;
+      user.role = nextGroup.isAdmin ? 'admin' : 'user';
+    }
     if (patch.defaultSshUser !== undefined) user.defaultSshUser = patch.defaultSshUser.trim() || 'root';
     if (patch.active !== undefined) user.active = patch.active;
     if (patch.newPassword && patch.newPassword.length >= 8) {
@@ -1091,6 +1639,7 @@ class Store {
       this.db.sessions = this.db.sessions.filter((s) => s.userId !== user.id);
     }
 
+    this.reconcileAutoRenewals(false);
     this.save();
     return user;
   }
@@ -1115,6 +1664,7 @@ class Store {
     this.db.certificates = this.db.certificates
       .filter((c) => c.userId !== id)
       .map((c) => ({ ...c, sharedWithUserIds: c.sharedWithUserIds.filter((uid) => uid !== id) }));
+    this.reconcileAutoRenewals(false);
     this.save();
   }
 
@@ -1788,6 +2338,10 @@ class Store {
       .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
   }
 
+  listAllCertificates(): UserCertificateBundle[] {
+    return [...this.db.certificates].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+  }
+
   getCertificateById(id: string): UserCertificateBundle | undefined {
     return this.db.certificates.find((c) => c.id === id);
   }
@@ -1797,6 +2351,14 @@ class Store {
       (c) =>
         c.id === id &&
         (c.userId === userId || c.sharedWithAll || c.sharedWithUserIds.includes(userId))
+    );
+  }
+
+  findUserCertificateByName(userId: string, name: string): UserCertificateBundle | undefined {
+    const key = name.trim().toLowerCase();
+    if (!key) return undefined;
+    return this.db.certificates.find(
+      (c) => c.userId === userId && c.name.trim().toLowerCase() === key
     );
   }
 
@@ -1849,6 +2411,16 @@ class Store {
           ? existing.sharedWithUserIds
           : explicitShareIds;
 
+      const updatedAutoRenew: CertificateAutoRenewConfig | null | undefined =
+        existing.autoRenew?.enabled
+          ? {
+              ...existing.autoRenew,
+              enabled: false,
+              revokedAt: now,
+              revokedReason: 'Zertifikatspaket wurde manuell ersetzt',
+            }
+          : existing.autoRenew ?? null;
+
       const updated: UserCertificateBundle = {
         ...existing,
         ownerUsername: params.ownerUsername,
@@ -1861,6 +2433,7 @@ class Store {
         publicKeyContent: params.publicKeyContent.trim() + '\n',
         certContent: formattedCertContent,
         metadata: params.metadata,
+        autoRenew: updatedAutoRenew,
         sharedWithAll: nextSharedWithAll,
         sharedWithUserIds: nextSharedWithUserIds,
         uploadedAt: now,
@@ -1973,6 +2546,14 @@ class Store {
       const trimmedCert = patch.certContent.trim();
       cert.certContent = trimmedCert ? trimmedCert + '\n' : '';
       cert.certFileName = trimmedCert ? patch.certFileName || cert.certFileName || 'zertifikat-cert.pub' : '';
+      if (cert.autoRenew?.enabled) {
+        cert.autoRenew = {
+          ...cert.autoRenew,
+          enabled: false,
+          revokedAt: new Date().toISOString(),
+          revokedReason: 'Zertifikat (zertifikat-cert.pub) wurde manuell geändert',
+        };
+      }
     } else if (patch.certFileName !== undefined && cert.certContent.trim()) {
       cert.certFileName = patch.certFileName || 'zertifikat-cert.pub';
     }
@@ -2005,6 +2586,364 @@ class Store {
   deleteCertificate(id: string, userId: string): void {
     this.db.certificates = this.db.certificates.filter((c) => !(c.id === id && c.userId === userId));
     this.save();
+  }
+
+  deleteCertificateAsAdmin(id: string): boolean {
+    const before = this.db.certificates.length;
+    this.db.certificates = this.db.certificates.filter((c) => c.id !== id);
+    if (this.db.certificates.length === before) return false;
+    this.save();
+    return true;
+  }
+
+  updateCertificateSignedCert(params: {
+    id: string;
+    certFileName: string;
+    certContent: string;
+    metadata: ParsedCertMetadata;
+    autoRenew?: CertificateAutoRenewConfig | null | 'keep';
+  }): UserCertificateBundle {
+    const idx = this.db.certificates.findIndex((c) => c.id === params.id);
+    if (idx === -1) {
+      throw new Error('Zertifikatspaket nicht gefunden.');
+    }
+    const existing = this.db.certificates[idx];
+    const nextAutoRenew =
+      params.autoRenew === 'keep'
+        ? existing.autoRenew ?? null
+        : params.autoRenew !== undefined
+          ? params.autoRenew
+          : existing.autoRenew ?? null;
+    const updated: UserCertificateBundle = {
+      ...existing,
+      certFileName: params.certFileName,
+      certContent: params.certContent.trim() + '\n',
+      metadata: params.metadata,
+      autoRenew: nextAutoRenew,
+      uploadedAt: new Date().toISOString(),
+    };
+    this.db.certificates[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  updateCertificateAutoRenew(
+    id: string,
+    autoRenew: CertificateAutoRenewConfig | null
+  ): UserCertificateBundle | null {
+    const idx = this.db.certificates.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    const existing = this.db.certificates[idx];
+    const updated: UserCertificateBundle = {
+      ...existing,
+      autoRenew,
+    };
+    this.db.certificates[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  revokeCertificateAutoRenew(id: string, reason: string): UserCertificateBundle | null {
+    const idx = this.db.certificates.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    const existing = this.db.certificates[idx];
+    if (!existing.autoRenew) {
+      return existing;
+    }
+    const now = new Date().toISOString();
+    const updated: UserCertificateBundle = {
+      ...existing,
+      autoRenew: {
+        ...existing.autoRenew,
+        enabled: false,
+        revokedAt: now,
+        revokedReason: reason,
+        lastError: null,
+      },
+    };
+    this.db.certificates[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  reconcileAutoRenewals(persist = true): number {
+    let changedCount = 0;
+    const now = new Date().toISOString();
+    for (let i = 0; i < this.db.certificates.length; i++) {
+      const cert = this.db.certificates[i];
+      const ar = cert.autoRenew;
+      if (!ar || !ar.enabled) continue;
+
+      let revokeReason: string | null = null;
+      let syncedPolicy: {
+        principals: string[];
+        includeOwnerPrincipal: boolean;
+        validity: string;
+        renewBeforeSeconds: number;
+      } | null = null;
+
+      const owner = this.db.users.find((u) => u.id === cert.userId);
+      const ca = this.db.certificateAuthorities.find((c) => c.id === ar.caId);
+
+      if (!owner || !owner.active) {
+        revokeReason = 'Benutzerkonto deaktiviert oder entfernt';
+      } else if (!ca) {
+        revokeReason = 'Zugehörige CA wurde gelöscht';
+      } else if (!ca.passphraseEncrypted) {
+        revokeReason = 'Gespeichertes CA-Passwort wurde entfernt';
+      } else if (ar.mode === 'user') {
+        const perms = this.getUserPermissions(owner);
+        if (!perms.selfSignCertificates || !perms.autoRenewCertificates) {
+          revokeReason =
+            'Rechteentzug: Selbstsignierung oder automatische Neuzertifizierung für Benutzergruppe deaktiviert';
+        } else {
+          const assignment = (perms.caSigningAssignments || []).find((a) => a.caId === ar.caId);
+          if (!assignment) {
+            revokeReason = 'Rechteentzug: CA ist der Benutzergruppe nicht mehr zugewiesen';
+          } else {
+            const validityLower = (assignment.validity || '+30d').trim().toLowerCase();
+            if (
+              validityLower === 'forever' ||
+              validityLower === 'always' ||
+              validityLower === 'always:forever'
+            ) {
+              revokeReason =
+                'Rechteentzug: Gültigkeitsdauer für diese CA wurde auf unbegrenzt (forever) gesetzt';
+            } else {
+              const hasPrincipal =
+                assignment.principals.length > 0 ||
+                (assignment.includeOwnerPrincipal &&
+                  Boolean(owner.username) &&
+                  PRINCIPAL_TOKEN_RE.test(owner.username));
+              if (!hasPrincipal) {
+                revokeReason =
+                  'Rechteentzug: Keine gültigen Principals (-n) mehr für diese CA zugewiesen';
+              } else {
+                const nextLead = normalizeAutoRenewBeforeSeconds(assignment.autoRenewBeforeSeconds);
+                const nextValidity = assignment.validity || '+30d';
+                const principalsChanged =
+                  assignment.principals.length !== ar.principals.length ||
+                  assignment.principals.some((p, idx) => ar.principals[idx] !== p);
+                if (
+                  principalsChanged ||
+                  assignment.includeOwnerPrincipal !== ar.includeOwnerPrincipal ||
+                  nextValidity !== ar.validity ||
+                  nextLead !== ar.renewBeforeSeconds
+                ) {
+                  syncedPolicy = {
+                    principals: [...assignment.principals],
+                    includeOwnerPrincipal: assignment.includeOwnerPrincipal,
+                    validity: nextValidity,
+                    renewBeforeSeconds: nextLead,
+                  };
+                }
+              }
+            }
+          }
+        }
+      } else if (ar.mode === 'admin') {
+        const enabler = ar.enabledByUserId
+          ? this.db.users.find((u) => u.id === ar.enabledByUserId)
+          : undefined;
+        if (ar.enabledByUserId && (!enabler || !enabler.active || enabler.role !== 'admin')) {
+          revokeReason = 'Rechteentzug: Freigebender Administrator ist nicht mehr aktiv oder kein Administrator';
+        }
+      }
+
+      if (revokeReason) {
+        this.db.certificates[i] = {
+          ...cert,
+          autoRenew: {
+            ...ar,
+            enabled: false,
+            revokedAt: now,
+            revokedReason: revokeReason,
+            lastError: null,
+          },
+        };
+        changedCount++;
+      } else if (syncedPolicy) {
+        this.db.certificates[i] = {
+          ...cert,
+          autoRenew: {
+            ...ar,
+            principals: syncedPolicy.principals,
+            includeOwnerPrincipal: syncedPolicy.includeOwnerPrincipal,
+            validity: syncedPolicy.validity,
+            renewBeforeSeconds: syncedPolicy.renewBeforeSeconds,
+          },
+        };
+        changedCount++;
+      }
+    }
+    if (changedCount > 0 && persist) {
+      this.save();
+    }
+    return changedCount;
+  }
+
+  // SSH Certificate Authorities (ca + ca.pub, admin-managed for future SSH cert signing)
+  listCertificateAuthorities(): StoredCertificateAuthority[] {
+    return [...this.db.certificateAuthorities].sort((a, b) =>
+      (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt)
+    );
+  }
+
+  getCertificateAuthorityById(id: string): StoredCertificateAuthority | undefined {
+    return this.db.certificateAuthorities.find((c) => c.id === id);
+  }
+
+  findCertificateAuthorityByName(name: string): StoredCertificateAuthority | undefined {
+    const clean = name.trim().toLowerCase();
+    if (!clean) return undefined;
+    return this.db.certificateAuthorities.find((c) => c.name.trim().toLowerCase() === clean);
+  }
+
+  saveCertificateAuthority(params: {
+    name: string;
+    description?: string;
+    privateKeyFileName: string;
+    publicKeyFileName: string;
+    privateKeyContent: string;
+    publicKeyContent: string;
+    keyType: string;
+    fingerprint: string;
+    privateKeyFormat: ParsedCertMetadata['privateKeyFormat'];
+    passphrase?: string;
+    createdBy: string;
+    createdByUsername: string;
+  }): { ca: StoredCertificateAuthority; replaced: boolean } {
+    const cleanName = params.name.trim().slice(0, 64);
+    if (!cleanName) throw new Error('Bitte eine Bezeichnung für die CA angeben.');
+    const cleanDesc = (params.description ?? '').trim().slice(0, 300);
+    const now = new Date().toISOString();
+    const encryptedKey = encryptSecret(params.privateKeyContent);
+    const encryptedPassphrase =
+      typeof params.passphrase === 'string' && params.passphrase.length > 0
+        ? encryptSecret(params.passphrase)
+        : undefined;
+
+    const existingIdx = this.db.certificateAuthorities.findIndex(
+      (c) => c.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+
+    if (existingIdx !== -1) {
+      const prev = this.db.certificateAuthorities[existingIdx];
+      const updated: StoredCertificateAuthority = {
+        ...prev,
+        name: cleanName,
+        description: cleanDesc,
+        privateKeyFileName: params.privateKeyFileName || 'ca',
+        publicKeyFileName: params.publicKeyFileName || 'ca.pub',
+        privateKeyEncrypted: encryptedKey,
+        passphraseEncrypted: encryptedPassphrase,
+        publicKey: params.publicKeyContent.trim(),
+        keyType: params.keyType,
+        fingerprint: params.fingerprint,
+        privateKeyFormat: params.privateKeyFormat,
+        privateKeyIsEncrypted: true,
+        updatedAt: now,
+      };
+      this.db.certificateAuthorities[existingIdx] = updated;
+      this.save();
+      return { ca: updated, replaced: true };
+    }
+
+    const created: StoredCertificateAuthority = {
+      id: crypto.randomUUID(),
+      name: cleanName,
+      description: cleanDesc,
+      privateKeyFileName: params.privateKeyFileName || 'ca',
+      publicKeyFileName: params.publicKeyFileName || 'ca.pub',
+      privateKeyEncrypted: encryptedKey,
+      passphraseEncrypted: encryptedPassphrase,
+      publicKey: params.publicKeyContent.trim(),
+      keyType: params.keyType,
+      fingerprint: params.fingerprint,
+      privateKeyFormat: params.privateKeyFormat,
+      privateKeyIsEncrypted: true,
+      createdBy: params.createdBy,
+      createdByUsername: params.createdByUsername,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.certificateAuthorities.unshift(created);
+    this.save();
+    return { ca: created, replaced: false };
+  }
+
+  updateCertificateAuthority(
+    id: string,
+    patch: {
+      name?: string;
+      description?: string;
+      privateKeyFileName?: string;
+      publicKeyFileName?: string;
+      privateKeyContent?: string;
+      publicKeyContent?: string;
+      keyType?: string;
+      fingerprint?: string;
+      privateKeyFormat?: ParsedCertMetadata['privateKeyFormat'];
+      passphrase?: string;
+      clearPassphrase?: boolean;
+    }
+  ): StoredCertificateAuthority {
+    const ca = this.db.certificateAuthorities.find((c) => c.id === id);
+    if (!ca) throw new Error('CA-Zertifikat nicht gefunden.');
+
+    if (patch.name !== undefined) {
+      const clean = patch.name.trim().slice(0, 64);
+      if (!clean) throw new Error('Bitte eine Bezeichnung für die CA angeben.');
+      const conflict = this.db.certificateAuthorities.find(
+        (c) => c.id !== id && c.name.trim().toLowerCase() === clean.toLowerCase()
+      );
+      if (conflict) {
+        throw new Error(`Eine CA mit dem Namen „${conflict.name}“ existiert bereits.`);
+      }
+      ca.name = clean;
+    }
+    if (patch.description !== undefined) {
+      ca.description = patch.description.trim().slice(0, 300);
+    }
+    if (patch.privateKeyContent !== undefined) {
+      ca.privateKeyEncrypted = encryptSecret(patch.privateKeyContent);
+      if (patch.privateKeyFileName) ca.privateKeyFileName = patch.privateKeyFileName;
+      ca.privateKeyIsEncrypted = true;
+    }
+    if (patch.publicKeyContent !== undefined) {
+      ca.publicKey = patch.publicKeyContent.trim();
+      if (patch.publicKeyFileName) ca.publicKeyFileName = patch.publicKeyFileName;
+    }
+    if (patch.keyType !== undefined) ca.keyType = patch.keyType;
+    if (patch.fingerprint !== undefined) ca.fingerprint = patch.fingerprint;
+    if (patch.privateKeyFormat !== undefined) ca.privateKeyFormat = patch.privateKeyFormat;
+
+    if (patch.clearPassphrase) {
+      delete ca.passphraseEncrypted;
+    } else if (typeof patch.passphrase === 'string' && patch.passphrase.length > 0) {
+      ca.passphraseEncrypted = encryptSecret(patch.passphrase);
+    }
+
+    ca.updatedAt = new Date().toISOString();
+    this.reconcileAutoRenewals(false);
+    this.save();
+    return ca;
+  }
+
+  deleteCertificateAuthority(id: string): boolean {
+    const before = this.db.certificateAuthorities.length;
+    this.db.certificateAuthorities = this.db.certificateAuthorities.filter((c) => c.id !== id);
+    if (this.db.certificateAuthorities.length === before) return false;
+    for (const g of this.db.groups) {
+      if (Array.isArray(g.permissions?.caSigningAssignments)) {
+        g.permissions.caSigningAssignments = g.permissions.caSigningAssignments.filter(
+          (a) => a.caId !== id
+        );
+      }
+    }
+    this.reconcileAutoRenewals(false);
+    this.save();
+    return true;
   }
 
   // Audit Execution Logs

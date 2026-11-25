@@ -4,6 +4,8 @@ import { api } from '../api';
 import { useI18n } from '../i18n';
 import { AccountSecurityPanel } from './AccountSecurityPanel';
 import { ApiKeyCurlPanel } from './ApiKeyCurlPanel';
+import { PasswordStrengthHint } from './PasswordStrengthHint';
+import { getPasswordComplexityError } from '../passwordPolicy';
 import type { AppSettings, User } from '../types';
 
 interface AccountViewProps {
@@ -29,13 +31,9 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
     setError(null);
     setSuccess(null);
 
-    if (newPassword.length < 8) {
-      setError(
-        tr(
-          'Das neue Passwort muss mindestens 8 Zeichen lang sein.',
-          'The new password must be at least 8 characters long.'
-        )
-      );
+    const passwordError = getPasswordComplexityError(newPassword, tr);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -123,15 +121,19 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
           </div>
           <div>
             <dt className="text-xs text-slate-500">
-              {tr('Rolle & Freigaberecht', 'Role & Sharing Rights')}
+              {tr('Benutzergruppe & Freigaberecht', 'User Group & Sharing Rights')}
             </dt>
             <dd className="mt-1 text-slate-900">
-              {user.role === 'admin'
-                ? tr(
-                    'Administrator (darf Befehle, IPs & Zertifikate teilen)',
-                    'Administrator (can share commands, IPs & certificates)'
-                  )
-                : tr('Benutzer (eigene Einträge privat)', 'User (own entries are private)')}
+              <span className="font-medium">
+                {user.groupName || (user.role === 'admin' ? 'Administratoren' : tr('Benutzer', 'User'))}
+              </span>{' '}
+              <span className="text-xs text-slate-500">
+                (
+                {user.role === 'admin' || user.permissions?.shareResources
+                  ? tr('darf Ressourcen teilen', 'can share resources')
+                  : tr('eigene Einträge privat', 'own entries private')}
+                )
+              </span>
             </dd>
           </div>
           <div>
@@ -158,8 +160,8 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 {tr(
-                  'Mindestens 8 Zeichen. Ihre aktuelle Sitzung bleibt bestehen.',
-                  'At least 8 characters. Your current session will stay active.'
+                  'Mindestens 8 Zeichen sowie mind. 3 von 4 Zeichenarten (Groß-, Kleinbuchstaben, Zahlen, Sonderzeichen). Ihre aktuelle Sitzung bleibt bestehen.',
+                  'At least 8 characters and at least 3 of 4 character types (uppercase, lowercase, digits, special characters). Your current session will stay active.'
                 )}
               </p>
             </div>
@@ -215,6 +217,7 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               required
             />
+            <PasswordStrengthHint password={newPassword} />
           </div>
 
           <div>
@@ -247,12 +250,26 @@ export function AccountView({ user, settings, onUserUpdated, onUpdateSettings }:
       )}
 
       {/* Personal API Keys & curl Upload */}
-      <ApiKeyCurlPanel
-        defaultCertName={`${user.username}-ssh`}
-        publicUrl={settings.publicUrl}
-        isAdmin={user.role === 'admin'}
-        onUpdateSettings={onUpdateSettings}
-      />
+      {user.role === 'admin' || user.permissions?.useApi !== false ? (
+        <ApiKeyCurlPanel
+          defaultCertName={`${user.username}-ssh`}
+          publicUrl={settings.publicUrl}
+          isAdmin={user.role === 'admin'}
+          onUpdateSettings={onUpdateSettings}
+        />
+      ) : (
+        <section className="bg-white border border-slate-200 rounded-lg p-6">
+          <h2 className="font-display text-base font-semibold text-slate-900">
+            {tr('Persönliche API-Schlüssel & REST-API', 'Personal API Keys & REST API')}
+          </h2>
+          <p className="text-xs text-slate-600 mt-1">
+            {tr(
+              `Die Nutzung von API-Schlüsseln und der REST-API ist für Ihre Benutzergruppe („${user.groupName || 'Benutzer'}“) deaktiviert.`,
+              `API keys and REST API access are disabled for your user group ("${user.groupName || 'User'}").`
+            )}
+          </p>
+        </section>
+      )}
     </div>
   );
 }

@@ -3,19 +3,24 @@ import type {
   AdminBackgroundJobsResponse,
   AppSettings,
   AppStatus,
+  AssignedSigningCa,
   BackgroundJob,
   BackgroundJobsResponse,
   BmcCheckResult,
+  CertificateAuthority,
   CommandKind,
   DashboardPingResponse,
   ExecutionLog,
+  GroupPermissions,
   LoginResponse,
   RustProjectFile,
   ServerCategory,
+  ShareableUser,
   SshCommand,
   User,
   UserApiKey,
   UserCertificate,
+  UserGroup,
   UserRole,
   UserSecurityStatus,
   UserServer,
@@ -246,6 +251,9 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Shareable user directory (for admins and groups with shareResources permission)
+  listShareableUsers: () => request<{ users: ShareableUser[] }>('/api/users/shareable'),
+
   // Admin Users
   listUsers: () => request<{ users: User[] }>('/api/admin/users'),
 
@@ -253,7 +261,8 @@ export const api = {
     username: string;
     displayName: string;
     password: string;
-    role: UserRole;
+    role?: UserRole;
+    groupId?: string;
     defaultSshUser: string;
   }) =>
     request<{ user: User }>('/api/admin/users', {
@@ -266,6 +275,7 @@ export const api = {
     payload: {
       displayName?: string;
       role?: UserRole;
+      groupId?: string;
       defaultSshUser?: string;
       active?: boolean;
       newPassword?: string;
@@ -286,6 +296,40 @@ export const api = {
     request<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+
+  // Admin User Groups & Permissions
+  listGroups: () => request<{ groups: UserGroup[] }>('/api/admin/groups'),
+
+  createGroup: (payload: {
+    name: string;
+    description?: string;
+    permissions: Partial<GroupPermissions>;
+  }) =>
+    request<{ group: UserGroup }>('/api/admin/groups', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateGroup: (
+    id: string,
+    payload: {
+      name?: string;
+      description?: string;
+      permissions?: Partial<GroupPermissions>;
+    }
+  ) =>
+    request<{ group: UserGroup }>(`/api/admin/groups/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteGroup: (id: string) =>
+    request<{ ok: boolean; reassignedUsers: number }>(
+      `/api/admin/groups/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+      }
+    ),
 
   // Admin Authentication, SSO, 2FA & Passkey Policies
   getAdminAuthSettings: () =>
@@ -533,6 +577,7 @@ export const api = {
     publicKeyContent: string;
     certContent?: string;
     passphrase?: string;
+    overwrite?: boolean;
     sharedWithAll?: boolean;
     sharedWithUserIds?: string[];
   }) =>
@@ -570,12 +615,10 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  generateTestCertificate: (payload: { keyId: string; principals: string[] }) =>
+  generateTestCertificate: (payload: { keyId: string; passphrase?: string }) =>
     request<{
       privateKey: string;
       publicKey: string;
-      certificate: string;
-      caPublicKey: string;
     }>('/api/certificates/generate-test', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -585,6 +628,83 @@ export const api = {
     request<{ ok: boolean }>(`/api/certificates/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+
+  listAdminCertificates: () =>
+    request<{ certificates: UserCertificate[] }>('/api/admin/certificates'),
+
+  deleteAdminCertificate: (id: string) =>
+    request<{ ok: boolean }>(`/api/admin/certificates/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  signCertificatesWithCa: (payload: {
+    caId: string;
+    caPassphrase?: string;
+    certificateIds: string[];
+    principals: string;
+    includeOwnerPrincipal?: boolean;
+    validity?: string;
+    keyId?: string;
+    confirmOverwriteForeignCa?: boolean;
+    autoRenew?: boolean;
+    autoRenewBeforeSeconds?: number;
+  }) =>
+    request<{
+      ok: boolean;
+      caName: string;
+      caFingerprint: string;
+      principals: string[];
+      validity: string;
+      signedCount: number;
+      failedCount: number;
+      certificates: UserCertificate[];
+      errors: Array<{ certificateId: string; certificateName?: string; error: string }>;
+    }>('/api/admin/certificates/sign', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  listAssignedSigningCas: () =>
+    request<{ canSelfSign: boolean; cas: AssignedSigningCa[] }>('/api/certificates/signing-cas'),
+
+  selfSignCertificatesWithCa: (payload: {
+    caId: string;
+    certificateIds: string[];
+    confirmOverwriteForeignCa?: boolean;
+    autoRenew?: boolean;
+    autoRenewBeforeSeconds?: number;
+  }) =>
+    request<{
+      ok: boolean;
+      caName: string;
+      caFingerprint: string;
+      principals: string[];
+      validity: string;
+      signedCount: number;
+      failedCount: number;
+      certificates: UserCertificate[];
+      errors: Array<{ certificateId: string; certificateName?: string; error: string }>;
+    }>('/api/certificates/self-sign', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  revokeCertificateAutoRenew: (id: string) =>
+    request<{ ok: boolean; certificate: UserCertificate }>(
+      `/api/certificates/${encodeURIComponent(id)}/auto-renew`,
+      {
+        method: 'DELETE',
+      }
+    ),
+
+  revokeCertificatesAutoRenewBatch: (certificateIds: string[]) =>
+    request<{ ok: boolean; revokedCount: number; certificates: UserCertificate[] }>(
+      '/api/certificates/auto-renew/revoke',
+      {
+        method: 'POST',
+        body: JSON.stringify({ certificateIds }),
+      }
+    ),
 
   // Execution
   execute: (payload: {
@@ -720,6 +840,64 @@ export const api = {
     }),
 
   listLogs: () => request<{ logs: ExecutionLog[] }>('/api/logs'),
+
+  // Admin: SSH Certificate Authorities (ca & ca.pub)
+  listCertificateAuthorities: () =>
+    request<{ cas: CertificateAuthority[] }>('/api/admin/ca'),
+
+  generateCertificateAuthority: (payload: {
+    name: string;
+    description?: string;
+    passphrase: string;
+    storePassphrase: boolean;
+    overwrite?: boolean;
+  }) =>
+    request<{
+      ca: CertificateAuthority;
+      replaced: boolean;
+      generated: { privateKey: string; publicKey: string };
+    }>('/api/admin/ca/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  uploadCertificateAuthority: (payload: {
+    name: string;
+    description?: string;
+    privateKeyFileName: string;
+    publicKeyFileName: string;
+    privateKeyContent: string;
+    publicKeyContent: string;
+    passphrase?: string;
+    overwrite?: boolean;
+  }) =>
+    request<{ ca: CertificateAuthority; replaced: boolean }>('/api/admin/ca', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateCertificateAuthority: (
+    id: string,
+    payload: {
+      name?: string;
+      description?: string;
+      privateKeyFileName?: string;
+      publicKeyFileName?: string;
+      privateKeyContent?: string;
+      publicKeyContent?: string;
+      passphrase?: string;
+      clearPassphrase?: boolean;
+    }
+  ) =>
+    request<{ ca: CertificateAuthority }>(`/api/admin/ca/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCertificateAuthority: (id: string) =>
+    request<{ ok: boolean }>(`/api/admin/ca/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
 
   // Rust Project
   listRustFiles: () => request<{ files: RustProjectFile[] }>('/api/rust-project/files'),

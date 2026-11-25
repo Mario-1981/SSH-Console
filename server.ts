@@ -4,8 +4,18 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
-import { generateTestOpenSshCertBundle } from './server/certGen.ts';
+import {
+  deriveCertFileName,
+  generateOpenSshKeypair,
+  isSignedBySameCa,
+  isValidPrincipalToken,
+  parseAndValidatePrincipals,
+  parseValidityDuration,
+  sanitizeKeyId,
+  signOpenSshUserCertificate,
+} from './server/certGen.ts';
 import { validateAndParseCertificateBundle } from './server/opensshCert.ts';
+import { validatePasswordComplexity } from './server/passwordPolicy.ts';
 import {
   parseAndValidateWorkflow,
   resolveWorkflowRuntimeVars,
@@ -23,10 +33,17 @@ import {
   validateTargetIp,
 } from './server/sshRunner.ts';
 import {
+  ADMIN_GROUP_ID,
   decryptSecret,
+  normalizeGroupCaAssignments,
   store,
   verifyPassword,
+  type CertificateAutoRenewConfig,
+  type CommandKind,
+  type GroupCaAssignment,
+  type PermissionKey,
   type StoredApiKey,
+  type StoredCertificateAuthority,
   type StoredUser,
   type StoredWebAuthnCredential,
   type UserCertificateBundle,
@@ -252,6 +269,8 @@ function serializeAdminAuthSettings(req: Request) {
 
 function sanitizeUser(u: StoredUser) {
   const settings = store.getSettings();
+  const group = store.getUserGroup(u);
+  const permissions = store.getUserPermissions(u);
   const securityKeyCount = store.listUserWebAuthnCredentials(u.id, 'security-key').length;
   const passkeyCount = store.listUserWebAuthnCredentials(u.id, 'passkey').length;
   const hasTwoFactor = Boolean(u.totpEnabled || securityKeyCount > 0);
@@ -266,7 +285,10 @@ function sanitizeUser(u: StoredUser) {
     id: u.id,
     username: u.username,
     displayName: u.displayName,
-    role: u.role,
+    role: group.isAdmin ? ('admin' as UserRole) : ('user' as UserRole),
+    groupId: group.id,
+    groupName: group.name,
+    permissions,
     authProvider,
     email: u.email || '',
     defaultSshUser: u.defaultSshUser,
@@ -371,6 +393,54 @@ function requireAdmin(req: AuthedRequest, res: Response, next: NextFunction) {
     return;
   }
   next();
+}
+
+const PERMISSION_DENIED_MESSAGES: Record<PermissionKey, string> = {
+  manageOwnServers: 'Ihre Benutzergruppe darf keine eigenen Server (IPs) oder Kategorien verwalten.',
+  createSingleCommands: 'Ihre Benutzergruppe darf keine eigenen Einzelbefehle erstellen oder bearbeiten.',
+  createChainCommands: 'Ihre Benutzergruppe darf keine eigenen Befehlsketten erstellen oder bearbeiten.',
+  createWorkflowCommands:
+    'Ihre Benutzergruppe darf keine eigenen komplexen Befehle (JSON-Workflows) erstellen oder bearbeiten.',
+  uploadCertificates:
+    'Ihre Benutzergruppe darf keine SSH-Zertifikate oder Schlüssel hochladen oder verwalten.',
+  uploadSignedCert:
+    'Ihre Benutzergruppe darf keine eigenen signierten Zertifikate (zertifikat-cert.pub) hochladen.',
+  generateTestCertificates: 'Ihre Benutzergruppe darf keine Zertifikate erzeugen.',
+  requireCertificatePassphrase:
+    'Ihre Benutzergruppe erfordert passwortgeschützte (verschlüsselte) SSH-Zertifikate.',
+  storeCertificatePassphrase:
+    'Ihre Benutzergruppe darf keine Zertifikats-Passwörter auf dem Server speichern.',
+  selfSignCertificates:
+    'Ihre Benutzergruppe hat keine Berechtigung, SSH-Zertifikate selbst mit einer CA zu signieren.',
+  autoRenewCertificates:
+    'Ihre Benutzergruppe hat keine Berechtigung, die automatische Neuzertifizierung für SSH-Zertifikate zu aktivieren.',
+  useApi: 'Ihre Benutzergruppe darf die API bzw. persönliche API-Schlüssel nicht nutzen.',
+  shareResources: 'Ihre Benutzergruppe darf keine Ressourcen mit anderen Benutzern teilen.',
+  useSshShell: 'Ihre Benutzergruppe darf die interaktive SSH-Shell nicht nutzen.',
+  useSshShellCustomIp:
+    'Ihre Benutzergruppe darf in der SSH-Shell keine freie IP-Adresse eingeben (nur gespeicherte/freigegebene Server).',
+  executeCommands: 'Ihre Benutzergruppe darf keine SSH-Befehle ausführen.',
+  viewOwnLogs: 'Ihre Benutzergruppe darf das Ausführungsprotokoll nicht einsehen.',
+};
+
+function commandKindPermission(kind: CommandKind): PermissionKey {
+  if (kind === 'workflow') return 'createWorkflowCommands';
+  if (kind === 'chain') return 'createChainCommands';
+  return 'createSingleCommands';
+}
+
+function requirePermission(permission: PermissionKey, customMessage?: string) {
+  return (req: AuthedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Anmeldung erforderlich.' });
+      return;
+    }
+    if (!store.hasPermission(req.user, permission)) {
+      res.status(403).json({ error: customMessage || PERMISSION_DENIED_MESSAGES[permission] });
+      return;
+    }
+    next();
+  };
 }
 
 function listRustProjectFiles(): Array<{ path: string; size: number; content: string }> {
@@ -508,8 +578,9 @@ async function startServer() {
       res.status(400).json({ error: 'Ungültiger Benutzername (2–32 Zeichen: a-z, 0-9, ., _, -).' });
       return;
     }
-    if (typeof password !== 'string' || password.length < 8) {
-      res.status(400).json({ error: 'Das Administrator-Passwort muss mindestens 8 Zeichen lang sein.' });
+    const passwordErr = validatePasswordComplexity(password);
+    if (passwordErr) {
+      res.status(400).json({ error: passwordErr });
       return;
     }
 
@@ -1177,8 +1248,9 @@ async function startServer() {
       res.status(400).json({ error: 'Das aktuelle Passwort ist nicht korrekt.' });
       return;
     }
-    if (newPassword.length < 8) {
-      res.status(400).json({ error: 'Das neue Passwort muss mindestens 8 Zeichen lang sein.' });
+    const passwordErr = validatePasswordComplexity(newPassword);
+    if (passwordErr) {
+      res.status(400).json({ error: passwordErr });
       return;
     }
     if (newPassword === currentPassword) {
@@ -1194,22 +1266,191 @@ async function startServer() {
   });
 
   // Personal API Keys (for automated curl certificate uploads)
-  app.get('/api/auth/api-keys', requireAuth, (req: AuthedRequest, res: Response) => {
-    res.json({ apiKeys: store.listApiKeys(req.user!.id).map(sanitizeApiKey) });
+  app.get(
+    '/api/auth/api-keys',
+    requireAuth,
+    requirePermission('useApi'),
+    (req: AuthedRequest, res: Response) => {
+      res.json({ apiKeys: store.listApiKeys(req.user!.id).map(sanitizeApiKey) });
+    }
+  );
+
+  app.post(
+    '/api/auth/api-keys',
+    requireAuth,
+    requirePermission('useApi'),
+    (req: AuthedRequest, res: Response) => {
+      const rawName = typeof req.body?.name === 'string' ? req.body.name : '';
+      const { apiKey, plainKey } = store.createApiKey(req.user!.id, rawName);
+      res.status(201).json({
+        apiKey: sanitizeApiKey(apiKey),
+        plainKey,
+      });
+    }
+  );
+
+  app.delete(
+    '/api/auth/api-keys/:id',
+    requireAuth,
+    requirePermission('useApi'),
+    (req: AuthedRequest, res: Response) => {
+      store.deleteApiKey(req.params.id, req.user!.id);
+      res.json({ ok: true });
+    }
+  );
+
+  // Shareable user list (for any user with shareResources permission)
+  app.get(
+    '/api/users/shareable',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('shareResources'),
+    (_req: AuthedRequest, res: Response) => {
+      const users = store
+        .listUsers()
+        .filter((u) => u.active)
+        .map((u) => {
+          const g = store.getUserGroup(u);
+          return {
+            id: u.id,
+            username: u.username,
+            displayName: u.displayName,
+            role: g.isAdmin ? ('admin' as UserRole) : ('user' as UserRole),
+            groupId: g.id,
+            groupName: g.name,
+            active: u.active,
+          };
+        });
+      res.json({ users });
+    }
+  );
+
+  function getValidityForwardSeconds(normalizedSpec: string): number | null {
+    const lower = normalizedSpec.trim().toLowerCase();
+    if (lower === 'forever' || lower === 'always' || lower === 'always:forever') {
+      return null;
+    }
+    const unitSec: Record<string, number> = {
+      s: 1,
+      m: 60,
+      h: 3600,
+      d: 86400,
+      w: 604800,
+    };
+    const fwdPart = normalizedSpec.includes(':')
+      ? normalizedSpec.split(':')[1] || ''
+      : normalizedSpec;
+    const match = /^\+(\d+)([smhdw])$/i.exec(fwdPart.trim());
+    if (!match) return null;
+    const amount = Number(match[1]);
+    const unit = match[2].toLowerCase();
+    return amount * (unitSec[unit] || 0);
+  }
+
+  function validateGroupPermissionsInput(rawPermissions: unknown): void {
+    if (!rawPermissions || typeof rawPermissions !== 'object') return;
+    const obj = rawPermissions as Record<string, unknown>;
+    if (!Array.isArray(obj.caSigningAssignments)) return;
+    const normalized = normalizeGroupCaAssignments(obj.caSigningAssignments);
+    for (const assignment of normalized) {
+      const ca = store.getCertificateAuthorityById(assignment.caId);
+      if (!ca) {
+        throw new Error('Eine der zugewiesenen CAs existiert nicht mehr.');
+      }
+      if (assignment.principals.length === 0 && !assignment.includeOwnerPrincipal) {
+        throw new Error(
+          `Für die zugewiesene CA „${ca.name}“ muss mindestens ein Principal (-n) angegeben oder der automatische Benutzername aktiviert werden.`
+        );
+      }
+      const parsedValidity = parseValidityDuration(assignment.validity);
+      const forwardSec = getValidityForwardSeconds(parsedValidity.normalizedSpec);
+      if (
+        forwardSec !== null &&
+        assignment.autoRenewBeforeSeconds > 0 &&
+        assignment.autoRenewBeforeSeconds > Math.max(0, forwardSec - 60)
+      ) {
+        throw new Error(
+          `Für die zugewiesene CA „${ca.name}“ muss der Zeitpunkt für die automatische Neusignierung kürzer sein als die Gültigkeitsdauer (${parsedValidity.normalizedSpec}).`
+        );
+      }
+    }
+  }
+
+  // Admin: Custom User Groups & Granular Permissions
+  app.get('/api/admin/groups', requireAuth, requireAdmin, (_req, res) => {
+    res.json({ groups: store.listGroups() });
   });
 
-  app.post('/api/auth/api-keys', requireAuth, (req: AuthedRequest, res: Response) => {
-    const rawName = typeof req.body?.name === 'string' ? req.body.name : '';
-    const { apiKey, plainKey } = store.createApiKey(req.user!.id, rawName);
-    res.status(201).json({
-      apiKey: sanitizeApiKey(apiKey),
-      plainKey,
-    });
+  app.post('/api/admin/groups', requireAuth, requireAdmin, (req, res) => {
+    const { name, description, permissions } = req.body ?? {};
+    if (typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: 'Ein Gruppenname ist erforderlich.' });
+      return;
+    }
+    try {
+      validateGroupPermissionsInput(permissions);
+      const group = store.createGroup({
+        name,
+        description: typeof description === 'string' ? description : '',
+        permissions: permissions && typeof permissions === 'object' ? permissions : undefined,
+      });
+      res.status(201).json({ group });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Benutzergruppe konnte nicht angelegt werden.',
+      });
+    }
   });
 
-  app.delete('/api/auth/api-keys/:id', requireAuth, (req: AuthedRequest, res: Response) => {
-    store.deleteApiKey(req.params.id, req.user!.id);
-    res.json({ ok: true });
+  app.patch('/api/admin/groups/:id', requireAuth, requireAdmin, (req, res) => {
+    const existing = store.getGroup(req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: 'Benutzergruppe nicht gefunden.' });
+      return;
+    }
+    if (existing.isImmutable || existing.id === ADMIN_GROUP_ID) {
+      res.status(403).json({
+        error:
+          'Die Systemgruppe „Administratoren“ ist aus Sicherheitsgründen geschützt und kann nicht verändert werden.',
+      });
+      return;
+    }
+    const { name, description, permissions } = req.body ?? {};
+    try {
+      validateGroupPermissionsInput(permissions);
+      const group = store.updateGroup(req.params.id, {
+        name: typeof name === 'string' ? name : undefined,
+        description: typeof description === 'string' ? description : undefined,
+        permissions: permissions && typeof permissions === 'object' ? permissions : undefined,
+      });
+      res.json({ group });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Benutzergruppe konnte nicht aktualisiert werden.',
+      });
+    }
+  });
+
+  app.delete('/api/admin/groups/:id', requireAuth, requireAdmin, (req, res) => {
+    const existing = store.getGroup(req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: 'Benutzergruppe nicht gefunden.' });
+      return;
+    }
+    if (existing.isSystem || existing.isImmutable || existing.id === ADMIN_GROUP_ID) {
+      res.status(403).json({
+        error: 'Systemgruppen („Administratoren“ und „Benutzer“) können nicht gelöscht werden.',
+      });
+      return;
+    }
+    try {
+      const result = store.deleteGroup(req.params.id);
+      res.json({ ok: true, reassignedUserCount: result.reassignedUserCount });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Benutzergruppe konnte nicht gelöscht werden.',
+      });
+    }
   });
 
   // Admin: User Management (no self-registration)
@@ -1218,18 +1459,21 @@ async function startServer() {
   });
 
   app.post('/api/admin/users', requireAuth, requireAdmin, (req, res) => {
-    const { username, displayName, password, role, defaultSshUser } = req.body ?? {};
-    if (typeof password !== 'string' || password.length < 8) {
-      res.status(400).json({ error: 'Das Passwort muss mindestens 8 Zeichen lang sein.' });
+    const { username, displayName, password, role, groupId, defaultSshUser } = req.body ?? {};
+    const passwordErr = validatePasswordComplexity(password);
+    if (passwordErr) {
+      res.status(400).json({ error: passwordErr });
       return;
     }
     const safeRole: UserRole = role === 'admin' ? 'admin' : 'user';
+    const cleanGroupId = typeof groupId === 'string' && groupId.trim() ? groupId.trim() : undefined;
     try {
       const user = store.createUser({
         username: String(username ?? ''),
         displayName: String(displayName ?? ''),
         password,
         role: safeRole,
+        groupId: cleanGroupId,
         defaultSshUser: String(defaultSshUser ?? 'root'),
       });
       res.status(201).json({ user: sanitizeUser(user) });
@@ -1238,16 +1482,41 @@ async function startServer() {
     }
   });
 
-  app.patch('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
-    const { displayName, role, defaultSshUser, active, newPassword } = req.body ?? {};
-    if (newPassword !== undefined && (typeof newPassword !== 'string' || newPassword.length < 8)) {
-      res.status(400).json({ error: 'Das neue Passwort muss mindestens 8 Zeichen lang sein.' });
-      return;
+  app.patch('/api/admin/users/:id', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
+    const { displayName, role, groupId, defaultSshUser, active, newPassword } = req.body ?? {};
+    if (newPassword !== undefined) {
+      const passwordErr = validatePasswordComplexity(newPassword);
+      if (passwordErr) {
+        res.status(400).json({ error: passwordErr });
+        return;
+      }
+    }
+    const cleanGroupId = typeof groupId === 'string' && groupId.trim() ? groupId.trim() : undefined;
+    if (req.user?.id === req.params.id) {
+      if (active === false) {
+        res.status(400).json({ error: 'Das eigene aktive Administratorkonto kann nicht gesperrt werden.' });
+        return;
+      }
+      if (cleanGroupId && cleanGroupId !== ADMIN_GROUP_ID) {
+        const targetGroup = store.getGroup(cleanGroupId);
+        if (!targetGroup || !targetGroup.isAdmin) {
+          res.status(400).json({
+            error: 'Sie können sich selbst nicht aus der Gruppe „Administratoren“ entfernen.',
+          });
+          return;
+        }
+      } else if (!cleanGroupId && role === 'user') {
+        res.status(400).json({
+          error: 'Sie können sich selbst nicht aus der Gruppe „Administratoren“ entfernen.',
+        });
+        return;
+      }
     }
     try {
       const updated = store.updateUser(req.params.id, {
         displayName,
         role: role === 'admin' || role === 'user' ? role : undefined,
+        groupId: cleanGroupId,
         defaultSshUser,
         active: typeof active === 'boolean' ? active : undefined,
         newPassword,
@@ -1388,6 +1657,12 @@ async function startServer() {
     }
     const isChain = kind === 'chain';
     const isWorkflow = kind === 'workflow';
+    const resolvedKind: CommandKind = isWorkflow ? 'workflow' : isChain ? 'chain' : 'single';
+    const neededPerm = commandKindPermission(resolvedKind);
+    if (!store.hasPermission(req.user!, neededPerm)) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES[neededPerm] });
+      return;
+    }
     if (!isChain && !isWorkflow && (typeof command !== 'string' || !command.trim())) {
       res.status(400).json({ error: 'Der auszuführende SSH-Befehl ist erforderlich.' });
       return;
@@ -1400,13 +1675,13 @@ async function startServer() {
       res.status(400).json({ error: 'Eine komplexe Befehlskette benötigt eine gültige JSON-Definition.' });
       return;
     }
-    const isAdmin = req.user!.role === 'admin';
+    const canShare = store.hasPermission(req.user!, 'shareResources');
     try {
       const created = store.createCommand({
         userId: req.user!.id,
         name,
         category: typeof category === 'string' ? category : 'Allgemein',
-        kind: isWorkflow ? 'workflow' : isChain ? 'chain' : 'single',
+        kind: resolvedKind,
         command: typeof command === 'string' ? command : '',
         steps: Array.isArray(steps) ? steps : [],
         workflowJson: typeof workflowJson === 'string' ? workflowJson : '',
@@ -1415,8 +1690,8 @@ async function startServer() {
         timeoutSec: Number(timeoutSec) || 30,
         enabled: typeof enabled === 'boolean' ? enabled : true,
         createdBy: req.user!.username,
-        sharedWithAll: isAdmin ? Boolean(sharedWithAll) : false,
-        sharedWithUserIds: isAdmin && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
+        sharedWithAll: canShare ? Boolean(sharedWithAll) : false,
+        sharedWithUserIds: canShare && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
       });
       res.status(201).json({ command: created });
     } catch (err) {
@@ -1425,6 +1700,10 @@ async function startServer() {
   };
 
   const handleLoadPresets = (req: AuthedRequest, res: Response) => {
+    if (!store.hasPermission(req.user!, 'createSingleCommands')) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.createSingleCommands });
+      return;
+    }
     const ownExisting = store.listOwnCommands(req.user!.id);
     const existingNames = new Set(ownExisting.map((c) => c.name.toLowerCase()));
     const added = [];
@@ -1453,7 +1732,16 @@ async function startServer() {
       return;
     }
     const patch = { ...(req.body ?? {}) };
-    if (req.user!.role !== 'admin') {
+    const nextKind: CommandKind =
+      patch.kind === 'workflow' || patch.kind === 'chain' || patch.kind === 'single'
+        ? patch.kind
+        : existing.kind;
+    const neededPerm = commandKindPermission(nextKind);
+    if (!store.hasPermission(req.user!, neededPerm)) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES[neededPerm] });
+      return;
+    }
+    if (!store.hasPermission(req.user!, 'shareResources')) {
       delete patch.sharedWithAll;
       delete patch.sharedWithUserIds;
     }
@@ -1490,6 +1778,11 @@ async function startServer() {
       res.status(403).json({ error: 'Sie können nur selbst angelegte SSH-Befehle löschen.' });
       return;
     }
+    const neededPerm = commandKindPermission(existing.kind);
+    if (!store.hasPermission(req.user!, neededPerm)) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES[neededPerm] });
+      return;
+    }
     store.deleteCommand(req.params.id);
     res.json({ ok: true });
   };
@@ -1504,9 +1797,9 @@ async function startServer() {
       res.status(400).json({ error: 'Maximal 500 Befehle pro Sammeleinstellung erlaubt.' });
       return;
     }
-    const isAdmin = req.user!.role === 'admin';
-    if (sharing !== undefined && !isAdmin) {
-      res.status(403).json({ error: 'Nur Administratoren dürfen Freigaben ändern.' });
+    const canShare = store.hasPermission(req.user!, 'shareResources');
+    if (sharing !== undefined && !canShare) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.shareResources });
       return;
     }
     const hasCategory = typeof category === 'string' && category.trim().length > 0;
@@ -1516,11 +1809,23 @@ async function startServer() {
       res.status(400).json({ error: 'Bitte wählen Sie mindestens eine zu ändernde Einstellung aus.' });
       return;
     }
+    if (hasCategory || hasEnabled) {
+      for (const id of commandIds) {
+        const cmd = store.getCommand(String(id));
+        if (cmd && cmd.userId === req.user!.id) {
+          const perm = commandKindPermission(cmd.kind);
+          if (!store.hasPermission(req.user!, perm)) {
+            res.status(403).json({ error: PERMISSION_DENIED_MESSAGES[perm] });
+            return;
+          }
+        }
+      }
+    }
     try {
       const updated = store.bulkUpdateCommands({
         commandIds,
         ownerUserId: req.user!.id,
-        isAdmin,
+        isAdmin: canShare,
         category: hasCategory ? category : undefined,
         enabled: hasEnabled ? enabled : undefined,
         sharing: hasSharing
@@ -1552,7 +1857,13 @@ async function startServer() {
   app.patch('/api/commands/:id', requireAuth, requireSecurityCompliant, handleUpdateCommand);
   app.patch('/api/admin/commands/:id', requireAuth, requireSecurityCompliant, handleUpdateCommand);
 
-  app.patch('/api/commands/:id/share', requireAuth, requireAdmin, handleShareCommand);
+  app.patch(
+    '/api/commands/:id/share',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('shareResources'),
+    handleShareCommand
+  );
 
   app.delete('/api/commands/:id', requireAuth, requireSecurityCompliant, handleDeleteCommand);
   app.delete('/api/admin/commands/:id', requireAuth, requireSecurityCompliant, handleDeleteCommand);
@@ -1562,22 +1873,29 @@ async function startServer() {
     res.json({ categories: store.listServerCategories(req.user!.id) });
   });
 
-  app.post('/api/server-categories', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
-    const name = typeof req.body?.name === 'string' ? req.body.name : '';
-    try {
-      const category = store.createServerCategory(req.user!.id, name);
-      res.status(201).json({ category });
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : 'Kategorie konnte nicht angelegt werden.',
-      });
+  app.post(
+    '/api/server-categories',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('manageOwnServers'),
+    (req: AuthedRequest, res) => {
+      const name = typeof req.body?.name === 'string' ? req.body.name : '';
+      try {
+        const category = store.createServerCategory(req.user!.id, name);
+        res.status(201).json({ category });
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : 'Kategorie konnte nicht angelegt werden.',
+        });
+      }
     }
-  });
+  );
 
   app.delete(
     '/api/server-categories/:id',
     requireAuth,
     requireSecurityCompliant,
+    requirePermission('manageOwnServers'),
     (req: AuthedRequest, res) => {
       const deleted = store.deleteServerCategory(req.params.id, req.user!.id);
       if (!deleted) {
@@ -1593,70 +1911,76 @@ async function startServer() {
     res.json({ servers: store.listAccessibleServers(req.user!.id) });
   });
 
-  app.post('/api/servers', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
-    const {
-      label,
-      ipAddress,
-      bmcIpAddress,
-      bmcIpAddress2,
-      port,
-      sshUser,
-      notes,
-      categories,
-      pingEnabled,
-      ignoreHostKey,
-      sharedWithAll,
-      sharedWithUserIds,
-    } = req.body ?? {};
-    if (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress)) {
-      res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
-      return;
-    }
-    const cleanBmcIp = typeof bmcIpAddress === 'string' ? bmcIpAddress.trim() : '';
-    if (cleanBmcIp && !validateTargetIp(cleanBmcIp)) {
-      res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 1 an (oder lassen Sie das Feld leer).' });
-      return;
-    }
-    const cleanBmcIp2 = typeof bmcIpAddress2 === 'string' ? bmcIpAddress2.trim() : '';
-    if (cleanBmcIp2 && !validateTargetIp(cleanBmcIp2)) {
-      res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 2 an (oder lassen Sie das Feld leer).' });
-      return;
-    }
-    const cleanSshUser = typeof sshUser === 'string' && sshUser.trim() ? sshUser.trim() : req.user!.defaultSshUser;
-    if (!validateSshUsername(cleanSshUser)) {
-      res.status(400).json({ error: 'Ungültiger SSH-Benutzername (erlaubt: a-z, 0-9, ., _, -).' });
-      return;
-    }
-    if (Boolean(ignoreHostKey) && !store.getSettings().allowInsecureHostKey) {
-      res.status(403).json({
-        error:
-          'Das Deaktivieren der SSH-Host-Key-Prüfung (StrictHostKeyChecking=no) ist vom Administrator global verboten.',
+  app.post(
+    '/api/servers',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('manageOwnServers'),
+    (req: AuthedRequest, res) => {
+      const {
+        label,
+        ipAddress,
+        bmcIpAddress,
+        bmcIpAddress2,
+        port,
+        sshUser,
+        notes,
+        categories,
+        pingEnabled,
+        ignoreHostKey,
+        sharedWithAll,
+        sharedWithUserIds,
+      } = req.body ?? {};
+      if (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress)) {
+        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
+        return;
+      }
+      const cleanBmcIp = typeof bmcIpAddress === 'string' ? bmcIpAddress.trim() : '';
+      if (cleanBmcIp && !validateTargetIp(cleanBmcIp)) {
+        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 1 an (oder lassen Sie das Feld leer).' });
+        return;
+      }
+      const cleanBmcIp2 = typeof bmcIpAddress2 === 'string' ? bmcIpAddress2.trim() : '';
+      if (cleanBmcIp2 && !validateTargetIp(cleanBmcIp2)) {
+        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 2 an (oder lassen Sie das Feld leer).' });
+        return;
+      }
+      const cleanSshUser = typeof sshUser === 'string' && sshUser.trim() ? sshUser.trim() : req.user!.defaultSshUser;
+      if (!validateSshUsername(cleanSshUser)) {
+        res.status(400).json({ error: 'Ungültiger SSH-Benutzername (erlaubt: a-z, 0-9, ., _, -).' });
+        return;
+      }
+      if (Boolean(ignoreHostKey) && !store.getSettings().allowInsecureHostKey) {
+        res.status(403).json({
+          error:
+            'Das Deaktivieren der SSH-Host-Key-Prüfung (StrictHostKeyChecking=no) ist vom Administrator global verboten.',
+        });
+        return;
+      }
+      const canShare = store.hasPermission(req.user!, 'shareResources');
+      const server = store.createServer({
+        userId: req.user!.id,
+        ownerUsername: req.user!.username,
+        label: typeof label === 'string' ? label : ipAddress,
+        ipAddress: ipAddress.trim(),
+        bmcIpAddress: cleanBmcIp,
+        bmcIpAddress2: cleanBmcIp2,
+        port: Number(port) || 22,
+        sshUser: cleanSshUser,
+        notes: typeof notes === 'string' ? notes : '',
+        categories: Array.isArray(categories) ? categories : [],
+        pingEnabled: pingEnabled !== undefined ? Boolean(pingEnabled) : true,
+        ignoreHostKey: Boolean(ignoreHostKey),
+        sharedWithAll: canShare ? Boolean(sharedWithAll) : false,
+        sharedWithUserIds: canShare && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
       });
-      return;
+      // Trigger background initial ping only if allowed globally, for user, and for this server
+      if (server.pingEnabled && store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
+        void pingMonitor.pingUserServers(req.user!.id, server.id);
+      }
+      res.status(201).json({ server });
     }
-    const isAdmin = req.user!.role === 'admin';
-    const server = store.createServer({
-      userId: req.user!.id,
-      ownerUsername: req.user!.username,
-      label: typeof label === 'string' ? label : ipAddress,
-      ipAddress: ipAddress.trim(),
-      bmcIpAddress: cleanBmcIp,
-      bmcIpAddress2: cleanBmcIp2,
-      port: Number(port) || 22,
-      sshUser: cleanSshUser,
-      notes: typeof notes === 'string' ? notes : '',
-      categories: Array.isArray(categories) ? categories : [],
-      pingEnabled: pingEnabled !== undefined ? Boolean(pingEnabled) : true,
-      ignoreHostKey: Boolean(ignoreHostKey),
-      sharedWithAll: isAdmin ? Boolean(sharedWithAll) : false,
-      sharedWithUserIds: isAdmin && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
-    });
-    // Trigger background initial ping only if allowed globally, for user, and for this server
-    if (server.pingEnabled && store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
-      void pingMonitor.pingUserServers(req.user!.id, server.id);
-    }
-    res.status(201).json({ server });
-  });
+  );
 
   app.patch('/api/servers/bulk', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
     const {
@@ -1676,9 +2000,9 @@ async function startServer() {
       res.status(400).json({ error: 'Maximal 500 Server pro Sammeleinstellung erlaubt.' });
       return;
     }
-    const isAdmin = req.user!.role === 'admin';
-    if (sharing !== undefined && !isAdmin) {
-      res.status(403).json({ error: 'Nur Administratoren dürfen Freigaben ändern.' });
+    const canShare = store.hasPermission(req.user!, 'shareResources');
+    if (sharing !== undefined && !canShare) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.shareResources });
       return;
     }
     const validCatAction =
@@ -1704,12 +2028,16 @@ async function startServer() {
       res.status(400).json({ error: 'Bitte wählen Sie mindestens eine zu ändernde Einstellung aus.' });
       return;
     }
+    if ((hasPing || hasHostKey || hasCategories) && !store.hasPermission(req.user!, 'manageOwnServers')) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.manageOwnServers });
+      return;
+    }
 
     try {
       const updated = store.bulkUpdateServers({
         serverIds,
         ownerUserId: req.user!.id,
-        isAdmin,
+        isAdmin: canShare,
         pingEnabled: hasPing ? pingEnabled : undefined,
         ignoreHostKey: hasHostKey ? ignoreHostKey : undefined,
         categoriesAction: validCatAction,
@@ -1734,82 +2062,88 @@ async function startServer() {
     }
   });
 
-  app.patch('/api/servers/:id', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
-    const {
-      label,
-      ipAddress,
-      bmcIpAddress,
-      bmcIpAddress2,
-      port,
-      sshUser,
-      notes,
-      categories,
-      pingEnabled,
-      ignoreHostKey,
-    } = req.body ?? {};
-    if (ipAddress !== undefined && (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress))) {
-      res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
-      return;
-    }
-    if (bmcIpAddress !== undefined) {
-      if (typeof bmcIpAddress !== 'string') {
-        res.status(400).json({ error: 'Ungültige BMC-IP-Adresse 1.' });
+  app.patch(
+    '/api/servers/:id',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('manageOwnServers'),
+    (req: AuthedRequest, res) => {
+      const {
+        label,
+        ipAddress,
+        bmcIpAddress,
+        bmcIpAddress2,
+        port,
+        sshUser,
+        notes,
+        categories,
+        pingEnabled,
+        ignoreHostKey,
+      } = req.body ?? {};
+      if (ipAddress !== undefined && (typeof ipAddress !== 'string' || !validateTargetIp(ipAddress))) {
+        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse an.' });
         return;
       }
-      const trimmedBmc = bmcIpAddress.trim();
-      if (trimmedBmc && !validateTargetIp(trimmedBmc)) {
-        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 1 an (oder lassen Sie das Feld leer).' });
+      if (bmcIpAddress !== undefined) {
+        if (typeof bmcIpAddress !== 'string') {
+          res.status(400).json({ error: 'Ungültige BMC-IP-Adresse 1.' });
+          return;
+        }
+        const trimmedBmc = bmcIpAddress.trim();
+        if (trimmedBmc && !validateTargetIp(trimmedBmc)) {
+          res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 1 an (oder lassen Sie das Feld leer).' });
+          return;
+        }
+      }
+      if (bmcIpAddress2 !== undefined) {
+        if (typeof bmcIpAddress2 !== 'string') {
+          res.status(400).json({ error: 'Ungültige BMC-IP-Adresse 2.' });
+          return;
+        }
+        const trimmedBmc2 = bmcIpAddress2.trim();
+        if (trimmedBmc2 && !validateTargetIp(trimmedBmc2)) {
+          res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 2 an (oder lassen Sie das Feld leer).' });
+          return;
+        }
+      }
+      if (sshUser !== undefined && (typeof sshUser !== 'string' || !validateSshUsername(sshUser.trim()))) {
+        res.status(400).json({ error: 'Ungültiger SSH-Benutzername (erlaubt: a-z, 0-9, ., _, -).' });
         return;
       }
-    }
-    if (bmcIpAddress2 !== undefined) {
-      if (typeof bmcIpAddress2 !== 'string') {
-        res.status(400).json({ error: 'Ungültige BMC-IP-Adresse 2.' });
-        return;
+      if (ignoreHostKey === true && !store.getSettings().allowInsecureHostKey) {
+        const existing = store.getAccessibleServer(req.params.id, req.user!.id);
+        if (!existing || !existing.ignoreHostKey) {
+          res.status(403).json({
+            error:
+              'Das Deaktivieren der SSH-Host-Key-Prüfung (StrictHostKeyChecking=no) ist vom Administrator global verboten.',
+          });
+          return;
+        }
       }
-      const trimmedBmc2 = bmcIpAddress2.trim();
-      if (trimmedBmc2 && !validateTargetIp(trimmedBmc2)) {
-        res.status(400).json({ error: 'Bitte geben Sie eine gültige IPv4- oder IPv6-Adresse für BMC-IP 2 an (oder lassen Sie das Feld leer).' });
-        return;
-      }
-    }
-    if (sshUser !== undefined && (typeof sshUser !== 'string' || !validateSshUsername(sshUser.trim()))) {
-      res.status(400).json({ error: 'Ungültiger SSH-Benutzername (erlaubt: a-z, 0-9, ., _, -).' });
-      return;
-    }
-    if (ignoreHostKey === true && !store.getSettings().allowInsecureHostKey) {
-      const existing = store.getAccessibleServer(req.params.id, req.user!.id);
-      if (!existing || !existing.ignoreHostKey) {
-        res.status(403).json({
-          error:
-            'Das Deaktivieren der SSH-Host-Key-Prüfung (StrictHostKeyChecking=no) ist vom Administrator global verboten.',
+      try {
+        const updated = store.updateServer(req.params.id, req.user!.id, {
+          label: typeof label === 'string' ? label : undefined,
+          ipAddress: typeof ipAddress === 'string' ? ipAddress : undefined,
+          bmcIpAddress: typeof bmcIpAddress === 'string' ? bmcIpAddress : undefined,
+          bmcIpAddress2: typeof bmcIpAddress2 === 'string' ? bmcIpAddress2 : undefined,
+          port: port !== undefined ? Number(port) : undefined,
+          sshUser: typeof sshUser === 'string' ? sshUser : undefined,
+          notes: typeof notes === 'string' ? notes : undefined,
+          categories: Array.isArray(categories) ? categories : undefined,
+          pingEnabled: typeof pingEnabled === 'boolean' ? pingEnabled : undefined,
+          ignoreHostKey: typeof ignoreHostKey === 'boolean' ? ignoreHostKey : undefined,
         });
-        return;
+        if (updated.pingEnabled && store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
+          void pingMonitor.pingUserServers(req.user!.id, updated.id);
+        }
+        res.json({ server: updated });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Server konnte nicht aktualisiert werden.';
+        const status = msg.includes('selbst angelegte') ? 403 : 400;
+        res.status(status).json({ error: msg });
       }
     }
-    try {
-      const updated = store.updateServer(req.params.id, req.user!.id, {
-        label: typeof label === 'string' ? label : undefined,
-        ipAddress: typeof ipAddress === 'string' ? ipAddress : undefined,
-        bmcIpAddress: typeof bmcIpAddress === 'string' ? bmcIpAddress : undefined,
-        bmcIpAddress2: typeof bmcIpAddress2 === 'string' ? bmcIpAddress2 : undefined,
-        port: port !== undefined ? Number(port) : undefined,
-        sshUser: typeof sshUser === 'string' ? sshUser : undefined,
-        notes: typeof notes === 'string' ? notes : undefined,
-        categories: Array.isArray(categories) ? categories : undefined,
-        pingEnabled: typeof pingEnabled === 'boolean' ? pingEnabled : undefined,
-        ignoreHostKey: typeof ignoreHostKey === 'boolean' ? ignoreHostKey : undefined,
-      });
-      if (updated.pingEnabled && store.getSettings().pingAllowed && req.user!.pingEnabled !== false) {
-        void pingMonitor.pingUserServers(req.user!.id, updated.id);
-      }
-      res.json({ server: updated });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Server konnte nicht aktualisiert werden.';
-      const status = msg.includes('selbst angelegte') ? 403 : 400;
-      res.status(status).json({ error: msg });
-    }
-  });
+  );
 
   app.post('/api/servers/:id/check-bmc', requireAuth, async (req: AuthedRequest, res) => {
     const server = store.getAccessibleServer(req.params.id, req.user!.id);
@@ -1841,30 +2175,42 @@ async function startServer() {
     });
   });
 
-  app.patch('/api/servers/:id/share', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
-    const { sharedWithAll, sharedWithUserIds } = req.body ?? {};
-    try {
-      const updated = store.updateServerSharing(
-        req.params.id,
-        req.user!.id,
-        Boolean(sharedWithAll),
-        Array.isArray(sharedWithUserIds) ? sharedWithUserIds : []
-      );
-      res.json({ server: updated });
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : 'Server-Freigabe konnte nicht aktualisiert werden.' });
+  app.patch(
+    '/api/servers/:id/share',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('shareResources'),
+    (req: AuthedRequest, res) => {
+      const { sharedWithAll, sharedWithUserIds } = req.body ?? {};
+      try {
+        const updated = store.updateServerSharing(
+          req.params.id,
+          req.user!.id,
+          Boolean(sharedWithAll),
+          Array.isArray(sharedWithUserIds) ? sharedWithUserIds : []
+        );
+        res.json({ server: updated });
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : 'Server-Freigabe konnte nicht aktualisiert werden.' });
+      }
     }
-  });
+  );
 
-  app.delete('/api/servers/:id', requireAuth, (req: AuthedRequest, res) => {
-    const existing = store.getServerById(req.params.id);
-    if (existing && existing.userId !== req.user!.id) {
-      res.status(403).json({ error: 'Sie können nur selbst angelegte Server (IPs) entfernen.' });
-      return;
+  app.delete(
+    '/api/servers/:id',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('manageOwnServers'),
+    (req: AuthedRequest, res) => {
+      const existing = store.getServerById(req.params.id);
+      if (existing && existing.userId !== req.user!.id) {
+        res.status(403).json({ error: 'Sie können nur selbst angelegte Server (IPs) entfernen.' });
+        return;
+      }
+      store.deleteServer(req.params.id, req.user!.id);
+      res.json({ ok: true });
     }
-    store.deleteServer(req.params.id, req.user!.id);
-    res.json({ ok: true });
-  });
+  );
 
   // SSH Host-Key Management (per-IP reset for users, global stats & purge for admin)
   const handleUserHostKeyReset = (req: AuthedRequest, res: Response) => {
@@ -1881,6 +2227,10 @@ async function startServer() {
       targetIp = server.ipAddress;
       targetPort = server.port;
     } else {
+      if (!store.hasPermission(req.user!, 'useSshShellCustomIp')) {
+        res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.useSshShellCustomIp });
+        return;
+      }
       const rawIp = typeof ipAddress === 'string' ? ipAddress.trim() : '';
       if (!validateTargetIp(rawIp)) {
         res.status(400).json({ error: `Ungültige Ziel-IP-Adresse: ${rawIp || '(leer)'}` });
@@ -1949,6 +2299,310 @@ async function startServer() {
     }
   });
 
+  function serializeCertificateAuthority(ca: StoredCertificateAuthority) {
+    return {
+      id: ca.id,
+      name: ca.name,
+      description: ca.description,
+      privateKeyFileName: ca.privateKeyFileName,
+      publicKeyFileName: ca.publicKeyFileName,
+      publicKey: ca.publicKey,
+      keyType: ca.keyType,
+      fingerprint: ca.fingerprint,
+      privateKeyFormat: ca.privateKeyFormat,
+      privateKeyEncrypted: ca.privateKeyIsEncrypted,
+      hasStoredPassphrase: Boolean(ca.passphraseEncrypted),
+      createdBy: ca.createdBy,
+      createdByUsername: ca.createdByUsername,
+      createdAt: ca.createdAt,
+      updatedAt: ca.updatedAt,
+    };
+  }
+
+  // Admin: SSH Certificate Authorities (ca & ca.pub for signing SSH user certificates)
+  app.get(
+    '/api/admin/ca',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    (_req: AuthedRequest, res: Response) => {
+      const cas = store.listCertificateAuthorities().map(serializeCertificateAuthority);
+      res.json({ cas });
+    }
+  );
+
+  app.post(
+    '/api/admin/ca/generate',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    (req: AuthedRequest, res: Response) => {
+      const { name, description, passphrase, storePassphrase, overwrite } = req.body ?? {};
+      const cleanName =
+        typeof name === 'string' && name.trim()
+          ? name.trim().slice(0, 64)
+          : `${req.user!.username}-ca`;
+      const cleanPassphrase = typeof passphrase === 'string' ? passphrase : '';
+
+      if (cleanPassphrase.length === 0) {
+        res.status(400).json({
+          error: 'Für ein CA-Zertifikat ist zwingend ein Passwort erforderlich.',
+        });
+        return;
+      }
+      const passErr = validatePasswordComplexity(cleanPassphrase);
+      if (passErr) {
+        res.status(400).json({ error: passErr });
+        return;
+      }
+
+      const existingSameName = store.findCertificateAuthorityByName(cleanName);
+      if (existingSameName && overwrite !== true) {
+        res.status(409).json({
+          error: `Eine CA mit dem Namen „${existingSameName.name}“ existiert bereits. Bitte bestätigen Sie das Überschreiben oder wählen Sie einen anderen Namen.`,
+        });
+        return;
+      }
+
+      try {
+        const generated = generateOpenSshKeypair({
+          keyId: cleanName,
+          passphrase: cleanPassphrase,
+        });
+        const metadata = validateAndParseCertificateBundle(
+          generated.privateKey,
+          generated.publicKey,
+          ''
+        );
+        if (!metadata.privateKeyEncrypted) {
+          res.status(500).json({ error: 'Erzeugter CA-Privatschlüssel ist nicht verschlüsselt.' });
+          return;
+        }
+        const saved = store.saveCertificateAuthority({
+          name: cleanName,
+          description: typeof description === 'string' ? description : '',
+          privateKeyFileName: 'ca',
+          publicKeyFileName: 'ca.pub',
+          privateKeyContent: generated.privateKey,
+          publicKeyContent: generated.publicKey,
+          keyType: metadata.pubKeyAlgorithm,
+          fingerprint: metadata.pubKeyFingerprint,
+          privateKeyFormat: metadata.privateKeyFormat,
+          passphrase: storePassphrase === true ? cleanPassphrase : undefined,
+          createdBy: req.user!.id,
+          createdByUsername: req.user!.username,
+        });
+        res.status(201).json({
+          ca: serializeCertificateAuthority(saved.ca),
+          replaced: saved.replaced,
+          generated,
+        });
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : 'CA-Zertifikat konnte nicht erzeugt werden.',
+        });
+      }
+    }
+  );
+
+  app.post(
+    '/api/admin/ca',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    (req: AuthedRequest, res: Response) => {
+      const {
+        name,
+        description,
+        privateKeyFileName,
+        publicKeyFileName,
+        privateKeyContent,
+        publicKeyContent,
+        passphrase,
+        overwrite,
+      } = req.body ?? {};
+
+      if (
+        typeof privateKeyContent !== 'string' ||
+        !privateKeyContent.trim() ||
+        typeof publicKeyContent !== 'string' ||
+        !publicKeyContent.trim()
+      ) {
+        res.status(400).json({
+          error: 'Privater CA-Schlüssel (ca) und öffentlicher CA-Schlüssel (ca.pub) sind erforderlich.',
+        });
+        return;
+      }
+
+      const cleanPassphrase =
+        typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
+      if (cleanPassphrase) {
+        const passErr = validatePasswordComplexity(cleanPassphrase);
+        if (passErr) {
+          res.status(400).json({ error: passErr });
+          return;
+        }
+      }
+
+      try {
+        const metadata = validateAndParseCertificateBundle(
+          privateKeyContent,
+          publicKeyContent,
+          ''
+        );
+        if (!metadata.privateKeyEncrypted) {
+          res.status(400).json({
+            error:
+              'Ein CA-Privatschlüssel (ca) muss zwingend passwortgeschützt (verschlüsselt) sein. Unverschlüsselte CA-Schlüssel werden nicht akzeptiert.',
+          });
+          return;
+        }
+        const effectiveName =
+          typeof name === 'string' && name.trim()
+            ? name.trim().slice(0, 64)
+            : metadata.keyId || 'ssh-ca';
+        const existingSameName = store.findCertificateAuthorityByName(effectiveName);
+        if (existingSameName && overwrite !== true) {
+          res.status(409).json({
+            error: `Eine CA mit dem Namen „${existingSameName.name}“ existiert bereits. Bitte bestätigen Sie das Überschreiben oder wählen Sie einen anderen Namen.`,
+          });
+          return;
+        }
+
+        const saved = store.saveCertificateAuthority({
+          name: effectiveName,
+          description: typeof description === 'string' ? description : '',
+          privateKeyFileName:
+            typeof privateKeyFileName === 'string' && privateKeyFileName.trim()
+              ? privateKeyFileName.trim()
+              : 'ca',
+          publicKeyFileName:
+            typeof publicKeyFileName === 'string' && publicKeyFileName.trim()
+              ? publicKeyFileName.trim()
+              : 'ca.pub',
+          privateKeyContent,
+          publicKeyContent,
+          keyType: metadata.pubKeyAlgorithm,
+          fingerprint: metadata.pubKeyFingerprint,
+          privateKeyFormat: metadata.privateKeyFormat,
+          passphrase: cleanPassphrase,
+          createdBy: req.user!.id,
+          createdByUsername: req.user!.username,
+        });
+        res.status(201).json({
+          ca: serializeCertificateAuthority(saved.ca),
+          replaced: saved.replaced,
+        });
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : 'CA-Schlüsselpaar konnte nicht geprüft werden.',
+        });
+      }
+    }
+  );
+
+  app.put(
+    '/api/admin/ca/:id',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    (req: AuthedRequest, res: Response) => {
+      const existing = store.getCertificateAuthorityById(req.params.id);
+      if (!existing) {
+        res.status(404).json({ error: 'CA-Zertifikat nicht gefunden.' });
+        return;
+      }
+
+      const {
+        name,
+        description,
+        privateKeyFileName,
+        publicKeyFileName,
+        privateKeyContent,
+        publicKeyContent,
+        passphrase,
+        clearPassphrase,
+      } = req.body ?? {};
+
+      const cleanPassphrase =
+        typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
+      if (cleanPassphrase && clearPassphrase !== true) {
+        const passErr = validatePasswordComplexity(cleanPassphrase);
+        if (passErr) {
+          res.status(400).json({ error: passErr });
+          return;
+        }
+      }
+
+      const replacingPriv = typeof privateKeyContent === 'string' && privateKeyContent.trim().length > 0;
+      const replacingPub = typeof publicKeyContent === 'string' && publicKeyContent.trim().length > 0;
+
+      try {
+        let keyType: string | undefined;
+        let fingerprint: string | undefined;
+        let privateKeyFormat: StoredCertificateAuthority['privateKeyFormat'] | undefined;
+
+        if (replacingPriv || replacingPub) {
+          const effectivePriv = replacingPriv
+            ? privateKeyContent
+            : decryptSecret(existing.privateKeyEncrypted);
+          const effectivePub = replacingPub ? publicKeyContent : existing.publicKey;
+          const metadata = validateAndParseCertificateBundle(effectivePriv, effectivePub, '');
+          if (!metadata.privateKeyEncrypted) {
+            res.status(400).json({
+              error:
+                'Ein CA-Privatschlüssel (ca) muss zwingend passwortgeschützt (verschlüsselt) sein. Unverschlüsselte CA-Schlüssel werden nicht akzeptiert.',
+            });
+            return;
+          }
+          keyType = metadata.pubKeyAlgorithm;
+          fingerprint = metadata.pubKeyFingerprint;
+          privateKeyFormat = metadata.privateKeyFormat;
+        }
+
+        const updated = store.updateCertificateAuthority(existing.id, {
+          name: typeof name === 'string' ? name : undefined,
+          description: typeof description === 'string' ? description : undefined,
+          privateKeyFileName:
+            typeof privateKeyFileName === 'string' && privateKeyFileName.trim()
+              ? privateKeyFileName.trim()
+              : undefined,
+          publicKeyFileName:
+            typeof publicKeyFileName === 'string' && publicKeyFileName.trim()
+              ? publicKeyFileName.trim()
+              : undefined,
+          privateKeyContent: replacingPriv ? privateKeyContent : undefined,
+          publicKeyContent: replacingPub ? publicKeyContent : undefined,
+          keyType,
+          fingerprint,
+          privateKeyFormat,
+          passphrase: cleanPassphrase,
+          clearPassphrase: clearPassphrase === true,
+        });
+        res.json({ ca: serializeCertificateAuthority(updated) });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'CA-Zertifikat konnte nicht aktualisiert werden.';
+        const status = msg.includes('existiert bereits') ? 409 : 400;
+        res.status(status).json({ error: msg });
+      }
+    }
+  );
+
+  app.delete(
+    '/api/admin/ca/:id',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    (req: AuthedRequest, res: Response) => {
+      const removed = store.deleteCertificateAuthority(req.params.id);
+      if (!removed) {
+        res.status(404).json({ error: 'CA-Zertifikat nicht gefunden.' });
+        return;
+      }
+      res.json({ ok: true });
+    }
+  );
+
   // User 3-File SSH Certificates (zertifikat, zertifikat.pub, zertifikat-cert.pub — creator-private; admin may share)
   function serializeCertificate(c: ReturnType<typeof store.listAccessibleCertificates>[number]) {
     return {
@@ -1961,10 +2615,37 @@ async function startServer() {
       certFileName: c.certFileName,
       hasStoredPassphrase: Boolean(c.passphraseEncrypted),
       metadata: c.metadata,
+      autoRenew: c.autoRenew ?? null,
       sharedWithAll: c.sharedWithAll,
       sharedWithUserIds: c.sharedWithUserIds,
       uploadedAt: c.uploadedAt,
     };
+  }
+
+  function parseAutoRenewBeforeSeconds(raw: unknown): number {
+    if (raw === undefined || raw === null || raw === '') return 0;
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(Math.max(Math.floor(n), 60), 180 * 86400);
+  }
+
+  function computeEffectiveLeadSeconds(
+    validAfterUnix: number,
+    validBeforeUnix: number,
+    configuredLeadSec: number
+  ): number {
+    const lifetimeSec = Math.max(120, validBeforeUnix - validAfterUnix);
+    if (configuredLeadSec > 0) {
+      const maxExplicitLead = Math.max(
+        60,
+        Math.min(Math.floor(lifetimeSec * 0.9), lifetimeSec - 60)
+      );
+      return Math.max(60, Math.min(configuredLeadSec, maxExplicitLead));
+    }
+    const halfLife = Math.max(60, Math.floor(lifetimeSec * 0.5));
+    const autoLead = Math.round(lifetimeSec * 0.2);
+    const minAuto = Math.min(300, halfLife);
+    return Math.max(minAuto, Math.min(autoLead, 7 * 86400, halfLife));
   }
 
   app.get('/api/certificates', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
@@ -1972,68 +2653,108 @@ async function startServer() {
     res.json({ certificates: list });
   });
 
-  app.post('/api/certificates', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
-    const {
-      name,
-      privateKeyFileName,
-      publicKeyFileName,
-      certFileName,
-      privateKeyContent,
-      publicKeyContent,
-      certContent,
-      passphrase,
-      sharedWithAll,
-      sharedWithUserIds,
-    } = req.body ?? {};
-
-    if (
-      typeof privateKeyContent !== 'string' ||
-      !privateKeyContent.trim() ||
-      typeof publicKeyContent !== 'string' ||
-      !publicKeyContent.trim()
-    ) {
-      res.status(400).json({
-        error:
-          'Privater Schlüssel (zertifikat) und öffentlicher Schlüssel (zertifikat.pub) sind erforderlich. Das signierte Zertifikat (zertifikat-cert.pub) ist optional.',
-      });
-      return;
-    }
-
-    const cleanCertContent = typeof certContent === 'string' ? certContent : '';
-    const cleanPassphrase = typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
-    const isAdmin = req.user!.role === 'admin';
-    try {
-      const metadata = validateAndParseCertificateBundle(
+  app.post(
+    '/api/certificates',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('uploadCertificates'),
+    (req: AuthedRequest, res) => {
+      const {
+        name,
+        privateKeyFileName,
+        publicKeyFileName,
+        certFileName,
         privateKeyContent,
         publicKeyContent,
-        cleanCertContent
-      );
-      const { certificate: saved, replaced } = store.createCertificate({
-        userId: req.user!.id,
-        ownerUsername: req.user!.username,
-        name: typeof name === 'string' ? name : metadata.keyId || 'SSH-Zertifikat',
-        privateKeyFileName: String(privateKeyFileName || 'zertifikat'),
-        publicKeyFileName: String(publicKeyFileName || 'zertifikat.pub'),
-        certFileName: cleanCertContent.trim() ? String(certFileName || 'zertifikat-cert.pub') : '',
-        privateKeyContent,
-        publicKeyContent,
-        certContent: cleanCertContent,
-        passphrase: cleanPassphrase,
-        metadata,
-        sharedWithAll: isAdmin ? Boolean(sharedWithAll) : false,
-        sharedWithUserIds: isAdmin && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
-      });
+        certContent,
+        passphrase,
+        overwrite,
+        sharedWithAll,
+        sharedWithUserIds,
+      } = req.body ?? {};
 
-      res.status(replaced ? 200 : 201).json({
-        certificate: serializeCertificate(saved),
-        replaced,
-      });
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
-      });
+      if (
+        typeof privateKeyContent !== 'string' ||
+        !privateKeyContent.trim() ||
+        typeof publicKeyContent !== 'string' ||
+        !publicKeyContent.trim()
+      ) {
+        res.status(400).json({
+          error:
+            'Privater Schlüssel (zertifikat) und öffentlicher Schlüssel (zertifikat.pub) sind erforderlich. Das signierte Zertifikat (zertifikat-cert.pub) ist optional.',
+        });
+        return;
+      }
+
+      const cleanCertContent = typeof certContent === 'string' ? certContent : '';
+      if (cleanCertContent.trim().length > 0 && !store.hasPermission(req.user!, 'uploadSignedCert')) {
+        res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.uploadSignedCert });
+        return;
+      }
+      const cleanPassphrase = typeof passphrase === 'string' && passphrase.length > 0 ? passphrase : undefined;
+      if (cleanPassphrase && !store.hasPermission(req.user!, 'storeCertificatePassphrase')) {
+        res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.storeCertificatePassphrase });
+        return;
+      }
+      if (cleanPassphrase) {
+        const passErr = validatePasswordComplexity(cleanPassphrase);
+        if (passErr) {
+          res.status(400).json({ error: passErr });
+          return;
+        }
+      }
+      const canShare = store.hasPermission(req.user!, 'shareResources');
+      try {
+        const metadata = validateAndParseCertificateBundle(
+          privateKeyContent,
+          publicKeyContent,
+          cleanCertContent
+        );
+        if (
+          store.hasPermission(req.user!, 'requireCertificatePassphrase') &&
+          !metadata.privateKeyEncrypted
+        ) {
+          res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.requireCertificatePassphrase });
+          return;
+        }
+        const effectiveName =
+          typeof name === 'string' && name.trim()
+            ? name.trim()
+            : metadata.keyId || 'SSH-Zertifikat';
+        const existingSameName = store.findUserCertificateByName(req.user!.id, effectiveName);
+        if (existingSameName && overwrite !== true) {
+          res.status(409).json({
+            error: `Ein Zertifikat mit dem Namen „${existingSameName.name}“ existiert bereits. Bitte bestätigen Sie das Überschreiben oder wählen Sie einen anderen Namen.`,
+          });
+          return;
+        }
+        const { certificate: saved, replaced } = store.createCertificate({
+          userId: req.user!.id,
+          ownerUsername: req.user!.username,
+          name: effectiveName,
+          privateKeyFileName: String(privateKeyFileName || 'zertifikat'),
+          publicKeyFileName: String(publicKeyFileName || 'zertifikat.pub'),
+          certFileName: cleanCertContent.trim() ? String(certFileName || 'zertifikat-cert.pub') : '',
+          privateKeyContent,
+          publicKeyContent,
+          certContent: cleanCertContent,
+          passphrase: cleanPassphrase,
+          metadata,
+          sharedWithAll: canShare ? Boolean(sharedWithAll) : false,
+          sharedWithUserIds: canShare && Array.isArray(sharedWithUserIds) ? sharedWithUserIds : [],
+        });
+
+        res.status(replaced ? 200 : 201).json({
+          certificate: serializeCertificate(saved),
+          replaced,
+        });
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
+        });
+      }
     }
-  });
+  );
 
   interface ParsedCertUpdatePayload {
     id?: string;
@@ -2147,13 +2868,35 @@ async function startServer() {
     return result;
   }
 
+  class CertPermissionError extends Error {}
+
   function applyPartialCertificateUpdate(
     existing: UserCertificateBundle,
-    ownerUserId: string,
+    actorUser: StoredUser,
     payload: ParsedCertUpdatePayload
   ): UserCertificateBundle {
+    const ownerUserId = actorUser.id;
     if (existing.userId !== ownerUserId) {
-      throw new Error('Sie können nur selbst angelegte Zertifikatspakete bearbeiten.');
+      throw new CertPermissionError('Sie können nur selbst angelegte Zertifikatspakete bearbeiten.');
+    }
+
+    if (
+      typeof payload.certContent === 'string' &&
+      payload.certContent.trim().length > 0 &&
+      !payload.removeCert &&
+      !store.hasPermission(actorUser, 'uploadSignedCert')
+    ) {
+      throw new CertPermissionError(PERMISSION_DENIED_MESSAGES.uploadSignedCert);
+    }
+
+    if (typeof payload.passphrase === 'string' && payload.passphrase.length > 0) {
+      if (!store.hasPermission(actorUser, 'storeCertificatePassphrase')) {
+        throw new CertPermissionError(PERMISSION_DENIED_MESSAGES.storeCertificatePassphrase);
+      }
+      const passErr = validatePasswordComplexity(payload.passphrase);
+      if (passErr) {
+        throw new Error(passErr);
+      }
     }
 
     const hasAnyChange =
@@ -2189,6 +2932,14 @@ async function startServer() {
       effectiveCert
     );
 
+    if (
+      payload.privateKeyContent !== undefined &&
+      store.hasPermission(actorUser, 'requireCertificatePassphrase') &&
+      !metadata.privateKeyEncrypted
+    ) {
+      throw new CertPermissionError(PERMISSION_DENIED_MESSAGES.requireCertificatePassphrase);
+    }
+
     return store.updateCertificate(existing.id, ownerUserId, {
       name: payload.name,
       privateKeyContent: payload.privateKeyContent,
@@ -2207,82 +2958,1061 @@ async function startServer() {
     });
   }
 
-  app.patch('/api/certificates/:id', requireAuth, async (req: AuthedRequest, res) => {
-    const existing = store.getCertificateById(req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: 'Zertifikatspaket nicht gefunden.' });
-      return;
-    }
-    if (existing.userId !== req.user!.id) {
-      res.status(403).json({ error: 'Sie können nur selbst angelegte Zertifikatspakete bearbeiten.' });
-      return;
-    }
+  app.patch(
+    '/api/certificates/:id',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('uploadCertificates'),
+    async (req: AuthedRequest, res) => {
+      const existing = store.getCertificateById(req.params.id);
+      if (!existing) {
+        res.status(404).json({ error: 'Zertifikatspaket nicht gefunden.' });
+        return;
+      }
+      if (existing.userId !== req.user!.id) {
+        res.status(403).json({ error: 'Sie können nur selbst angelegte Zertifikatspakete bearbeiten.' });
+        return;
+      }
 
-    let payload: ParsedCertUpdatePayload;
-    try {
-      payload = await parseIncomingCertificatePayload(req);
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : 'Anfrage konnte nicht verarbeitet werden.',
-      });
-      return;
-    }
+      let payload: ParsedCertUpdatePayload;
+      try {
+        payload = await parseIncomingCertificatePayload(req);
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : 'Anfrage konnte nicht verarbeitet werden.',
+        });
+        return;
+      }
 
-    try {
-      const updated = applyPartialCertificateUpdate(existing, req.user!.id, payload);
+      try {
+        const updated = applyPartialCertificateUpdate(existing, req.user!, payload);
+        res.json({
+          ok: true,
+          certificate: serializeCertificate(updated),
+        });
+      } catch (err) {
+        res.status(err instanceof CertPermissionError ? 403 : 400).json({
+          error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
+        });
+      }
+    }
+  );
+
+  app.patch(
+    '/api/certificates/:id/share',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('shareResources'),
+    (req: AuthedRequest, res) => {
+      const { sharedWithAll, sharedWithUserIds } = req.body ?? {};
+      try {
+        const updated = store.updateCertificateSharing(
+          req.params.id,
+          req.user!.id,
+          Boolean(sharedWithAll),
+          Array.isArray(sharedWithUserIds) ? sharedWithUserIds : []
+        );
+        res.json({ certificate: serializeCertificate(updated) });
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : 'Zertifikats-Freigabe konnte nicht aktualisiert werden.' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/certificates/generate-test',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('generateTestCertificates'),
+    (req: AuthedRequest, res) => {
+      const { keyId, passphrase } = req.body ?? {};
+      const cleanKeyId =
+        typeof keyId === 'string' && keyId.trim()
+          ? keyId.trim().slice(0, 64)
+          : `${req.user!.username}-ed25519`;
+      const cleanPassphrase = typeof passphrase === 'string' ? passphrase : '';
+
+      if (
+        store.hasPermission(req.user!, 'requireCertificatePassphrase') &&
+        cleanPassphrase.length === 0
+      ) {
+        res.status(400).json({
+          error: 'Ihre Benutzergruppe erfordert ein Passwort beim Erzeugen von Zertifikaten.',
+        });
+        return;
+      }
+      if (cleanPassphrase.length > 0) {
+        const passErr = validatePasswordComplexity(cleanPassphrase);
+        if (passErr) {
+          res.status(400).json({ error: passErr });
+          return;
+        }
+      }
+
+      try {
+        const generated = generateOpenSshKeypair({
+          keyId: cleanKeyId,
+          passphrase: cleanPassphrase || undefined,
+        });
+        res.json(generated);
+      } catch (err) {
+        res.status(500).json({
+          error: err instanceof Error ? err.message : 'Zertifikat konnte nicht erzeugt werden.',
+        });
+      }
+    }
+  );
+
+  app.delete(
+    '/api/certificates/:id',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('uploadCertificates'),
+    (req: AuthedRequest, res) => {
+      const existing = store.getCertificateById(req.params.id);
+      if (existing && existing.userId !== req.user!.id) {
+        res.status(403).json({ error: 'Sie können nur selbst angelegte Zertifikatspakete entfernen.' });
+        return;
+      }
+      store.deleteCertificate(req.params.id, req.user!.id);
+      res.json({ ok: true });
+    }
+  );
+
+  // Admin-only certificate oversight: metadata listing across all users (never private keys/passphrases) + deletion only
+  app.get(
+    '/api/admin/certificates',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    (_req: AuthedRequest, res: Response) => {
+      const list = store.listAllCertificates().map(serializeCertificate);
+      res.json({ certificates: list });
+    }
+  );
+
+  app.delete(
+    '/api/admin/certificates/:id',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    (req: AuthedRequest, res: Response) => {
+      const removed = store.deleteCertificateAsAdmin(req.params.id);
+      if (!removed) {
+        res.status(404).json({ error: 'Zertifikatspaket nicht gefunden.' });
+        return;
+      }
+      res.json({ ok: true });
+    }
+  );
+
+  // Admin-only CA signing (single or batch) — signs user public keys with an admin CA and attaches zertifikat-cert.pub
+  app.post(
+    '/api/admin/certificates/sign',
+    requireAuth,
+    requireSecurityCompliant,
+    requireAdmin,
+    async (req: AuthedRequest, res: Response) => {
+      const {
+        caId,
+        caPassphrase,
+        certificateIds,
+        principals: rawPrincipals,
+        includeOwnerPrincipal,
+        validity: rawValidity,
+        keyId: rawKeyId,
+        confirmOverwriteForeignCa,
+        autoRenew,
+        autoRenewBeforeSeconds,
+      } = req.body ?? {};
+
+      if (typeof caId !== 'string' || !caId.trim()) {
+        res.status(400).json({ error: 'Bitte wählen Sie eine Zertifizierungsstelle (CA) aus.' });
+        return;
+      }
+      const ca = store.getCertificateAuthorityById(caId.trim());
+      if (!ca) {
+        res.status(404).json({ error: 'Ausgewählte CA nicht gefunden.' });
+        return;
+      }
+
+      if (!Array.isArray(certificateIds) || certificateIds.length === 0) {
+        res.status(400).json({ error: 'Bitte mindestens ein Zertifikat zum Signieren auswählen.' });
+        return;
+      }
+      const uniqueCertIds = Array.from(
+        new Set(
+          certificateIds
+            .map((id) => (typeof id === 'string' ? id.trim() : ''))
+            .filter(Boolean)
+        )
+      );
+      if (uniqueCertIds.length === 0) {
+        res.status(400).json({ error: 'Bitte mindestens ein gültiges Zertifikat auswählen.' });
+        return;
+      }
+      if (uniqueCertIds.length > 200) {
+        res.status(400).json({ error: 'Maximal 200 Zertifikate können gleichzeitig signiert werden.' });
+        return;
+      }
+
+      if (confirmOverwriteForeignCa !== true) {
+        const foreignCaConflicts = uniqueCertIds
+          .map((id) => store.getCertificateById(id))
+          .filter((t): t is UserCertificateBundle => {
+            if (!t) return false;
+            const hasExistingCert =
+              t.metadata.hasCertificate !== false &&
+              Boolean(t.certContent && t.certContent.trim());
+            if (!hasExistingCert) return false;
+            return !isSignedBySameCa(t.metadata.caFingerprint, ca.fingerprint);
+          })
+          .map((t) => ({
+            certificateId: t.id,
+            certificateName: t.name,
+            ownerUsername: t.ownerUsername,
+            existingCaFingerprint: t.metadata.caFingerprint || '',
+          }));
+
+        if (foreignCaConflicts.length > 0) {
+          const names = foreignCaConflicts
+            .slice(0, 5)
+            .map((c) => `„${c.certificateName}“`)
+            .join(', ');
+          const extra =
+            foreignCaConflicts.length > 5
+              ? ` und ${foreignCaConflicts.length - 5} weitere`
+              : '';
+          res.status(409).json({
+            error: `Warnung: ${foreignCaConflicts.length === 1 ? 'Das Zertifikat' : `${foreignCaConflicts.length} Zertifikate`} (${names}${extra}) besitzt bereits ein zertifikat-cert.pub einer anderen CA. Bitte bestätigen Sie das Überschreiben ausdrücklich.`,
+            foreignCaConflicts,
+          });
+          return;
+        }
+      }
+
+      let basePrincipals: string[];
+      let parsedValidity: ReturnType<typeof parseValidityDuration>;
+      try {
+        basePrincipals = parseAndValidatePrincipals(rawPrincipals);
+        parsedValidity = parseValidityDuration(rawValidity);
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : 'Ungültige Signaturparameter.',
+        });
+        return;
+      }
+
+      const explicitPassphrase =
+        typeof caPassphrase === 'string' && caPassphrase.length > 0 ? caPassphrase : '';
+      let effectiveCaPassphrase = explicitPassphrase;
+      if (!effectiveCaPassphrase && ca.passphraseEncrypted) {
+        try {
+          effectiveCaPassphrase = decryptSecret(ca.passphraseEncrypted);
+        } catch {
+          res.status(500).json({ error: 'Hinterlegtes CA-Passwort konnte nicht entschlüsselt werden.' });
+          return;
+        }
+      }
+      if (!effectiveCaPassphrase) {
+        res.status(400).json({
+          error:
+            'Für diese CA ist kein Passwort hinterlegt. Bitte geben Sie das CA-Passwort zum Signieren ein.',
+        });
+        return;
+      }
+
+      const wantsAutoRenew = autoRenew === true;
+      const renewBeforeSec = parseAutoRenewBeforeSeconds(autoRenewBeforeSeconds);
+      if (wantsAutoRenew && !ca.passphraseEncrypted) {
+        res.status(400).json({
+          error:
+            'Automatische Neuzertifizierung erfordert ein auf dem Server gespeichertes CA-Passwort. Bitte hinterlegen Sie das Passwort zuerst unter Administration → CA-Verwaltung.',
+        });
+        return;
+      }
+
+      let caPrivateKeyPlain: string;
+      try {
+        caPrivateKeyPlain = decryptSecret(ca.privateKeyEncrypted);
+      } catch {
+        res.status(500).json({ error: 'CA-Privatschlüssel konnte nicht entschlüsselt werden.' });
+        return;
+      }
+
+      const customKeyId = typeof rawKeyId === 'string' ? rawKeyId.trim() : '';
+      const isBatch = uniqueCertIds.length > 1;
+      const baseSerial = BigInt(Date.now());
+
+      const signedCerts: Array<ReturnType<typeof serializeCertificate>> = [];
+      const errors: Array<{ certificateId: string; certificateName?: string; error: string }> = [];
+
+      for (let i = 0; i < uniqueCertIds.length; i++) {
+        const certId = uniqueCertIds[i];
+        const target = store.getCertificateById(certId);
+        if (!target) {
+          errors.push({
+            certificateId: certId,
+            error: 'Zertifikatspaket nicht gefunden.',
+          });
+          continue;
+        }
+
+        const effectivePrincipals = [...basePrincipals];
+        if (
+          includeOwnerPrincipal === true &&
+          target.ownerUsername &&
+          isValidPrincipalToken(target.ownerUsername) &&
+          !effectivePrincipals.includes(target.ownerUsername) &&
+          effectivePrincipals.length < 32
+        ) {
+          effectivePrincipals.push(target.ownerUsername);
+        }
+
+        const defaultKeyId = `${target.ownerUsername || 'user'}-${target.name}`;
+        const certKeyId = sanitizeKeyId(
+          customKeyId
+            ? isBatch
+              ? `${customKeyId}-${defaultKeyId}`
+              : customKeyId
+            : defaultKeyId,
+          'ssh-cert'
+        );
+
+        try {
+          const signedCertContent = await signOpenSshUserCertificate({
+            caPrivateKey: caPrivateKeyPlain,
+            caPublicKey: ca.publicKey,
+            caPassphrase: effectiveCaPassphrase,
+            userPublicKey: target.publicKeyContent,
+            keyId: certKeyId,
+            principals: effectivePrincipals,
+            validity: parsedValidity,
+            serial: baseSerial + BigInt(i),
+          });
+
+          const targetPrivatePlain = decryptSecret(target.privateKeyEncrypted);
+          const metadata = validateAndParseCertificateBundle(
+            targetPrivatePlain,
+            target.publicKeyContent,
+            signedCertContent
+          );
+          const certFileName = deriveCertFileName(
+            target.certFileName,
+            target.publicKeyFileName,
+            target.privateKeyFileName
+          );
+
+          const nowIso = new Date().toISOString();
+          let nextAutoRenew: CertificateAutoRenewConfig | null = target.autoRenew ?? null;
+          if (wantsAutoRenew) {
+            nextAutoRenew = {
+              enabled: true,
+              mode: 'admin',
+              caId: ca.id,
+              caName: ca.name,
+              principals: [...basePrincipals],
+              includeOwnerPrincipal: includeOwnerPrincipal === true,
+              validity: parsedValidity.normalizedSpec,
+              keyIdPrefix: customKeyId,
+              renewBeforeSeconds: renewBeforeSec,
+              enabledByUserId: req.user!.id,
+              enabledByUsername: req.user!.username,
+              enabledAt: nowIso,
+              lastRenewedAt: nowIso,
+              lastCheckedAt: nowIso,
+              lastError: null,
+              revokedAt: null,
+              revokedReason: null,
+            };
+          } else if (autoRenew === false && target.autoRenew?.enabled) {
+            nextAutoRenew = {
+              ...target.autoRenew,
+              enabled: false,
+              revokedAt: nowIso,
+              revokedReason: `Deaktiviert bei manueller Admin-Signierung (${req.user!.username})`,
+              lastError: null,
+            };
+          } else if (target.autoRenew?.enabled && target.autoRenew.caId !== ca.id) {
+            nextAutoRenew = {
+              ...target.autoRenew,
+              enabled: false,
+              revokedAt: nowIso,
+              revokedReason: `Überschrieben durch manuelle Admin-Signierung mit CA „${ca.name}“`,
+              lastError: null,
+            };
+          }
+
+          const updated = store.updateCertificateSignedCert({
+            id: target.id,
+            certFileName,
+            certContent: signedCertContent,
+            metadata,
+            autoRenew: nextAutoRenew,
+          });
+          signedCerts.push(serializeCertificate(updated));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Signierung fehlgeschlagen.';
+          // If the CA passphrase itself is wrong, abort immediately so we do not spam retries
+          if (/falsches CA-Passwort|nicht entsperrt werden/i.test(msg)) {
+            res.status(400).json({ error: msg });
+            return;
+          }
+          errors.push({
+            certificateId: target.id,
+            certificateName: target.name,
+            error: msg,
+          });
+        }
+      }
+
+      if (signedCerts.length === 0) {
+        res.status(400).json({
+          error: errors[0]?.error || 'Kein Zertifikat konnte signiert werden.',
+          errors,
+        });
+        return;
+      }
+
       res.json({
         ok: true,
-        certificate: serializeCertificate(updated),
-      });
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
+        caName: ca.name,
+        caFingerprint: ca.fingerprint,
+        principals: basePrincipals,
+        validity: parsedValidity.normalizedSpec,
+        signedCount: signedCerts.length,
+        failedCount: errors.length,
+        certificates: signedCerts,
+        errors,
       });
     }
-  });
+  );
 
-  app.patch('/api/certificates/:id/share', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
-    const { sharedWithAll, sharedWithUserIds } = req.body ?? {};
-    try {
-      const updated = store.updateCertificateSharing(
-        req.params.id,
-        req.user!.id,
-        Boolean(sharedWithAll),
-        Array.isArray(sharedWithUserIds) ? sharedWithUserIds : []
+  // User self-signing: list CAs assigned to the user's group (non-sensitive metadata + group policy only)
+  app.get(
+    '/api/certificates/signing-cas',
+    requireAuth,
+    requireSecurityCompliant,
+    (req: AuthedRequest, res: Response) => {
+      const user = req.user!;
+      const perms = store.getUserPermissions(user);
+      if (!perms.selfSignCertificates) {
+        res.json({ canSelfSign: false, cas: [] });
+        return;
+      }
+      const assigned = (perms.caSigningAssignments || [])
+        .map((assignment: GroupCaAssignment) => {
+          const ca = store.getCertificateAuthorityById(assignment.caId);
+          if (!ca) return null;
+          const effectivePrincipals = [...assignment.principals];
+          if (
+            assignment.includeOwnerPrincipal &&
+            user.username &&
+            isValidPrincipalToken(user.username) &&
+            !effectivePrincipals.includes(user.username) &&
+            effectivePrincipals.length < 32
+          ) {
+            effectivePrincipals.push(user.username);
+          }
+          return {
+            id: ca.id,
+            name: ca.name,
+            description: ca.description,
+            keyType: ca.keyType,
+            fingerprint: ca.fingerprint,
+            hasStoredPassphrase: Boolean(ca.passphraseEncrypted),
+            principals: assignment.principals,
+            includeOwnerPrincipal: assignment.includeOwnerPrincipal,
+            effectivePrincipals,
+            validity: assignment.validity || '+30d',
+            autoRenewBeforeSeconds: parseAutoRenewBeforeSeconds(assignment.autoRenewBeforeSeconds),
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+
+      res.json({ canSelfSign: true, cas: assigned });
+    }
+  );
+
+  // User self-signing (single or batch Sammelupdate) — strictly restricted to own certs and group-assigned CAs/principals
+  app.post(
+    '/api/certificates/self-sign',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('selfSignCertificates'),
+    async (req: AuthedRequest, res: Response) => {
+      const user = req.user!;
+      const {
+        caId,
+        certificateIds,
+        confirmOverwriteForeignCa,
+        autoRenew,
+        autoRenewBeforeSeconds,
+      } = req.body ?? {};
+
+      if (typeof caId !== 'string' || !caId.trim()) {
+        res.status(400).json({ error: 'Bitte wählen Sie eine zugewiesene CA aus.' });
+        return;
+      }
+
+      const perms = store.getUserPermissions(user);
+      const wantsAutoRenew = autoRenew === true;
+      if (wantsAutoRenew && !perms.autoRenewCertificates) {
+        res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.autoRenewCertificates });
+        return;
+      }
+      const assignment = (perms.caSigningAssignments || []).find((a) => a.caId === caId.trim());
+      if (!assignment) {
+        res.status(403).json({
+          error: 'Diese Zertifizierungsstelle (CA) ist Ihrer Benutzergruppe nicht zur Selbstsignierung zugewiesen.',
+        });
+        return;
+      }
+      // Strictly enforce the admin-configured per-group, per-CA auto-renewal lead time
+      const renewBeforeSec = parseAutoRenewBeforeSeconds(assignment.autoRenewBeforeSeconds);
+      const assignmentValidityLower = (assignment.validity || '+30d').trim().toLowerCase();
+      if (
+        wantsAutoRenew &&
+        (assignmentValidityLower === 'forever' ||
+          assignmentValidityLower === 'always' ||
+          assignmentValidityLower === 'always:forever')
+      ) {
+        res.status(400).json({
+          error:
+            'Für unbegrenzt gültige Zertifikate (forever) ist eine automatische Neuzertifizierung nicht möglich.',
+        });
+        return;
+      }
+
+      const ca = store.getCertificateAuthorityById(assignment.caId);
+      if (!ca) {
+        res.status(404).json({ error: 'Die zugewiesene CA existiert nicht mehr.' });
+        return;
+      }
+      if (!ca.passphraseEncrypted) {
+        res.status(400).json({
+          error: `Für die zugewiesene CA „${ca.name}“ ist noch kein Passwort auf dem Server hinterlegt. Bitte wenden Sie sich an einen Administrator.`,
+        });
+        return;
+      }
+
+      if (!Array.isArray(certificateIds) || certificateIds.length === 0) {
+        res.status(400).json({ error: 'Bitte mindestens eines Ihrer Zertifikate zum Signieren auswählen.' });
+        return;
+      }
+      const uniqueCertIds = Array.from(
+        new Set(
+          certificateIds
+            .map((id) => (typeof id === 'string' ? id.trim() : ''))
+            .filter(Boolean)
+        )
       );
-      res.json({ certificate: serializeCertificate(updated) });
+      if (uniqueCertIds.length === 0) {
+        res.status(400).json({ error: 'Bitte mindestens ein gültiges Zertifikat auswählen.' });
+        return;
+      }
+      if (uniqueCertIds.length > 200) {
+        res.status(400).json({ error: 'Maximal 200 Zertifikate können gleichzeitig signiert werden.' });
+        return;
+      }
+
+      // Enforce strict ownership BEFORE signing or revealing any metadata
+      const ownedTargets: UserCertificateBundle[] = [];
+      for (const certId of uniqueCertIds) {
+        const target = store.getCertificateById(certId);
+        if (!target) {
+          res.status(404).json({ error: 'Mindestens ein ausgewähltes Zertifikat wurde nicht gefunden.' });
+          return;
+        }
+        if (target.userId !== user.id) {
+          res.status(403).json({ error: 'Sie dürfen nur Ihre eigenen SSH-Zertifikate selbst signieren.' });
+          return;
+        }
+        ownedTargets.push(target);
+      }
+
+      if (confirmOverwriteForeignCa !== true) {
+        const foreignCaConflicts = ownedTargets
+          .filter((t) => {
+            const hasExistingCert =
+              t.metadata.hasCertificate !== false &&
+              Boolean(t.certContent && t.certContent.trim());
+            if (!hasExistingCert) return false;
+            return !isSignedBySameCa(t.metadata.caFingerprint, ca.fingerprint);
+          })
+          .map((t) => ({
+            certificateId: t.id,
+            certificateName: t.name,
+            ownerUsername: t.ownerUsername,
+            existingCaFingerprint: t.metadata.caFingerprint || '',
+          }));
+
+        if (foreignCaConflicts.length > 0) {
+          const names = foreignCaConflicts
+            .slice(0, 5)
+            .map((c) => `„${c.certificateName}“`)
+            .join(', ');
+          const extra =
+            foreignCaConflicts.length > 5
+              ? ` und ${foreignCaConflicts.length - 5} weitere`
+              : '';
+          res.status(409).json({
+            error: `Warnung: ${foreignCaConflicts.length === 1 ? 'Das Zertifikat' : `${foreignCaConflicts.length} Zertifikate`} (${names}${extra}) besitzt bereits ein zertifikat-cert.pub einer anderen CA. Bitte bestätigen Sie das Überschreiben ausdrücklich.`,
+            foreignCaConflicts,
+          });
+          return;
+        }
+      }
+
+      // Compute principals (-n) & validity (-V) strictly from group policy
+      const effectivePrincipals = [...assignment.principals];
+      if (
+        assignment.includeOwnerPrincipal &&
+        user.username &&
+        isValidPrincipalToken(user.username) &&
+        !effectivePrincipals.includes(user.username) &&
+        effectivePrincipals.length < 32
+      ) {
+        effectivePrincipals.push(user.username);
+      }
+      if (effectivePrincipals.length === 0) {
+        res.status(400).json({
+          error: `Für die CA „${ca.name}“ sind in Ihrer Benutzergruppe keine gültigen Principals (-n) konfiguriert.`,
+        });
+        return;
+      }
+
+      let parsedValidity: ReturnType<typeof parseValidityDuration>;
+      try {
+        parsedValidity = parseValidityDuration(assignment.validity || '+30d');
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : 'Ungültige Gültigkeitsdauer in der Gruppenkonfiguration.',
+        });
+        return;
+      }
+
+      let effectiveCaPassphrase: string;
+      let caPrivateKeyPlain: string;
+      try {
+        effectiveCaPassphrase = decryptSecret(ca.passphraseEncrypted);
+        caPrivateKeyPlain = decryptSecret(ca.privateKeyEncrypted);
+      } catch {
+        res.status(500).json({ error: 'CA-Zugangsdaten konnten auf dem Server nicht entschlüsselt werden.' });
+        return;
+      }
+
+      const baseSerial = BigInt(Date.now());
+      const signedCerts: Array<ReturnType<typeof serializeCertificate>> = [];
+      const errors: Array<{ certificateId: string; certificateName?: string; error: string }> = [];
+
+      for (let i = 0; i < ownedTargets.length; i++) {
+        const target = ownedTargets[i];
+        const certKeyId = sanitizeKeyId(`${user.username}-${target.name}`, 'ssh-cert');
+        try {
+          const signedCertContent = await signOpenSshUserCertificate({
+            caPrivateKey: caPrivateKeyPlain,
+            caPublicKey: ca.publicKey,
+            caPassphrase: effectiveCaPassphrase,
+            userPublicKey: target.publicKeyContent,
+            keyId: certKeyId,
+            principals: effectivePrincipals,
+            validity: parsedValidity,
+            serial: baseSerial + BigInt(i),
+          });
+
+          const targetPrivatePlain = decryptSecret(target.privateKeyEncrypted);
+          const metadata = validateAndParseCertificateBundle(
+            targetPrivatePlain,
+            target.publicKeyContent,
+            signedCertContent
+          );
+          const certFileName = deriveCertFileName(
+            target.certFileName,
+            target.publicKeyFileName,
+            target.privateKeyFileName
+          );
+          const nowIso = new Date().toISOString();
+          let nextAutoRenew: CertificateAutoRenewConfig | null = target.autoRenew ?? null;
+          if (wantsAutoRenew) {
+            nextAutoRenew = {
+              enabled: true,
+              mode: 'user',
+              caId: ca.id,
+              caName: ca.name,
+              principals: [...assignment.principals],
+              includeOwnerPrincipal: assignment.includeOwnerPrincipal,
+              validity: parsedValidity.normalizedSpec,
+              keyIdPrefix: '',
+              renewBeforeSeconds: renewBeforeSec,
+              enabledByUserId: user.id,
+              enabledByUsername: user.username,
+              enabledAt: nowIso,
+              lastRenewedAt: nowIso,
+              lastCheckedAt: nowIso,
+              lastError: null,
+              revokedAt: null,
+              revokedReason: null,
+            };
+          } else if (autoRenew === false && target.autoRenew?.enabled) {
+            nextAutoRenew = {
+              ...target.autoRenew,
+              enabled: false,
+              revokedAt: nowIso,
+              revokedReason: `Deaktiviert bei manueller Selbstsignierung (${user.username})`,
+              lastError: null,
+            };
+          } else if (target.autoRenew?.enabled && target.autoRenew.caId !== ca.id) {
+            nextAutoRenew = {
+              ...target.autoRenew,
+              enabled: false,
+              revokedAt: nowIso,
+              revokedReason: `Überschrieben durch Selbstsignierung mit CA „${ca.name}“`,
+              lastError: null,
+            };
+          }
+
+          const updated = store.updateCertificateSignedCert({
+            id: target.id,
+            certFileName,
+            certContent: signedCertContent,
+            metadata,
+            autoRenew: nextAutoRenew,
+          });
+          signedCerts.push(serializeCertificate(updated));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Signierung fehlgeschlagen.';
+          if (/falsches CA-Passwort|nicht entsperrt werden/i.test(msg)) {
+            res.status(400).json({
+              error: `Die zugewiesene CA „${ca.name}“ konnte mit dem hinterlegten Passwort nicht entsperrt werden. Bitte informieren Sie einen Administrator.`,
+            });
+            return;
+          }
+          errors.push({
+            certificateId: target.id,
+            certificateName: target.name,
+            error: msg,
+          });
+        }
+      }
+
+      if (signedCerts.length === 0) {
+        res.status(400).json({
+          error: errors[0]?.error || 'Kein Zertifikat konnte signiert werden.',
+          errors,
+        });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        caName: ca.name,
+        caFingerprint: ca.fingerprint,
+        principals: effectivePrincipals,
+        validity: parsedValidity.normalizedSpec,
+        signedCount: signedCerts.length,
+        failedCount: errors.length,
+        certificates: signedCerts,
+        errors,
+      });
+    }
+  );
+
+  // Revoke automatic re-certification on a single certificate (owner or admin)
+  app.delete(
+    '/api/certificates/:id/auto-renew',
+    requireAuth,
+    requireSecurityCompliant,
+    (req: AuthedRequest, res: Response) => {
+      const user = req.user!;
+      const target = store.getCertificateById(req.params.id);
+      if (!target) {
+        res.status(404).json({ error: 'Zertifikatspaket nicht gefunden.' });
+        return;
+      }
+      if (target.userId !== user.id && user.role !== 'admin') {
+        res.status(403).json({
+          error: 'Sie dürfen die automatische Neuzertifizierung nur für Ihre eigenen Zertifikate widerrufen.',
+        });
+        return;
+      }
+      const actorLabel =
+        user.role === 'admin' && target.userId !== user.id
+          ? `Administrator (${user.username})`
+          : `Benutzer (${user.username})`;
+      const updated = store.revokeCertificateAutoRenew(
+        target.id,
+        `Widerrufen durch ${actorLabel}`
+      );
+      if (!updated) {
+        res.status(404).json({ error: 'Zertifikatspaket nicht gefunden.' });
+        return;
+      }
+      res.json({ ok: true, certificate: serializeCertificate(updated) });
+    }
+  );
+
+  // Batch revoke automatic re-certification (owner or admin)
+  app.post(
+    '/api/certificates/auto-renew/revoke',
+    requireAuth,
+    requireSecurityCompliant,
+    (req: AuthedRequest, res: Response) => {
+      const user = req.user!;
+      const { certificateIds } = req.body ?? {};
+      if (!Array.isArray(certificateIds) || certificateIds.length === 0) {
+        res.status(400).json({ error: 'Bitte mindestens ein Zertifikat auswählen.' });
+        return;
+      }
+      const uniqueIds = Array.from(
+        new Set(
+          certificateIds
+            .map((id) => (typeof id === 'string' ? id.trim() : ''))
+            .filter(Boolean)
+        )
+      ).slice(0, 200);
+      if (uniqueIds.length === 0) {
+        res.status(400).json({ error: 'Bitte mindestens ein gültiges Zertifikat auswählen.' });
+        return;
+      }
+
+      const targets: UserCertificateBundle[] = [];
+      for (const certId of uniqueIds) {
+        const target = store.getCertificateById(certId);
+        if (!target) continue;
+        if (target.userId !== user.id && user.role !== 'admin') {
+          res.status(403).json({
+            error: 'Sie dürfen die automatische Neuzertifizierung nur für Ihre eigenen Zertifikate widerrufen.',
+          });
+          return;
+        }
+        targets.push(target);
+      }
+
+      const updatedCerts: Array<ReturnType<typeof serializeCertificate>> = [];
+      for (const target of targets) {
+        if (!target.autoRenew?.enabled) continue;
+        const actorLabel =
+          user.role === 'admin' && target.userId !== user.id
+            ? `Administrator (${user.username})`
+            : `Benutzer (${user.username})`;
+        const updated = store.revokeCertificateAutoRenew(
+          target.id,
+          `Widerrufen durch ${actorLabel}`
+        );
+        if (updated) {
+          updatedCerts.push(serializeCertificate(updated));
+        }
+      }
+      res.json({ ok: true, revokedCount: updatedCerts.length, certificates: updatedCerts });
+    }
+  );
+
+  // Background automatic re-certification worker (runs until revoked or rights are removed)
+  let autoRenewCycleRunning = false;
+  async function runAutoRenewCycle(): Promise<void> {
+    if (autoRenewCycleRunning) return;
+    autoRenewCycleRunning = true;
+    try {
+      store.reconcileAutoRenewals(true);
+      const nowMs = Date.now();
+      const nowUnix = Math.floor(nowMs / 1000);
+      const certs = store.listAllCertificates();
+
+      for (const cert of certs) {
+        const ar = cert.autoRenew;
+        if (!ar || !ar.enabled) continue;
+
+        // Re-verify rights, owner status, CA availability, and live group+CA policy BEFORE evaluating due-ness
+        const owner = store.findUserById(cert.userId);
+        const ca = store.getCertificateAuthorityById(ar.caId);
+        if (!owner || !owner.active) {
+          store.revokeCertificateAutoRenew(cert.id, 'Benutzerkonto deaktiviert oder entfernt');
+          continue;
+        }
+        if (!ca || !ca.passphraseEncrypted) {
+          store.revokeCertificateAutoRenew(
+            cert.id,
+            !ca ? 'Zugehörige CA wurde gelöscht' : 'Gespeichertes CA-Passwort wurde entfernt'
+          );
+          continue;
+        }
+
+        let effectivePrincipals: string[] = [];
+        let validitySpec = ar.validity || '+30d';
+        let storedPrincipals = [...ar.principals];
+        let includeOwner = ar.includeOwnerPrincipal;
+        let effectiveRenewBeforeSec = parseAutoRenewBeforeSeconds(ar.renewBeforeSeconds);
+
+        if (ar.mode === 'user') {
+          const perms = store.getUserPermissions(owner);
+          if (!perms.selfSignCertificates || !perms.autoRenewCertificates) {
+            store.revokeCertificateAutoRenew(
+              cert.id,
+              'Rechteentzug: Selbstsignierung oder automatische Neuzertifizierung für Benutzergruppe deaktiviert'
+            );
+            continue;
+          }
+          const assignment = (perms.caSigningAssignments || []).find((a) => a.caId === ar.caId);
+          if (!assignment) {
+            store.revokeCertificateAutoRenew(
+              cert.id,
+              'Rechteentzug: CA ist der Benutzergruppe nicht mehr zugewiesen'
+            );
+            continue;
+          }
+          const valLower = (assignment.validity || '+30d').trim().toLowerCase();
+          if (valLower === 'forever' || valLower === 'always' || valLower === 'always:forever') {
+            store.revokeCertificateAutoRenew(
+              cert.id,
+              'Rechteentzug: Gültigkeitsdauer für diese CA wurde auf unbegrenzt (forever) gesetzt'
+            );
+            continue;
+          }
+          storedPrincipals = [...assignment.principals];
+          includeOwner = assignment.includeOwnerPrincipal;
+          validitySpec = assignment.validity || '+30d';
+          effectiveRenewBeforeSec = parseAutoRenewBeforeSeconds(assignment.autoRenewBeforeSeconds);
+          effectivePrincipals = [...assignment.principals];
+          if (
+            assignment.includeOwnerPrincipal &&
+            owner.username &&
+            isValidPrincipalToken(owner.username) &&
+            !effectivePrincipals.includes(owner.username) &&
+            effectivePrincipals.length < 32
+          ) {
+            effectivePrincipals.push(owner.username);
+          }
+          if (effectivePrincipals.length === 0) {
+            store.revokeCertificateAutoRenew(
+              cert.id,
+              'Rechteentzug: Keine gültigen Principals (-n) mehr für diese CA zugewiesen'
+            );
+            continue;
+          }
+        } else {
+          const enabler = ar.enabledByUserId ? store.findUserById(ar.enabledByUserId) : undefined;
+          if (ar.enabledByUserId && (!enabler || !enabler.active || enabler.role !== 'admin')) {
+            store.revokeCertificateAutoRenew(
+              cert.id,
+              'Rechteentzug: Freigebender Administrator ist nicht mehr aktiv oder kein Administrator'
+            );
+            continue;
+          }
+          effectivePrincipals = [...ar.principals];
+          if (
+            ar.includeOwnerPrincipal &&
+            owner.username &&
+            isValidPrincipalToken(owner.username) &&
+            !effectivePrincipals.includes(owner.username) &&
+            effectivePrincipals.length < 32
+          ) {
+            effectivePrincipals.push(owner.username);
+          }
+          if (effectivePrincipals.length === 0) {
+            store.revokeCertificateAutoRenew(
+              cert.id,
+              'Keine gültigen Principals (-n) für die automatische Neuzertifizierung konfiguriert'
+            );
+            continue;
+          }
+        }
+
+        const hasExistingCert =
+          cert.metadata.hasCertificate !== false && Boolean(cert.certContent?.trim());
+        const validAfterUnix = cert.metadata.validAfterUnix || 0;
+        const validBeforeUnix = cert.metadata.validBeforeUnix || 0;
+        const leadSec = computeEffectiveLeadSeconds(
+          validAfterUnix,
+          validBeforeUnix,
+          effectiveRenewBeforeSec
+        );
+        const isExpiredOrMissing = !hasExistingCert || validBeforeUnix <= 0 || nowUnix >= validBeforeUnix;
+        const isDue = isExpiredOrMissing || nowUnix >= validBeforeUnix - leadSec;
+
+        if (!isDue) continue;
+
+        // Avoid tight retry loops if we just renewed or tried within the last 60 seconds
+        if (!isExpiredOrMissing && ar.lastRenewedAt) {
+          const lastRenewedMs = Date.parse(ar.lastRenewedAt);
+          if (Number.isFinite(lastRenewedMs) && nowMs - lastRenewedMs < 60_000) {
+            continue;
+          }
+        }
+        if (ar.lastError && ar.lastCheckedAt) {
+          const lastCheckedMs = Date.parse(ar.lastCheckedAt);
+          if (Number.isFinite(lastCheckedMs) && nowMs - lastCheckedMs < 5 * 60_000) {
+            continue;
+          }
+        }
+
+        const attemptIso = new Date().toISOString();
+        try {
+          const parsedValidity = parseValidityDuration(validitySpec);
+          const effectiveCaPassphrase = decryptSecret(ca.passphraseEncrypted);
+          const caPrivateKeyPlain = decryptSecret(ca.privateKeyEncrypted);
+          const defaultKeyId = `${owner.username || cert.ownerUsername || 'user'}-${cert.name}`;
+          const certKeyId = sanitizeKeyId(
+            ar.keyIdPrefix ? `${ar.keyIdPrefix}-${defaultKeyId}` : defaultKeyId,
+            'ssh-cert'
+          );
+
+          const signedCertContent = await signOpenSshUserCertificate({
+            caPrivateKey: caPrivateKeyPlain,
+            caPublicKey: ca.publicKey,
+            caPassphrase: effectiveCaPassphrase,
+            userPublicKey: cert.publicKeyContent,
+            keyId: certKeyId,
+            principals: effectivePrincipals,
+            validity: parsedValidity,
+            serial: BigInt(Date.now()),
+          });
+
+          const targetPrivatePlain = decryptSecret(cert.privateKeyEncrypted);
+          const metadata = validateAndParseCertificateBundle(
+            targetPrivatePlain,
+            cert.publicKeyContent,
+            signedCertContent
+          );
+          const certFileName = deriveCertFileName(
+            cert.certFileName,
+            cert.publicKeyFileName,
+            cert.privateKeyFileName
+          );
+
+          store.updateCertificateSignedCert({
+            id: cert.id,
+            certFileName,
+            certContent: signedCertContent,
+            metadata,
+            autoRenew: {
+              ...ar,
+              caName: ca.name,
+              principals: storedPrincipals,
+              includeOwnerPrincipal: includeOwner,
+              validity: parsedValidity.normalizedSpec,
+              renewBeforeSeconds: effectiveRenewBeforeSec,
+              lastRenewedAt: attemptIso,
+              lastCheckedAt: attemptIso,
+              lastError: null,
+            },
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Automatische Neuzertifizierung fehlgeschlagen.';
+          store.updateCertificateAutoRenew(cert.id, {
+            ...ar,
+            caName: ca.name,
+            lastCheckedAt: attemptIso,
+            lastError: msg,
+          });
+        }
+      }
     } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : 'Zertifikats-Freigabe konnte nicht aktualisiert werden.' });
+      console.error('[AutoRenew] Fehler im Hintergrund-Zyklus:', err);
+    } finally {
+      autoRenewCycleRunning = false;
     }
-  });
-
-  app.post('/api/certificates/generate-test', requireAuth, (req: AuthedRequest, res) => {
-    const { keyId, principals } = req.body ?? {};
-    const cleanKeyId =
-      typeof keyId === 'string' && keyId.trim()
-        ? keyId.trim().slice(0, 64)
-        : `${req.user!.username}-trixie-cert`;
-    const cleanPrincipals = Array.isArray(principals)
-      ? principals.map((p) => String(p).trim()).filter(Boolean)
-      : [req.user!.defaultSshUser || 'root', 'deploy'];
-
-    const generated = generateTestOpenSshCertBundle({
-      keyId: cleanKeyId,
-      principals: cleanPrincipals.length > 0 ? cleanPrincipals : ['root'],
-      validDays: 90,
-    });
-    res.json(generated);
-  });
-
-  app.delete('/api/certificates/:id', requireAuth, (req: AuthedRequest, res) => {
-    const existing = store.getCertificateById(req.params.id);
-    if (existing && existing.userId !== req.user!.id) {
-      res.status(403).json({ error: 'Sie können nur selbst angelegte Zertifikatspakete entfernen.' });
-      return;
-    }
-    store.deleteCertificate(req.params.id, req.user!.id);
-    res.json({ ok: true });
-  });
+  }
 
   // Simple API-Key Endpoints for curl (list, upload, and partial update e.g. cert-only replacement)
   app.get('/api/v1/certificates', (req: Request, res: Response) => {
@@ -2293,6 +4023,10 @@ async function startServer() {
         error:
           'Ungültiger oder fehlender API-Schlüssel. Senden Sie ihn als Header "X-API-Key: sshc_..." oder "Authorization: Bearer sshc_...".',
       });
+      return;
+    }
+    if (!store.hasPermission(user, 'useApi')) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.useApi });
       return;
     }
     const list = store
@@ -2310,6 +4044,14 @@ async function startServer() {
         error:
           'Ungültiger oder fehlender API-Schlüssel. Senden Sie ihn als Header "X-API-Key: sshc_..." oder "Authorization: Bearer sshc_...".',
       });
+      return;
+    }
+    if (!store.hasPermission(user, 'useApi')) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.useApi });
+      return;
+    }
+    if (!store.hasPermission(user, 'uploadCertificates')) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.uploadCertificates });
       return;
     }
 
@@ -2336,7 +4078,7 @@ async function startServer() {
       const existing = lookupKey ? store.findUserCertificateByIdOrName(user.id, lookupKey) : undefined;
       if (existing) {
         try {
-          const updated = applyPartialCertificateUpdate(existing, user.id, {
+          const updated = applyPartialCertificateUpdate(existing, user, {
             ...payload,
             name: undefined, // keep matched name unless changed via PATCH /api/v1/certificates/:idOrName
           });
@@ -2348,7 +4090,7 @@ async function startServer() {
           });
           return;
         } catch (err) {
-          res.status(400).json({
+          res.status(err instanceof CertPermissionError ? 403 : 400).json({
             error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
           });
           return;
@@ -2362,12 +4104,36 @@ async function startServer() {
       return;
     }
 
+    if (cleanCertContent.length > 0 && !store.hasPermission(user, 'uploadSignedCert')) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.uploadSignedCert });
+      return;
+    }
+
+    if (typeof payload.passphrase === 'string' && payload.passphrase.length > 0) {
+      if (!store.hasPermission(user, 'storeCertificatePassphrase')) {
+        res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.storeCertificatePassphrase });
+        return;
+      }
+      const passErr = validatePasswordComplexity(payload.passphrase);
+      if (passErr) {
+        res.status(400).json({ error: passErr });
+        return;
+      }
+    }
+
     try {
       const metadata = validateAndParseCertificateBundle(
         privateKeyContent,
         publicKeyContent,
         cleanCertContent
       );
+      if (
+        store.hasPermission(user, 'requireCertificatePassphrase') &&
+        !metadata.privateKeyEncrypted
+      ) {
+        res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.requireCertificatePassphrase });
+        return;
+      }
       const effectiveName =
         payload.name ||
         metadata.keyId ||
@@ -2410,6 +4176,14 @@ async function startServer() {
       });
       return;
     }
+    if (!store.hasPermission(user, 'useApi')) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.useApi });
+      return;
+    }
+    if (!store.hasPermission(user, 'uploadCertificates')) {
+      res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.uploadCertificates });
+      return;
+    }
 
     const idOrName = decodeURIComponent(req.params.idOrName || '').trim();
     const existing = store.findUserCertificateByIdOrName(user.id, idOrName);
@@ -2431,14 +4205,14 @@ async function startServer() {
     }
 
     try {
-      const updated = applyPartialCertificateUpdate(existing, user.id, payload);
+      const updated = applyPartialCertificateUpdate(existing, user, payload);
       res.json({
         ok: true,
         updated: true,
         certificate: serializeCertificate(updated),
       });
     } catch (err) {
-      res.status(400).json({
+      res.status(err instanceof CertPermissionError ? 403 : 400).json({
         error: err instanceof Error ? err.message : 'Zertifikatsprüfung fehlgeschlagen.',
       });
     }
@@ -2447,8 +4221,13 @@ async function startServer() {
   app.patch('/api/v1/certificates/:idOrName', handleApiV1UpdateCert);
   app.put('/api/v1/certificates/:idOrName', handleApiV1UpdateCert);
 
-  // Execute SSH Command on One or Multiple Target IPs (own or admin-shared)
-  app.post('/api/execute', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
+  // Execute SSH Command on One or Multiple Target IPs (own or shared)
+  app.post(
+    '/api/execute',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('executeCommands'),
+    async (req: AuthedRequest, res) => {
     const { commandId, certificateId, targets, dryRun, passphrase, workflowVars } = req.body ?? {};
 
     const command = store.getAccessibleCommand(String(commandId ?? ''), req.user!.id);
@@ -2643,7 +4422,12 @@ async function startServer() {
   });
 
   // Dashboard Batch Execution: Execute assigned commands across multiple IPs in one go
-  app.post('/api/execute/batch', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
+  app.post(
+    '/api/execute/batch',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('executeCommands'),
+    async (req: AuthedRequest, res) => {
     const { certificateId, jobs, dryRun, passphrase, workflowVars } = req.body ?? {};
 
     const certificate = store.getAccessibleCertificate(String(certificateId ?? ''), req.user!.id);
@@ -2767,7 +4551,12 @@ async function startServer() {
   });
 
   // Asynchronous Dashboard Batch Execution: dispatches in background and returns immediately (202 Accepted)
-  app.post('/api/execute/batch/async', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+  app.post(
+    '/api/execute/batch/async',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('executeCommands'),
+    (req: AuthedRequest, res) => {
     const { certificateId, jobs, dryRun, passphrase, workflowVars } = req.body ?? {};
 
     const certificate = store.getAccessibleCertificate(String(certificateId ?? ''), req.user!.id);
@@ -2936,7 +4725,12 @@ async function startServer() {
   });
 
   // Interactive SSH Shell: issue short-lived one-time WebSocket ticket
-  app.post('/api/shell/ticket', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
+  app.post(
+    '/api/shell/ticket',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('useSshShell'),
+    (req: AuthedRequest, res) => {
     const { serverId, ipAddress, port, sshUser, certificateId, passphrase, ignoreHostKey, cols, rows } =
       req.body ?? {};
     if (typeof certificateId !== 'string' || !certificateId.trim()) {
@@ -2976,6 +4770,10 @@ async function startServer() {
         targetSshUser = sshUser.trim();
       }
     } else {
+      if (!store.hasPermission(req.user!, 'useSshShellCustomIp')) {
+        res.status(403).json({ error: PERMISSION_DENIED_MESSAGES.useSshShellCustomIp });
+        return;
+      }
       const rawIp = typeof ipAddress === 'string' ? ipAddress.trim() : '';
       if (!validateTargetIp(rawIp)) {
         res.status(400).json({ error: `Ungültige Ziel-IP-Adresse: ${rawIp || '(leer)'}` });
@@ -3033,10 +4831,16 @@ async function startServer() {
   });
 
   // Execution History / Audit Logs (regular users strictly receive only their own logs; admins see all)
-  app.get('/api/logs', requireAuth, requireSecurityCompliant, (req: AuthedRequest, res) => {
-    const filterUserId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
-    res.json({ logs: store.listLogs(req.user!, filterUserId) });
-  });
+  app.get(
+    '/api/logs',
+    requireAuth,
+    requireSecurityCompliant,
+    requirePermission('viewOwnLogs'),
+    (req: AuthedRequest, res) => {
+      const filterUserId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
+      res.json({ logs: store.listLogs(req.user!, filterUserId) });
+    }
+  );
 
   // Rust Debian Trixie Source Inspector & Archive Download
   app.get('/api/rust-project/files', requireAuth, (_req, res) => {
@@ -3109,6 +4913,12 @@ async function startServer() {
   }
 
   pingMonitor.start();
+  setTimeout(() => {
+    void runAutoRenewCycle();
+  }, 10_000);
+  setInterval(() => {
+    void runAutoRenewCycle();
+  }, 60_000);
   const PORT = 3000;
   attachSshShellWebSocket(httpServer);
   httpServer.listen(PORT, '0.0.0.0', () => {

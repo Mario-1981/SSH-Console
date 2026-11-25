@@ -20,6 +20,9 @@ const AuthSecurityAdminView = lazy(() =>
 const BackgroundJobsView = lazy(() =>
   import('./components/BackgroundJobsView').then((m) => ({ default: m.BackgroundJobsView }))
 );
+const CaAdminView = lazy(() =>
+  import('./components/CaAdminView').then((m) => ({ default: m.CaAdminView }))
+);
 const CertificatesView = lazy(() =>
   import('./components/CertificatesView').then((m) => ({ default: m.CertificatesView }))
 );
@@ -41,9 +44,11 @@ import type {
   BackgroundJob,
   BackgroundJobStatus,
   ExecutionLog,
+  ShareableUser,
   SshCommand,
   User,
   UserCertificate,
+  UserGroup,
   UserServer,
 } from './types';
 
@@ -83,6 +88,8 @@ export default function App() {
   const [certificates, setCertificates] = useState<UserCertificate[]>([]);
   const [logs, setLogs] = useState<ExecutionLog[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const [shareableUsers, setShareableUsers] = useState<ShareableUser[]>([]);
 
   // Global background quick-command jobs (persist across all tabs incl. SSH-Shell)
   const [bgJobs, setBgJobs] = useState<BackgroundJob[]>([]);
@@ -160,37 +167,48 @@ export default function App() {
 
       if (newlyFinished) {
         showCompletionToast(newlyFinished);
-        void api
-          .listLogs()
-          .then((l) => setLogs(l.logs))
-          .catch(() => {
-            // ignore transient log refresh error
-          });
+        if (user && (user.role === 'admin' || user.permissions?.viewOwnLogs !== false)) {
+          void api
+            .listLogs()
+            .then((l) => setLogs(l.logs))
+            .catch(() => {
+              // ignore transient log refresh error
+            });
+        }
       }
     } catch {
       // ignore transient background poll errors
     } finally {
       bgPollInFlightRef.current = false;
     }
-  }, [showCompletionToast]);
+  }, [showCompletionToast, user]);
 
   const loadWorkspaceData = useCallback(async (currentUser: User) => {
     if (currentUser.mustSetupTwoFactor || currentUser.mustSetupPasskey) {
       return;
     }
     const isAdmin = currentUser.role === 'admin';
-    const [cmdRes, srvRes, certRes, logRes, usrRes] = await Promise.all([
+    const canViewLogs = isAdmin || currentUser.permissions?.viewOwnLogs !== false;
+    const canShare = isAdmin || Boolean(currentUser.permissions?.shareResources);
+
+    const [cmdRes, srvRes, certRes, logRes, usrRes, grpRes, shareRes] = await Promise.all([
       api.listCommands(true),
       api.listServers(),
       api.listCertificates(),
-      api.listLogs(),
-      isAdmin ? api.listUsers() : Promise.resolve({ users: [] }),
+      canViewLogs ? api.listLogs() : Promise.resolve({ logs: [] as ExecutionLog[] }),
+      isAdmin ? api.listUsers() : Promise.resolve({ users: [] as User[] }),
+      isAdmin ? api.listGroups() : Promise.resolve({ groups: [] as UserGroup[] }),
+      !isAdmin && canShare
+        ? api.listShareableUsers().catch(() => ({ users: [] as ShareableUser[] }))
+        : Promise.resolve({ users: [] as ShareableUser[] }),
     ]);
     setCommands(cmdRes.commands);
     setServers(srvRes.servers);
     setCertificates(certRes.certificates);
     setLogs(logRes.logs);
     setUsers(usrRes.users);
+    setGroups(grpRes.groups);
+    setShareableUsers(isAdmin ? usrRes.users : shareRes.users);
   }, []);
 
   const bootstrap = useCallback(async () => {
@@ -231,7 +249,15 @@ export default function App() {
   }, [bootstrap]);
 
   useEffect(() => {
-    if (!user || activeTab !== 'logs' || user.mustSetupTwoFactor || user.mustSetupPasskey) return;
+    if (
+      !user ||
+      activeTab !== 'logs' ||
+      user.mustSetupTwoFactor ||
+      user.mustSetupPasskey ||
+      (user.role !== 'admin' && user.permissions?.viewOwnLogs === false)
+    ) {
+      return;
+    }
     let cancelled = false;
     void api
       .listLogs()
@@ -376,6 +402,8 @@ export default function App() {
     setCertificates([]);
     setLogs([]);
     setUsers([]);
+    setGroups([]);
+    setShareableUsers([]);
     setBgJobs([]);
     setBgActiveCount(0);
     setBgTotalActiveCount(0);
@@ -405,10 +433,21 @@ export default function App() {
   }
 
   const securitySetupRequired = Boolean(user.mustSetupTwoFactor || user.mustSetupPasskey);
+  const canUseShell = user.role === 'admin' || user.permissions?.useSshShell !== false;
+  const canViewLogs = user.role === 'admin' || user.permissions?.viewOwnLogs !== false;
+  const canExecuteCommands = user.role === 'admin' || user.permissions?.executeCommands !== false;
+
   const effectiveTab: ActiveTab =
     securitySetupRequired && activeTab !== 'account' && activeTab !== 'admin-auth'
       ? 'account'
-      : activeTab;
+      : activeTab === 'shell' && !canUseShell
+        ? 'dashboard'
+        : activeTab === 'logs' && !canViewLogs
+          ? 'dashboard'
+          : (activeTab === 'admin-users' || activeTab === 'admin-ca' || activeTab === 'admin-auth') &&
+              user.role !== 'admin'
+            ? 'dashboard'
+            : activeTab;
 
   const breadcrumbs: Record<ActiveTab, { group: string; title: string }> = {
     dashboard: { group: tr('Arbeitsbereich', 'Workspace'), title: 'Dashboard' },
@@ -419,7 +458,8 @@ export default function App() {
     logs: { group: tr('Arbeitsbereich', 'Workspace'), title: tr('Ausführungsprotokoll', 'Execution Log') },
     account: { group: tr('Konto', 'Account'), title: tr('Konto & Sicherheit', 'Account & Security') },
     'admin-commands': { group: tr('Arbeitsbereich', 'Workspace'), title: tr('SSH-Befehle', 'SSH Commands') },
-    'admin-users': { group: 'Administration', title: tr('Benutzerverwaltung', 'User Management') },
+    'admin-users': { group: 'Administration', title: tr('Benutzer & Gruppen', 'Users & Groups') },
+    'admin-ca': { group: 'Administration', title: tr('CA-Zertifikate', 'CA Certificates') },
     'admin-auth': { group: 'Administration', title: tr('Authentifizierung & SSO', 'Auth & SSO') },
   };
 
@@ -459,7 +499,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            {!securitySetupRequired && (
+            {!securitySetupRequired && (canExecuteCommands || bgJobs.length > 0) && (
               <BackgroundJobsBell
                 jobs={bgJobs}
                 activeCount={bgActiveCount}
@@ -529,7 +569,7 @@ export default function App() {
               />
             )}
 
-            {shellMounted && !securitySetupRequired && (
+            {shellMounted && !securitySetupRequired && canUseShell && (
               <div className={effectiveTab === 'shell' ? '' : 'hidden'}>
                 <SshShellView
                   user={user}
@@ -540,8 +580,10 @@ export default function App() {
                   certificates={certificates}
                   onNavigate={setActiveTab}
                   onSessionEnded={async () => {
-                    const res = await api.listLogs();
-                    setLogs(res.logs);
+                    if (canViewLogs) {
+                      const res = await api.listLogs();
+                      setLogs(res.logs);
+                    }
                   }}
                 />
               </div>
@@ -565,7 +607,7 @@ export default function App() {
             {effectiveTab === 'servers' && (
               <ServersView
                 user={user}
-                users={users}
+                users={shareableUsers}
                 servers={servers}
                 globalPingAllowed={settings.pingAllowed}
                 allowInsecureHostKey={settings.allowInsecureHostKey}
@@ -580,7 +622,7 @@ export default function App() {
             {effectiveTab === 'certificates' && (
               <CertificatesView
                 user={user}
-                users={users}
+                users={shareableUsers}
                 certificates={certificates}
                 publicUrl={settings.publicUrl}
                 onUpdateSettings={setSettings}
@@ -591,7 +633,7 @@ export default function App() {
               />
             )}
 
-            {effectiveTab === 'logs' && (
+            {effectiveTab === 'logs' && canViewLogs && (
               <AuditLogView
                 currentUser={user}
                 users={users}
@@ -615,7 +657,7 @@ export default function App() {
             {effectiveTab === 'admin-commands' && (
               <CommandsAdminView
                 currentUser={user}
-                users={users}
+                users={shareableUsers}
                 commands={commands}
                 onRefresh={async () => {
                   const res = await api.listCommands(true);
@@ -628,11 +670,21 @@ export default function App() {
               <UsersAdminView
                 currentUser={user}
                 users={users}
+                groups={groups}
                 onRefresh={async () => {
                   const res = await api.listUsers();
                   setUsers(res.users);
+                  setShareableUsers(res.users);
+                }}
+                onRefreshGroups={async () => {
+                  const res = await api.listGroups();
+                  setGroups(res.groups);
                 }}
               />
+            )}
+
+            {effectiveTab === 'admin-ca' && user.role === 'admin' && (
+              <CaAdminView currentUser={user} />
             )}
 
             {effectiveTab === 'admin-auth' && user.role === 'admin' && (

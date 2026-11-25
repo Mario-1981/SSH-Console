@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { X, Share2, Lock, Users, UserCheck } from 'lucide-react';
 import { useI18n, type Locale } from '../i18n';
-import type { User } from '../types';
+import type { ShareableUser } from '../types';
 
 export interface ShareDialogProps {
   title: string;
   itemName: string;
   securityHint?: string;
   currentUserId: string;
-  users: User[];
+  users: ShareableUser[];
   initialSharedWithAll: boolean;
   initialSharedWithUserIds: string[];
   onClose: () => void;
@@ -114,7 +114,7 @@ export function ShareDialog({
 
           <div className="space-y-2.5">
             <p className="text-xs font-medium text-slate-700">
-              {tr('Sichtbarkeit & Freigabe (Administratorrecht)', 'Visibility & Sharing (Admin Permission)')}
+              {tr('Sichtbarkeit & Freigabe', 'Visibility & Sharing')}
             </p>
 
             <label
@@ -239,7 +239,7 @@ export function ShareDialog({
                             </p>
                             <p className="text-xs text-slate-500 truncate">
                               <span className="font-mono">{u.username}</span> ·{' '}
-                              {u.role === 'admin' ? 'Administrator' : tr('Benutzer', 'User')}
+                              {u.groupName || (u.role === 'admin' ? 'Administratoren' : tr('Benutzer', 'User'))}
                               {!u.active ? tr(' · Deaktiviert', ' · Disabled') : ''}
                             </p>
                           </div>

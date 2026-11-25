@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { ShieldCheck, Terminal, KeyRound, Lock } from 'lucide-react';
 import { api } from '../api';
 import { LanguageSwitcher, useI18n } from '../i18n';
+import { getPasswordComplexityError } from '../passwordPolicy';
+import { PasswordStrengthHint } from './PasswordStrengthHint';
 import type { AppSettings, User } from '../types';
 
 interface SetupViewProps {
@@ -22,13 +24,9 @@ export function SetupView({ onComplete }: SetupViewProps) {
     e.preventDefault();
     setError(null);
 
-    if (password.length < 8) {
-      setError(
-        tr(
-          'Das Passwort muss mindestens 8 Zeichen umfassen.',
-          'The password must be at least 8 characters long.'
-        )
-      );
+    const passwordError = getPasswordComplexityError(password, tr);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
     if (password !== confirmPassword) {
@@ -234,6 +232,7 @@ export function SetupView({ onComplete }: SetupViewProps) {
                   required
                   minLength={8}
                 />
+                <PasswordStrengthHint password={password} />
               </div>
 
               <div>

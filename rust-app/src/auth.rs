@@ -34,3 +34,28 @@ pub fn validate_username(username: &str) -> Result<String, String> {
     }
     Ok(clean)
 }
+
+pub fn validate_password_complexity(password: &str) -> Result<(), String> {
+    let char_count = password.chars().count();
+    let has_upper = password.chars().any(|c| c.is_uppercase());
+    let has_lower = password.chars().any(|c| c.is_lowercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    let has_special = password.chars().any(|c| !c.is_alphanumeric());
+    let categories_met = usize::from(has_upper)
+        + usize::from(has_lower)
+        + usize::from(has_digit)
+        + usize::from(has_special);
+
+    if char_count < 8 {
+        return Err(
+            "Das Passwort muss mindestens 8 Zeichen lang sein und mindestens 3 der 4 Zeichenarten enthalten (Großbuchstaben, Kleinbuchstaben, Zahlen, Sonderzeichen)."
+                .into(),
+        );
+    }
+    if categories_met < 3 {
+        return Err(format!(
+            "Passwort zu schwach ({categories_met} von 4 Zeichenarten erfüllt): Es müssen mindestens 3 der 4 Zeichenarten enthalten sein (Großbuchstaben, Kleinbuchstaben, Zahlen, Sonderzeichen)."
+        ));
+    }
+    Ok(())
+}
