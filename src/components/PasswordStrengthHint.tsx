@@ -1,4 +1,3 @@
-import React from 'react';
 import { Check, Circle, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { evaluatePasswordComplexity } from '../passwordPolicy';

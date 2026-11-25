@@ -91,6 +91,11 @@ impl<'a> Drop for SyncedConnGuard<'a> {
                         }
                         Err(e) => {
                             tracing::error!("MariaDB-Synchronisierung fehlgeschlagen ({:?}): {}", tables, e);
+                            if let Ok(mut dirty) = self.dirty_tables.lock() {
+                                for t in tables {
+                                    dirty.insert(t);
+                                }
+                            }
                             if let Ok(mut err) = self.last_sync_error.lock() {
                                 *err = Some(e);
                             }

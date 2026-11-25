@@ -509,6 +509,35 @@ async function startServer() {
   await store.initDatabase();
   const app = express();
   app.disable('x-powered-by');
+
+  // Express 4 does not catch rejected promises from async handlers.
+  // Wrap route registrations so unhandled async errors forward cleanly to the JSON error handler.
+  const wrappedMethods = ['get', 'post', 'put', 'patch', 'delete'] as const;
+  for (const method of wrappedMethods) {
+    const original = app[method].bind(app) as (...args: unknown[]) => unknown;
+    (app as unknown as Record<string, (...args: unknown[]) => unknown>)[method] = (...args: unknown[]) => {
+      if (method === 'get' && args.length === 1) {
+        return original(...args);
+      }
+      const wrappedArgs = args.map((arg) => {
+        if (typeof arg !== 'function' || arg.length >= 4) return arg;
+        return function asyncSafeHandler(req: Request, res: Response, next: NextFunction) {
+          try {
+            const ret = (arg as (...a: unknown[]) => unknown)(req, res, next);
+            if (ret && typeof (ret as Promise<unknown>).catch === 'function') {
+              (ret as Promise<unknown>).catch(next);
+            }
+            return ret;
+          } catch (err) {
+            next(err);
+            return undefined;
+          }
+        };
+      });
+      return original(...wrappedArgs);
+    };
+  }
+
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -532,24 +561,22 @@ async function startServer() {
       next();
       return;
     }
-    const origin = req.headers.origin;
     const expectedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
       .split(',')[0]
       .trim()
       .toLowerCase();
-    if (origin && expectedHost) {
+    const originOrReferer = req.headers.origin || req.headers.referer;
+    if (originOrReferer && expectedHost) {
       try {
-        if (new URL(origin).host.toLowerCase() === expectedHost) {
+        if (new URL(originOrReferer).host.toLowerCase() === expectedHost) {
           next();
           return;
         }
       } catch {
-        // invalid origin header falls through to 403
+        // invalid Origin/Referer header falls through to 403
       }
-      res.status(403).json({ error: 'Ungültiger Anfrage-Ursprung (Origin).' });
-      return;
     }
-    next();
+    res.status(403).json({ error: 'Ungültiger oder fehlender Anfrage-Ursprung (Origin).' });
   });
 
   // System & Auth Status
@@ -2146,7 +2173,7 @@ async function startServer() {
     }
   );
 
-  app.post('/api/servers/:id/check-bmc', requireAuth, async (req: AuthedRequest, res) => {
+  app.post('/api/servers/:id/check-bmc', requireAuth, requireSecurityCompliant, async (req: AuthedRequest, res) => {
     const server = store.getAccessibleServer(req.params.id, req.user!.id);
     if (!server) {
       res.status(404).json({ error: 'Server nicht gefunden.' });
@@ -3448,7 +3475,6 @@ async function startServer() {
         certificateIds,
         confirmOverwriteForeignCa,
         autoRenew,
-        autoRenewBeforeSeconds,
       } = req.body ?? {};
 
       if (typeof caId !== 'string' || !caId.trim()) {
@@ -4986,11 +5012,11 @@ async function startServer() {
   );
 
   // Rust Debian Trixie Source Inspector & Archive Download
-  app.get('/api/rust-project/files', requireAuth, (_req, res) => {
+  app.get('/api/rust-project/files', requireAuth, requireSecurityCompliant, (_req, res) => {
     res.json({ files: listRustProjectFiles() });
   });
 
-  app.get('/api/rust-project/download', requireAuth, (_req, res) => {
+  app.get('/api/rust-project/download', requireAuth, requireSecurityCompliant, (_req, res) => {
     if (!fs.existsSync(RUST_APP_DIR)) {
       res.status(404).json({ error: 'Rust-Projektverzeichnis nicht gefunden.' });
       return;
@@ -5001,7 +5027,7 @@ async function startServer() {
     res.send(tarGz);
   });
 
-  app.get('/api/rust-project/download-deb', requireAuth, (_req, res) => {
+  app.get('/api/rust-project/download-deb', requireAuth, requireSecurityCompliant, (_req, res) => {
     try {
       const pkg = buildDebianPackage(process.cwd(), RUST_APP_DIR);
       res.setHeader('Content-Type', 'application/vnd.debian.binary-package');
@@ -5056,10 +5082,10 @@ async function startServer() {
   }
 
   pingMonitor.start();
-  setTimeout(() => {
+  const initialAutoRenewTimer = setTimeout(() => {
     void runAutoRenewCycle();
   }, 10_000);
-  setInterval(() => {
+  const autoRenewInterval = setInterval(() => {
     void runAutoRenewCycle();
   }, 60_000);
   const PORT = 3000;
@@ -5067,6 +5093,31 @@ async function startServer() {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`SSH Console server listening on http://0.0.0.0:${PORT}`);
   });
+
+  let shuttingDown = false;
+  const gracefulShutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`SSH Console: Beende Server sauber (${signal})...`);
+    clearTimeout(initialAutoRenewTimer);
+    clearInterval(autoRenewInterval);
+    pingMonitor.stop();
+    httpServer.close(() => {
+      void store.close().finally(() => {
+        process.exit(0);
+      });
+    });
+    setTimeout(() => {
+      void store.close().finally(() => {
+        process.exit(0);
+      });
+    }, 5_000).unref();
+  };
+  process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('SSH Console: Serverstart fehlgeschlagen:', err);
+  process.exit(1);
+});

@@ -15,8 +15,9 @@ use axum::{
         FromRequest, Multipart, Path as AxumPath, Query, Request as AxumRequest, State,
         WebSocketUpgrade,
     },
-    http::{header, HeaderMap, StatusCode},
-    response::{Html, IntoResponse},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Response},
     routing::{delete, get, patch, post, put},
     Json, Router,
 };
@@ -7185,6 +7186,7 @@ async fn main() {
         .route("/api/admin/database/migrate", post(api_admin_migrate_database))
         .route("/api/rust-project/files", get(api_rust_project_files))
         .fallback_service(spa_service)
+        .layer(middleware::from_fn(security_headers_middleware))
         .with_state(state);
 
     let bind = std::env::var("SSH_CONSOLE_BIND")
@@ -7193,6 +7195,56 @@ async fn main() {
     let addr: SocketAddr = bind.parse().expect("Ungültige Bind-Adresse");
     tracing::info!("SSH Console Rust-Server aktiv auf http://{addr}");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("TCP-Listener konnte nicht gebunden werden");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("HTTP-Server unerwartet beendet");
+}
+
+async fn security_headers_middleware(req: AxumRequest, next: Next) -> Response {
+    let is_api = req.uri().path().starts_with("/api/");
+    let mut resp = next.run(req).await;
+    let headers = resp.headers_mut();
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    if is_api {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        );
+    }
+    resp
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        if let Ok(mut sig) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            sig.recv().await;
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tracing::info!("SSH Console: Beende Rust-Server sauber...");
 }

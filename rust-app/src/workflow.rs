@@ -1,8 +1,9 @@
-use regex::RegexBuilder;
+use regex::{Regex, RegexBuilder};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 const MAX_DEPTH: usize = 10;
@@ -1326,9 +1327,20 @@ fn format_workflow_output(root: &Value, ctx: &WorkflowContext) -> String {
                     .collect()
             })
             .unwrap_or_default();
-        let delim_re = RegexBuilder::new(delim_pat)
-            .build()
-            .unwrap_or_else(|_| RegexBuilder::new(r"\s+").build().unwrap());
+        static DEFAULT_WS_RE: OnceLock<Regex> = OnceLock::new();
+        let custom_re = if delim_pat == r"\s+" {
+            None
+        } else {
+            RegexBuilder::new(delim_pat).build().ok()
+        };
+        let delim_re: &Regex = match custom_re.as_ref() {
+            Some(re) => re,
+            None => DEFAULT_WS_RE.get_or_init(|| {
+                RegexBuilder::new(r"\s+")
+                    .build()
+                    .expect("statisches Whitespace-Regex ist gültig")
+            }),
+        };
         let rows: Vec<Vec<String>> = filtered
             .lines()
             .map(str::trim)

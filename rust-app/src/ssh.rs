@@ -679,24 +679,21 @@ pub fn parse_and_validate_principals(raw: &serde_json::Value) -> Result<Vec<Stri
 }
 
 fn parse_duration_part(part: &str, prefix: char) -> Result<(u64, char), String> {
-    let mut chars = part.chars();
-    if chars.next() != Some(prefix) {
-        return Err("Ungültiges Zeitformat".into());
-    }
-    let rest: String = chars.collect();
-    if rest.len() < 2 {
-        return Err("Ungültiges Zeitformat".into());
-    }
-    let unit = rest
+    let rest = part
+        .strip_prefix(prefix)
+        .ok_or_else(|| "Ungültiges Zeitformat".to_string())?;
+    let last_char = rest
         .chars()
         .last()
-        .unwrap()
-        .to_ascii_lowercase();
+        .ok_or_else(|| "Ungültiges Zeitformat".to_string())?;
+    let unit = last_char.to_ascii_lowercase();
     if !matches!(unit, 's' | 'm' | 'h' | 'd' | 'w') {
         return Err("Ungültige Zeiteinheit".into());
     }
-    let num_str = &rest[..rest.len() - 1];
-    if !num_str.chars().all(|c| c.is_ascii_digit()) {
+    let num_str = rest
+        .strip_suffix(last_char)
+        .ok_or_else(|| "Ungültiges Zeitformat".to_string())?;
+    if num_str.is_empty() || !num_str.chars().all(|c| c.is_ascii_digit()) {
         return Err("Ungültige Zahl".into());
     }
     let amount = num_str.parse::<u64>().map_err(|_| "Ungültige Zahl".to_string())?;

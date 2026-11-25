@@ -8,6 +8,7 @@ import {
   countSchemaTables,
   createMariaDbPool,
   loadDatabaseConfigFile,
+  queryMariaDbVersion,
   readSchemaFromMariaDb,
   saveDatabaseConfigFile,
   testMariaDbConnection,
@@ -678,6 +679,8 @@ class Store {
   private lastSyncedAt: string | null = null;
   private lastSyncError: string | null = null;
   private syncQueue: Promise<void> = Promise.resolve();
+  private mariadbSyncScheduled = false;
+  private mariadbSyncDirty = false;
 
   constructor() {
     this.dbConfig = loadDatabaseConfigFile(DATA_DIR);
@@ -728,24 +731,37 @@ class Store {
     if (this.dbConfig.engine !== 'mariadb' || !this.dbConfig.mariadb) {
       return;
     }
+    let pool: Pool | null = null;
     try {
       const resolved = this.resolveStoredMariaDb();
-      const pool = createMariaDbPool(resolved);
-      const test = await testMariaDbConnection(resolved);
+      pool = createMariaDbPool(resolved);
+      const version = await queryMariaDbVersion(pool);
       const { schema } = await readSchemaFromMariaDb(pool, emptyDb().settings);
       this.mariadbPool = pool;
-      this.mariadbVersion = test.version;
+      this.mariadbVersion = version;
       this.lastSyncedAt = new Date().toISOString();
       this.lastSyncError = null;
       this.db = this.normalizeLoadedSchema(schema);
       console.log(
-        `SSH Console: MariaDB aktiv (${resolved.host}:${resolved.port}/${resolved.database}, ${test.version})`
+        `SSH Console: MariaDB aktiv (${resolved.host}:${resolved.port}/${resolved.database}, ${version})`
       );
     } catch (err) {
+      if (pool) {
+        await pool.end().catch(() => {});
+      }
       this.lastSyncError = err instanceof Error ? err.message : String(err);
       console.error(
         `SSH Console: MariaDB-Verbindung beim Start fehlgeschlagen (${this.lastSyncError}).`
       );
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.syncQueue.catch(() => {});
+    const pool = this.mariadbPool;
+    this.mariadbPool = null;
+    if (pool) {
+      await pool.end().catch(() => {});
     }
   }
 
@@ -988,19 +1004,34 @@ class Store {
 
   private save() {
     if (this.dbConfig.engine === 'mariadb' && this.mariadbPool) {
-      const pool = this.mariadbPool;
-      const snapshot: DatabaseSchema = JSON.parse(JSON.stringify(this.db)) as DatabaseSchema;
-      this.syncQueue = this.syncQueue
-        .then(async () => {
-          if (this.mariadbPool !== pool || this.dbConfig.engine !== 'mariadb') return;
-          await writeSchemaToMariaDb(pool, snapshot);
-          this.lastSyncedAt = new Date().toISOString();
-          this.lastSyncError = null;
-        })
-        .catch((err) => {
-          this.lastSyncError = err instanceof Error ? err.message : String(err);
-          console.error('MariaDB-Synchronisierung fehlgeschlagen:', this.lastSyncError);
-        });
+      this.mariadbSyncDirty = true;
+      if (this.mariadbSyncScheduled) {
+        return;
+      }
+      this.mariadbSyncScheduled = true;
+      this.syncQueue = this.syncQueue.then(async () => {
+        try {
+          while (this.mariadbSyncDirty) {
+            this.mariadbSyncDirty = false;
+            const pool = this.mariadbPool;
+            if (!pool || this.dbConfig.engine !== 'mariadb') {
+              break;
+            }
+            const snapshot: DatabaseSchema = JSON.parse(JSON.stringify(this.db)) as DatabaseSchema;
+            try {
+              await writeSchemaToMariaDb(pool, snapshot);
+              this.lastSyncedAt = new Date().toISOString();
+              this.lastSyncError = null;
+            } catch (err) {
+              this.lastSyncError = err instanceof Error ? err.message : String(err);
+              console.error('MariaDB-Synchronisierung fehlgeschlagen:', this.lastSyncError);
+              break;
+            }
+          }
+        } finally {
+          this.mariadbSyncScheduled = false;
+        }
+      });
       return;
     }
     this.writeLocalFile(this.db);

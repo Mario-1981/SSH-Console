@@ -455,6 +455,16 @@ export async function inspectMariaDbExistingTables(conn: PoolConnection): Promis
   return { existingTables, existingRowCount };
 }
 
+export async function queryMariaDbVersion(pool: Pool): Promise<string> {
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT VERSION() AS version');
+    return String(rows[0]?.version ?? 'MariaDB');
+  } finally {
+    conn.release();
+  }
+}
+
 export async function testMariaDbConnection(cfg: ResolvedMariaDbConfig): Promise<MariaDbTestResult> {
   const started = Date.now();
   const pool = createMariaDbPool(cfg);
@@ -1021,11 +1031,12 @@ export async function writeSchemaToMariaDb(
         ])
       );
 
-      await conn.query('SET FOREIGN_KEY_CHECKS = 1');
       await conn.commit();
     } catch (err) {
       await conn.rollback().catch(() => {});
       throw err;
+    } finally {
+      await conn.query('SET FOREIGN_KEY_CHECKS = 1').catch(() => {});
     }
 
     const { existingTables } = await inspectMariaDbExistingTables(conn);

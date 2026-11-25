@@ -816,48 +816,59 @@ pub fn sync_tables_to_mariadb(
     tx.query_drop("SET FOREIGN_KEY_CHECKS = 0")
         .map_err(|e| format!("MariaDB FK-Deaktivierung fehlgeschlagen: {e}"))?;
 
-    for (spec, rows) in snapshots {
-        let del_sql = format!("DELETE FROM `{}`", spec.name);
-        tx.query_drop(del_sql)
-            .map_err(|e| format!("MariaDB-Tabelle {} konnte nicht geleert werden: {e}", spec.name))?;
+    let sync_result: Result<(), String> = (|| {
+        for (spec, rows) in snapshots {
+            let del_sql = format!("DELETE FROM `{}`", spec.name);
+            tx.query_drop(del_sql)
+                .map_err(|e| format!("MariaDB-Tabelle {} konnte nicht geleert werden: {e}", spec.name))?;
 
-        if rows.is_empty() {
-            continue;
-        }
-
-        let col_list = spec
-            .columns
-            .iter()
-            .map(|(c, _)| format!("`{c}`"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let row_placeholder = format!(
-            "({})",
-            vec!["?"; spec.columns.len()].join(", ")
-        );
-
-        for chunk in rows.chunks(25) {
-            let placeholders = vec![row_placeholder.as_str(); chunk.len()].join(", ");
-            let insert_sql = format!(
-                "INSERT INTO `{}` ({col_list}) VALUES {placeholders}",
-                spec.name
-            );
-            let mut flat_params = Vec::with_capacity(chunk.len() * spec.columns.len());
-            for r in chunk {
-                flat_params.extend(r.iter().cloned());
+            if rows.is_empty() {
+                continue;
             }
-            tx.exec_drop(&insert_sql, Params::Positional(flat_params))
-                .map_err(|e| {
-                    format!(
-                        "MariaDB-Einfügen in Tabelle {} fehlgeschlagen: {e}",
-                        spec.name
-                    )
-                })?;
-        }
-    }
 
-    tx.query_drop("SET FOREIGN_KEY_CHECKS = 1")
-        .map_err(|e| format!("MariaDB FK-Reaktivierung fehlgeschlagen: {e}"))?;
+            let col_list = spec
+                .columns
+                .iter()
+                .map(|(c, _)| format!("`{c}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let row_placeholder = format!(
+                "({})",
+                vec!["?"; spec.columns.len()].join(", ")
+            );
+
+            for chunk in rows.chunks(25) {
+                let placeholders = vec![row_placeholder.as_str(); chunk.len()].join(", ");
+                let insert_sql = format!(
+                    "INSERT INTO `{}` ({col_list}) VALUES {placeholders}",
+                    spec.name
+                );
+                let mut flat_params = Vec::with_capacity(chunk.len() * spec.columns.len());
+                for r in chunk {
+                    flat_params.extend(r.iter().cloned());
+                }
+                tx.exec_drop(&insert_sql, Params::Positional(flat_params))
+                    .map_err(|e| {
+                        format!(
+                            "MariaDB-Einfügen in Tabelle {} fehlgeschlagen: {e}",
+                            spec.name
+                        )
+                    })?;
+            }
+        }
+        Ok(())
+    })();
+
+    let fk_restore = tx
+        .query_drop("SET FOREIGN_KEY_CHECKS = 1")
+        .map_err(|e| format!("MariaDB FK-Reaktivierung fehlgeschlagen: {e}"));
+
+    if let Err(err) = sync_result {
+        let _ = tx.rollback();
+        return Err(err);
+    }
+    fk_restore?;
+
     tx.commit()
         .map_err(|e| format!("MariaDB-Commit fehlgeschlagen: {e}"))?;
 

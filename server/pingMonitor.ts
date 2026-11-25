@@ -257,6 +257,14 @@ class PingMonitor {
     this.reschedule(true);
   }
 
+  stop() {
+    this.started = false;
+    if (this.loopController) {
+      this.loopController.abort();
+      this.loopController = null;
+    }
+  }
+
   clearServerStatus(serverId: string) {
     this.statuses.delete(serverId);
   }
