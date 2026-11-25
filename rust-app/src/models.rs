@@ -1102,8 +1102,6 @@ pub struct UserSelfSignCertificatesRequest {
     pub confirm_overwrite_foreign_ca: bool,
     #[serde(default)]
     pub auto_renew: Option<bool>,
-    #[serde(default)]
-    pub auto_renew_before_seconds: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
