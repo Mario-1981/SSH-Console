@@ -21,6 +21,7 @@ import { api } from '../api';
 import { useI18n } from '../i18n';
 import { getPasswordComplexityError } from '../passwordPolicy';
 import { PasswordStrengthHint } from './PasswordStrengthHint';
+import { SearchableSelect } from './SearchableSelect';
 import type {
   CertificateAuthority,
   GroupCaAssignment,
@@ -1040,26 +1041,26 @@ export function UsersAdminView({
                 <label htmlFor="usr-group" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   {tr('Benutzergruppe', 'User Group')}
                 </label>
-                <select
+                <SearchableSelect
                   id="usr-group"
                   value={groupId}
-                  onChange={(e) => setGroupId(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                >
-                  {sortedGroups.length > 0 ? (
-                    sortedGroups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                        {g.isAdmin ? ' (Admin)' : ''}
-                      </option>
-                    ))
-                  ) : (
-                    <>
-                      <option value="user">{tr('Benutzer', 'User')}</option>
-                      <option value="admin">{tr('Administratoren', 'Administrators')}</option>
-                    </>
-                  )}
-                </select>
+                  onChange={setGroupId}
+                  ariaLabel={tr('Benutzergruppe', 'User Group')}
+                  searchPlaceholder={tr('Benutzergruppe filtern...', 'Filter user group...')}
+                  options={
+                    sortedGroups.length > 0
+                      ? sortedGroups.map((g) => ({
+                          value: g.id,
+                          label: `${g.name}${g.isAdmin ? ' (Admin)' : ''}`,
+                          meta: g.description || undefined,
+                          searchText: g.isAdmin ? 'admin administrator' : '',
+                        }))
+                      : [
+                          { value: 'user', label: tr('Benutzer', 'User') },
+                          { value: 'admin', label: tr('Administratoren', 'Administrators') },
+                        ]
+                  }
+                />
               </div>
 
               <div className="lg:col-span-2">
@@ -1160,23 +1161,24 @@ export function UsersAdminView({
                               {u.groupName || 'Administratoren'}
                             </span>
                           ) : (
-                            <select
-                              aria-label={tr(
+                            <SearchableSelect
+                              size="compact"
+                              className="w-44"
+                              ariaLabel={tr(
                                 `Benutzergruppe für ${u.username}`,
                                 `User group for ${u.username}`
                               )}
+                              searchPlaceholder={tr('Gruppe filtern...', 'Filter group...')}
                               value={currentGid}
                               disabled={isUpdatingGroup}
-                              onChange={(e) => handleChangeUserGroup(u, e.target.value)}
-                              className="px-2.5 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 cursor-pointer"
-                            >
-                              {sortedGroups.map((g) => (
-                                <option key={g.id} value={g.id}>
-                                  {g.name}
-                                  {g.isAdmin ? ' (Admin)' : ''}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={(val) => handleChangeUserGroup(u, val)}
+                              options={sortedGroups.map((g) => ({
+                                value: g.id,
+                                label: `${g.name}${g.isAdmin ? ' (Admin)' : ''}`,
+                                meta: g.description || undefined,
+                                searchText: g.isAdmin ? 'admin administrator' : '',
+                              }))}
+                            />
                           )}
                         </td>
                         <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
@@ -1679,11 +1681,16 @@ export function UsersAdminView({
                                       'Signature Validity (-V · per CA & group)'
                                     )}
                                   </label>
-                                  <select
+                                  <SearchableSelect
                                     id={`grp-ca-validity-${ca.id}`}
+                                    size="xs"
                                     value={isCustomVal ? '__custom__' : currentValidity}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
+                                    ariaLabel={tr(
+                                      'Gültigkeit der Signatur',
+                                      'Signature Validity'
+                                    )}
+                                    searchPlaceholder={tr('Gültigkeit filtern...', 'Filter validity...')}
+                                    onChange={(val) => {
                                       if (val === '__custom__') {
                                         setGrpCaCustomValidity((prev) => ({
                                           ...prev,
@@ -1702,24 +1709,29 @@ export function UsersAdminView({
                                         });
                                       }
                                     }}
-                                    className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                                  >
-                                    <option value="+1h">{tr('1 Stunde (+1h)', '1 Hour (+1h)')}</option>
-                                    <option value="+8h">{tr('8 Stunden (+8h)', '8 Hours (+8h)')}</option>
-                                    <option value="+24h">{tr('24 Stunden (+24h)', '24 Hours (+24h)')}</option>
-                                    <option value="+3d">{tr('3 Tage (+3d)', '3 Days (+3d)')}</option>
-                                    <option value="+7d">{tr('7 Tage (+7d)', '7 Days (+7d)')}</option>
-                                    <option value="+14d">{tr('14 Tage (+14d)', '14 Days (+14d)')}</option>
-                                    <option value="+30d">{tr('30 Tage (+30d)', '30 Days (+30d)')}</option>
-                                    <option value="+90d">{tr('90 Tage (+90d)', '90 Days (+90d)')}</option>
-                                    <option value="+52w">{tr('1 Jahr (+52w)', '1 Year (+52w)')}</option>
-                                    <option value="forever">
-                                      {tr('Unbegrenzt (forever)', 'Forever (no expiry)')}
-                                    </option>
-                                    <option value="__custom__">
-                                      {tr('Benutzerdefiniert (z. B. +12h, +45d)...', 'Custom (e.g. +12h, +45d)...')}
-                                    </option>
-                                  </select>
+                                    options={[
+                                      { value: '+1h', label: tr('1 Stunde (+1h)', '1 Hour (+1h)') },
+                                      { value: '+8h', label: tr('8 Stunden (+8h)', '8 Hours (+8h)') },
+                                      { value: '+24h', label: tr('24 Stunden (+24h)', '24 Hours (+24h)') },
+                                      { value: '+3d', label: tr('3 Tage (+3d)', '3 Days (+3d)') },
+                                      { value: '+7d', label: tr('7 Tage (+7d)', '7 Days (+7d)') },
+                                      { value: '+14d', label: tr('14 Tage (+14d)', '14 Days (+14d)') },
+                                      { value: '+30d', label: tr('30 Tage (+30d)', '30 Days (+30d)') },
+                                      { value: '+90d', label: tr('90 Tage (+90d)', '90 Days (+90d)') },
+                                      { value: '+52w', label: tr('1 Jahr (+52w)', '1 Year (+52w)') },
+                                      {
+                                        value: 'forever',
+                                        label: tr('Unbegrenzt (forever)', 'Forever (no expiry)'),
+                                      },
+                                      {
+                                        value: '__custom__',
+                                        label: tr(
+                                          'Benutzerdefiniert (z. B. +12h, +45d)...',
+                                          'Custom (e.g. +12h, +45d)...'
+                                        ),
+                                      },
+                                    ]}
+                                  />
                                   {isCustomVal && (
                                     <div className="space-y-1">
                                       <input
@@ -1756,9 +1768,15 @@ export function UsersAdminView({
                                       'Auto re-sign allowed from (per CA & group)'
                                     )}
                                   </label>
-                                  <select
+                                  <SearchableSelect
                                     id={`grp-ca-autorenew-${ca.id}`}
+                                    size="xs"
                                     disabled={validityForever}
+                                    ariaLabel={tr(
+                                      'Automatisch neusignieren ab',
+                                      'Auto re-sign allowed from'
+                                    )}
+                                    searchPlaceholder={tr('Zeitraum filtern...', 'Filter lead time...')}
                                     value={
                                       validityForever
                                         ? '0'
@@ -1766,8 +1784,7 @@ export function UsersAdminView({
                                           ? '__custom__'
                                           : String(currentLead)
                                     }
-                                    onChange={(e) => {
-                                      const val = e.target.value;
+                                    onChange={(val) => {
                                       if (val === '__custom__') {
                                         const split = splitLeadSecondsToCustom(
                                           currentLead > 0 ? currentLead : 86400
@@ -1787,54 +1804,68 @@ export function UsersAdminView({
                                         });
                                       }
                                     }}
-                                    className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 disabled:text-slate-400 dark:disabled:text-slate-600"
-                                  >
-                                    <option value="0">
-                                      {tr(
-                                        'Automatisch (ab 20 % vor Ablauf)',
-                                        'Automatic (from 20% before expiry)'
-                                      )}
-                                    </option>
-                                    <option value="900">
-                                      {tr('Ab 15 Minuten vor Ablauf', 'From 15 minutes before expiry')}
-                                    </option>
-                                    <option value="1800">
-                                      {tr('Ab 30 Minuten vor Ablauf', 'From 30 minutes before expiry')}
-                                    </option>
-                                    <option value="3600">
-                                      {tr('Ab 1 Stunde vor Ablauf', 'From 1 hour before expiry')}
-                                    </option>
-                                    <option value="7200">
-                                      {tr('Ab 2 Stunden vor Ablauf', 'From 2 hours before expiry')}
-                                    </option>
-                                    <option value="21600">
-                                      {tr('Ab 6 Stunden vor Ablauf', 'From 6 hours before expiry')}
-                                    </option>
-                                    <option value="43200">
-                                      {tr('Ab 12 Stunden vor Ablauf', 'From 12 hours before expiry')}
-                                    </option>
-                                    <option value="86400">
-                                      {tr('Ab 24 Stunden vor Ablauf', 'From 24 hours before expiry')}
-                                    </option>
-                                    <option value="172800">
-                                      {tr('Ab 2 Tage vor Ablauf', 'From 2 days before expiry')}
-                                    </option>
-                                    <option value="259200">
-                                      {tr('Ab 3 Tage vor Ablauf', 'From 3 days before expiry')}
-                                    </option>
-                                    <option value="604800">
-                                      {tr('Ab 7 Tage vor Ablauf', 'From 7 days before expiry')}
-                                    </option>
-                                    <option value="1209600">
-                                      {tr('Ab 14 Tage vor Ablauf', 'From 14 days before expiry')}
-                                    </option>
-                                    <option value="2592000">
-                                      {tr('Ab 30 Tage vor Ablauf', 'From 30 days before expiry')}
-                                    </option>
-                                    <option value="__custom__">
-                                      {tr('Benutzerdefiniert...', 'Custom...')}
-                                    </option>
-                                  </select>
+                                    options={[
+                                      {
+                                        value: '0',
+                                        label: tr(
+                                          'Automatisch (ab 20 % vor Ablauf)',
+                                          'Automatic (from 20% before expiry)'
+                                        ),
+                                      },
+                                      {
+                                        value: '900',
+                                        label: tr('Ab 15 Minuten vor Ablauf', 'From 15 minutes before expiry'),
+                                      },
+                                      {
+                                        value: '1800',
+                                        label: tr('Ab 30 Minuten vor Ablauf', 'From 30 minutes before expiry'),
+                                      },
+                                      {
+                                        value: '3600',
+                                        label: tr('Ab 1 Stunde vor Ablauf', 'From 1 hour before expiry'),
+                                      },
+                                      {
+                                        value: '7200',
+                                        label: tr('Ab 2 Stunden vor Ablauf', 'From 2 hours before expiry'),
+                                      },
+                                      {
+                                        value: '21600',
+                                        label: tr('Ab 6 Stunden vor Ablauf', 'From 6 hours before expiry'),
+                                      },
+                                      {
+                                        value: '43200',
+                                        label: tr('Ab 12 Stunden vor Ablauf', 'From 12 hours before expiry'),
+                                      },
+                                      {
+                                        value: '86400',
+                                        label: tr('Ab 24 Stunden vor Ablauf', 'From 24 hours before expiry'),
+                                      },
+                                      {
+                                        value: '172800',
+                                        label: tr('Ab 2 Tage vor Ablauf', 'From 2 days before expiry'),
+                                      },
+                                      {
+                                        value: '259200',
+                                        label: tr('Ab 3 Tage vor Ablauf', 'From 3 days before expiry'),
+                                      },
+                                      {
+                                        value: '604800',
+                                        label: tr('Ab 7 Tage vor Ablauf', 'From 7 days before expiry'),
+                                      },
+                                      {
+                                        value: '1209600',
+                                        label: tr('Ab 14 Tage vor Ablauf', 'From 14 days before expiry'),
+                                      },
+                                      {
+                                        value: '2592000',
+                                        label: tr('Ab 30 Tage vor Ablauf', 'From 30 days before expiry'),
+                                      },
+                                      {
+                                        value: '__custom__',
+                                        label: tr('Benutzerdefiniert...', 'Custom...'),
+                                      },
+                                    ]}
+                                  />
 
                                   {!validityForever && isCustomLead && (
                                     <div className="flex items-center gap-2">
@@ -1856,31 +1887,39 @@ export function UsersAdminView({
                                         }
                                         className="w-24 px-2.5 py-1.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
                                       />
-                                      <select
+                                      <SearchableSelect
+                                        size="xs"
+                                        className="flex-1"
+                                        minMenuWidth={200}
+                                        ariaLabel={tr('Zeiteinheit', 'Time unit')}
+                                        searchPlaceholder={tr('Einheit filtern...', 'Filter unit...')}
                                         value={
                                           customLeadState?.unit ??
                                           splitLeadSecondsToCustom(currentLead).unit
                                         }
-                                        onChange={(e) =>
+                                        onChange={(val) =>
                                           updateCustomLeadInput(
                                             ca.id,
                                             customLeadState?.amount ??
                                               splitLeadSecondsToCustom(currentLead).amount,
-                                            e.target.value as 'm' | 'h' | 'd'
+                                            val as 'm' | 'h' | 'd'
                                           )
                                         }
-                                        className="flex-1 px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                                      >
-                                        <option value="m">
-                                          {tr('Minuten vor Ablauf', 'Minutes before expiry')}
-                                        </option>
-                                        <option value="h">
-                                          {tr('Stunden vor Ablauf', 'Hours before expiry')}
-                                        </option>
-                                        <option value="d">
-                                          {tr('Tage vor Ablauf', 'Days before expiry')}
-                                        </option>
-                                      </select>
+                                        options={[
+                                          {
+                                            value: 'm',
+                                            label: tr('Minuten vor Ablauf', 'Minutes before expiry'),
+                                          },
+                                          {
+                                            value: 'h',
+                                            label: tr('Stunden vor Ablauf', 'Hours before expiry'),
+                                          },
+                                          {
+                                            value: 'd',
+                                            label: tr('Tage vor Ablauf', 'Days before expiry'),
+                                          },
+                                        ]}
+                                      />
                                     </div>
                                   )}
 

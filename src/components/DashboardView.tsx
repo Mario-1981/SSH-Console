@@ -28,7 +28,9 @@ import {
   Bell,
 } from 'lucide-react';
 import { api } from '../api';
-import { translateCategory, useI18n } from '../i18n';
+import { useI18n } from '../i18n';
+import { SearchableCommandSelect } from './SearchableCommandSelect';
+import { SearchableSelect } from './SearchableSelect';
 import {
   parseAndValidateWorkflow,
   resolveWorkflowRuntimeVars,
@@ -1139,29 +1141,13 @@ export function DashboardView({
             <label htmlFor="dash-quick-cmd" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('SSH-Befehl / Befehlskette', 'SSH Command / Chain')}
             </label>
-            <select
+            <SearchableCommandSelect
               id="dash-quick-cmd"
+              commands={activeCommands}
               value={quickCommandId}
-              onChange={(e) => setQuickCommandId(e.target.value)}
-              disabled={activeCommands.length === 0}
-              className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
-            >
-              {activeCommands.length === 0 ? (
-                <option value="">{tr('Keine sichtbaren Befehle vorhanden', 'No visible commands available')}</option>
-              ) : (
-                activeCommands.map((cmd) => (
-                  <option key={cmd.id} value={cmd.id}>
-                    [{translateCategory(cmd.category, locale)}] {cmd.name}
-                    {cmd.kind === 'workflow'
-                      ? tr(' (JSON-Workflow)', ' (JSON Workflow)')
-                      : cmd.kind === 'chain'
-                        ? tr(` (Kette · ${cmd.steps.length})`, ` (Chain · ${cmd.steps.length})`)
-                        : ''}
-                    {cmd.userId !== currentUser.id ? tr(' · Geteilt', ' · Shared') : ''}
-                  </option>
-                ))
-              )}
-            </select>
+              currentUserId={currentUser.id}
+              onChange={setQuickCommandId}
+            />
           </div>
 
           {/* Certificate Selector */}
@@ -1185,32 +1171,52 @@ export function DashboardView({
                 </p>
               )
             ) : (
-              <select
+              <SearchableSelect
                 id="dash-cert"
                 value={selectedCertId}
-                onChange={(e) => setSelectedCertId(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
-              >
-                {certificates.map((cert) => {
+                onChange={setSelectedCertId}
+                searchPlaceholder={tr(
+                  'Zertifikat, Key-ID oder Status filtern...',
+                  'Filter certificate, key ID, or status...'
+                )}
+                ariaLabel={tr('SSH-Zertifikat / Schlüsselpaar', 'SSH Certificate / Keypair')}
+                options={certificates.map((cert) => {
                   const hasCert = cert.metadata.hasCertificate !== false && Boolean(cert.certFileName);
-                  const lockHint = cert.metadata.privateKeyEncrypted
+                  const certSub = hasCert
+                    ? cert.metadata.keyId || cert.certFileName
+                    : tr('Schlüsselpaar', 'Keypair');
+                  const sharedLabel = cert.userId !== currentUser.id ? tr('Geteilt', 'Shared') : '';
+                  const lockLabel = cert.metadata.privateKeyEncrypted
                     ? cert.hasStoredPassphrase
-                      ? tr(' · Passwort hinterlegt', ' · Passphrase stored')
-                      : tr(' · Passwort erforderlich', ' · Passphrase required')
+                      ? tr('Passwort hinterlegt', 'Passphrase stored')
+                      : tr('Passwort erforderlich', 'Passphrase required')
                     : '';
-                  return (
-                    <option key={cert.id} value={cert.id}>
-                      {cert.name} (
-                      {hasCert
-                        ? cert.metadata.keyId || cert.certFileName
-                        : tr('Schlüsselpaar', 'Keypair')}
-                      )
-                      {cert.userId !== currentUser.id ? tr(' · Geteilt', ' · Shared') : ''}
-                      {lockHint}
-                    </option>
-                  );
+                  return {
+                    value: cert.id,
+                    label: cert.name,
+                    triggerLabel: `${cert.name} (${certSub})${sharedLabel ? ` · ${sharedLabel}` : ''}${lockLabel ? ` · ${lockLabel}` : ''}`,
+                    meta: [
+                      hasCert
+                        ? cert.metadata.isExpired
+                          ? tr('CA-Cert · abgelaufen', 'CA Cert · expired')
+                          : tr('CA-Cert', 'CA Cert')
+                        : tr('Schlüsselpaar', 'Keypair'),
+                      lockLabel,
+                      sharedLabel,
+                    ]
+                      .filter(Boolean)
+                      .join(' · '),
+                    detail: cert.metadata.keyId || cert.certFileName || cert.publicKeyFileName || '',
+                    searchText: [
+                      cert.ownerUsername,
+                      hasCert ? 'ca cert zertifikat' : 'keypair schlüsselpaar',
+                      cert.metadata.isExpired ? 'abgelaufen expired' : '',
+                      cert.metadata.privateKeyEncrypted ? 'passwort passphrase encrypted' : '',
+                      cert.userId !== currentUser.id ? 'geteilt shared' : '',
+                    ].join(' '),
+                  };
                 })}
-              </select>
+              />
             )}
           </div>
 
@@ -1298,20 +1304,19 @@ export function DashboardView({
                       </label>
 
                       {inp.type === 'select' && inp.options ? (
-                        <select
+                        <SearchableSelect
                           id={fieldId}
                           value={value}
-                          onChange={(e) =>
-                            setWorkflowVarValues((prev) => ({ ...prev, [inp.name]: e.target.value }))
+                          onChange={(val) =>
+                            setWorkflowVarValues((prev) => ({ ...prev, [inp.name]: val }))
                           }
-                          className="w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        >
-                          {inp.options.map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
+                          ariaLabel={inp.label || inp.name}
+                          searchPlaceholder={tr('Option filtern...', 'Filter option...')}
+                          options={inp.options.map((opt) => ({
+                            value: opt,
+                            label: opt,
+                          }))}
+                        />
                       ) : inp.type === 'boolean' ? (
                         <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md cursor-pointer w-full">
                           <input
@@ -1905,23 +1910,36 @@ export function DashboardView({
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               {hasBmc1 && hasBmc2 ? (
-                                <select
-                                  value={activeBmcSlot}
-                                  onChange={(e) =>
+                                <SearchableSelect
+                                  size="compact"
+                                  mono
+                                  className="w-44"
+                                  minMenuWidth={240}
+                                  value={String(activeBmcSlot)}
+                                  onChange={(val) =>
                                     setSelectedBmcSlots((prev) => ({
                                       ...prev,
-                                      [srv.id]: Number(e.target.value) === 2 ? 2 : 1,
+                                      [srv.id]: Number(val) === 2 ? 2 : 1,
                                     }))
                                   }
-                                  aria-label={tr(
+                                  ariaLabel={tr(
                                     `BMC-IP für ${srv.label} auswählen`,
                                     `Select BMC IP for ${srv.label}`
                                   )}
-                                  className="px-2 py-1 text-xs font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                                >
-                                  <option value={1}>BMC 1 · {srv.bmcIpAddress}</option>
-                                  <option value={2}>BMC 2 · {srv.bmcIpAddress2}</option>
-                                </select>
+                                  searchPlaceholder={tr('BMC-IP filtern...', 'Filter BMC IP...')}
+                                  options={[
+                                    {
+                                      value: '1',
+                                      label: `BMC 1 · ${srv.bmcIpAddress}`,
+                                      searchText: `bmc1 ${srv.bmcIpAddress}`,
+                                    },
+                                    {
+                                      value: '2',
+                                      label: `BMC 2 · ${srv.bmcIpAddress2}`,
+                                      searchText: `bmc2 ${srv.bmcIpAddress2}`,
+                                    },
+                                  ]}
+                                />
                               ) : (
                                 <a
                                   href={formatBmcUrl(activeBmcIp)}

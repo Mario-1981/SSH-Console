@@ -24,6 +24,7 @@ import { api } from '../api';
 import { useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
 import { BulkServersDialog, type BulkServersPayload } from './BulkSettingsDialogs';
+import { SearchableSelect } from './SearchableSelect';
 import type { AppSettings, BmcCheckResult, ServerCategory, ShareableUser, User, UserServer } from '../types';
 
 interface ServersViewProps {
@@ -1083,22 +1084,24 @@ export function ServersView({
           </h2>
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
             {tableFilterCategories.length > 0 && (
-              <select
+              <SearchableSelect
                 value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                aria-label={tr('Nach Kategorie filtern', 'Filter by category')}
-                className="w-full sm:w-48 px-3 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
-              >
-                <option value="">{tr('Alle Kategorien', 'All categories')}</option>
-                {tableFilterCategories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-                <option value="__uncategorized__">
-                  {tr('Ohne Kategorie', 'Uncategorized')}
-                </option>
-              </select>
+                onChange={setCategoryFilter}
+                ariaLabel={tr('Nach Kategorie filtern', 'Filter by category')}
+                searchPlaceholder={tr('Kategorie filtern...', 'Filter category...')}
+                className="w-full sm:w-48"
+                options={[
+                  { value: '', label: tr('Alle Kategorien', 'All categories') },
+                  ...tableFilterCategories.map((cat) => ({
+                    value: cat,
+                    label: cat,
+                  })),
+                  {
+                    value: '__uncategorized__',
+                    label: tr('Ohne Kategorie', 'Uncategorized'),
+                  },
+                ]}
+              />
             )}
             <div className="relative w-full sm:w-64">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />

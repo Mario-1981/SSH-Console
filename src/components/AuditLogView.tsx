@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Search, ChevronDown, ChevronRight, History, RefreshCw, Users, User as UserIcon } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { ExecutionLog, User } from '../types';
+import { SearchableSelect } from './SearchableSelect';
 
 interface AuditLogViewProps {
   currentUser: User;
@@ -179,21 +180,29 @@ export function AuditLogView({ currentUser, users, logs, onRefresh }: AuditLogVi
                 <label htmlFor="audit-user-filter" className="text-xs font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">
                   {tr('Benutzer:', 'User:')}
                 </label>
-                <select
+                <SearchableSelect
                   id="audit-user-filter"
+                  size="xs"
+                  className="w-48 sm:w-56"
                   value={userFilter}
-                  onChange={(e) => setUserFilter(e.target.value)}
-                  className="px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                >
-                  <option value="all">
-                    {tr(`Alle Benutzer (${scopedLogs.length})`, `All Users (${scopedLogs.length})`)}
-                  </option>
-                  {adminUserOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.label} ({u.count})
-                    </option>
-                  ))}
-                </select>
+                  onChange={setUserFilter}
+                  ariaLabel={tr('Benutzer filtern', 'Filter by user')}
+                  searchPlaceholder={tr('Benutzer filtern...', 'Filter user...')}
+                  options={[
+                    {
+                      value: 'all',
+                      label: tr(
+                        `Alle Benutzer (${scopedLogs.length})`,
+                        `All Users (${scopedLogs.length})`
+                      ),
+                    },
+                    ...adminUserOptions.map((u) => ({
+                      value: u.id,
+                      label: `${u.label} (${u.count})`,
+                      searchText: u.label,
+                    })),
+                  ]}
+                />
               </div>
             )}
           </div>

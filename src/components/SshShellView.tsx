@@ -21,6 +21,8 @@ import {
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import type { ActiveTab, User, UserCertificate, UserServer } from '../types';
+import { SearchableServerSelect } from './SearchableServerSelect';
+import { SearchableSelect } from './SearchableSelect';
 
 const MOBILE_TERMINAL_KEYS: Array<{ label: string; data: string; title: string }> = [
   { label: 'Esc', data: '\x1b', title: 'Escape' },
@@ -762,25 +764,14 @@ function SshShellTabPane({
               <label htmlFor={`${tabId}-server`} className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 {tr('Ziel-Server (IP)', 'Target Server (IP)')}
               </label>
-              <select
+              <SearchableServerSelect
                 id={`${tabId}-server`}
+                servers={servers}
                 value={selectedServerId}
-                onChange={(e) => handleSelectServer(e.target.value)}
-                disabled={isLive || servers.length === 0}
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 dark:disabled:bg-slate-800/50"
-              >
-                {servers.length === 0 ? (
-                  <option value="">
-                    {tr('Kein gespeicherter Server verfügbar', 'No saved server available')}
-                  </option>
-                ) : (
-                  servers.map((srv) => (
-                    <option key={srv.id} value={srv.id}>
-                      {srv.label} — {srv.ipAddress}:{srv.port}
-                    </option>
-                  ))
-                )}
-              </select>
+                currentUserId={user.id}
+                onChange={handleSelectServer}
+                disabled={isLive}
+              />
             </div>
           ) : (
             <>
@@ -835,40 +826,46 @@ function SshShellTabPane({
             <label htmlFor={`${tabId}-cert`} className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               {tr('SSH-Zertifikat / Schlüsselpaar', 'SSH Certificate / Keypair')}
             </label>
-            <select
+            <SearchableSelect
               id={`${tabId}-cert`}
               value={selectedCertId}
-              onChange={(e) => setSelectedCertId(e.target.value)}
-              disabled={isLive || certificates.length === 0}
-              className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 dark:disabled:bg-slate-800/50"
-            >
-              {certificates.length === 0 ? (
-                <option value="">
-                  {tr('Kein Zertifikat vorhanden', 'No certificates available')}
-                </option>
-              ) : (
-                certificates.map((cert) => {
-                  const hasCert = cert.metadata.hasCertificate !== false && Boolean(cert.certFileName);
-                  const lockHint = cert.metadata.privateKeyEncrypted
-                    ? cert.hasStoredPassphrase
-                      ? tr(' · Passwort hinterlegt', ' · Passphrase stored')
-                      : tr(' · Passwortgeschützt', ' · Passphrase protected')
-                    : '';
-                  return (
-                    <option key={cert.id} value={cert.id}>
-                      {cert.name} (
-                      {hasCert
-                        ? cert.metadata.isExpired
-                          ? tr('CA-Cert · abgelaufen', 'CA Cert · expired')
-                          : tr('CA-Cert', 'CA Cert')
-                        : tr('Keypair', 'Keypair')}
-                      )
-                      {lockHint}
-                    </option>
-                  );
-                })
+              onChange={setSelectedCertId}
+              disabled={isLive}
+              emptyText={tr('Kein Zertifikat vorhanden', 'No certificates available')}
+              searchPlaceholder={tr(
+                'Zertifikat, Key-ID oder Status filtern...',
+                'Filter certificate, key ID, or status...'
               )}
-            </select>
+              ariaLabel={tr('SSH-Zertifikat / Schlüsselpaar', 'SSH Certificate / Keypair')}
+              options={certificates.map((cert) => {
+                const hasCert = cert.metadata.hasCertificate !== false && Boolean(cert.certFileName);
+                const typeLabel = hasCert
+                  ? cert.metadata.isExpired
+                    ? tr('CA-Cert · abgelaufen', 'CA Cert · expired')
+                    : tr('CA-Cert', 'CA Cert')
+                  : tr('Keypair', 'Keypair');
+                const lockLabel = cert.metadata.privateKeyEncrypted
+                  ? cert.hasStoredPassphrase
+                    ? tr('Passwort hinterlegt', 'Passphrase stored')
+                    : tr('Passwortgeschützt', 'Passphrase protected')
+                  : '';
+                const sharedLabel = cert.userId !== user.id ? tr('Geteilt', 'Shared') : '';
+                return {
+                  value: cert.id,
+                  label: cert.name,
+                  triggerLabel: `${cert.name} (${typeLabel})${lockLabel ? ` · ${lockLabel}` : ''}`,
+                  meta: [typeLabel, lockLabel, sharedLabel].filter(Boolean).join(' · '),
+                  detail: cert.metadata.keyId || cert.certFileName || cert.publicKeyFileName || '',
+                  searchText: [
+                    cert.ownerUsername,
+                    hasCert ? 'ca cert zertifikat' : 'keypair schlüsselpaar',
+                    cert.metadata.isExpired ? 'abgelaufen expired' : '',
+                    cert.metadata.privateKeyEncrypted ? 'passwort passphrase encrypted' : '',
+                    cert.userId !== user.id ? 'geteilt shared' : '',
+                  ].join(' '),
+                };
+              })}
+            />
           </div>
 
           <div className="md:col-span-2 flex items-center gap-2">

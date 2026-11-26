@@ -26,6 +26,7 @@ import { useI18n } from '../i18n';
 import { ApiKeyCurlPanel } from './ApiKeyCurlPanel';
 import { PasswordStrengthHint } from './PasswordStrengthHint';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
+import { SearchableSelect } from './SearchableSelect';
 import { getPasswordComplexityError } from '../passwordPolicy';
 import type {
   AppSettings,
@@ -3225,53 +3226,56 @@ export function CertificatesView({
                 <label htmlFor="admin-cert-owner-filter" className="sr-only">
                   {tr('Nach Benutzer filtern', 'Filter by owner')}
                 </label>
-                <select
+                <SearchableSelect
                   id="admin-cert-owner-filter"
                   value={adminOwnerFilter}
-                  onChange={(e) => setAdminOwnerFilter(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                >
-                  <option value="all">
-                    {tr(
-                      `Alle Benutzer (${adminCertificates.length})`,
-                      `All Users (${adminCertificates.length})`
-                    )}
-                  </option>
-                  <option value="__others__">
-                    {tr(
-                      `Nur fremde Benutzer (${otherUsersCertCount})`,
-                      `Other Users Only (${otherUsersCertCount})`
-                    )}
-                  </option>
-                  <option value="__mine__">
-                    {tr(
-                      `Nur eigene (${ownAdminCertCount})`,
-                      `Own Only (${ownAdminCertCount})`
-                    )}
-                  </option>
-                  {adminOwnerOptions.length > 0 && (
-                    <optgroup label={tr('Einzelner Benutzer', 'Specific User')}>
-                      {adminOwnerOptions.map((o) => (
-                        <option key={o.userId} value={o.userId}>
-                          {o.username}
-                          {o.userId === user.id ? tr(' (ich)', ' (me)') : ''} ({o.count})
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
+                  onChange={setAdminOwnerFilter}
+                  ariaLabel={tr('Nach Benutzer filtern', 'Filter by owner')}
+                  searchPlaceholder={tr('Benutzer filtern...', 'Filter user...')}
+                  options={[
+                    {
+                      value: 'all',
+                      label: tr(
+                        `Alle Benutzer (${adminCertificates.length})`,
+                        `All Users (${adminCertificates.length})`
+                      ),
+                    },
+                    {
+                      value: '__others__',
+                      label: tr(
+                        `Nur fremde Benutzer (${otherUsersCertCount})`,
+                        `Other Users Only (${otherUsersCertCount})`
+                      ),
+                    },
+                    {
+                      value: '__mine__',
+                      label: tr(
+                        `Nur eigene (${ownAdminCertCount})`,
+                        `Own Only (${ownAdminCertCount})`
+                      ),
+                    },
+                    ...adminOwnerOptions.map((o) => ({
+                      value: o.userId,
+                      label: `${o.username}${o.userId === user.id ? tr(' (ich)', ' (me)') : ''} (${o.count})`,
+                      group: tr('Einzelner Benutzer', 'Specific User'),
+                      searchText: o.username,
+                    })),
+                  ]}
+                />
               </div>
 
               <div className="md:col-span-3">
                 <label htmlFor="admin-cert-type-filter" className="sr-only">
                   {tr('Nach Typ oder Status filtern', 'Filter by type or status')}
                 </label>
-                <select
+                <SearchableSelect
                   id="admin-cert-type-filter"
                   value={adminTypeFilter}
-                  onChange={(e) =>
+                  ariaLabel={tr('Nach Typ oder Status filtern', 'Filter by type or status')}
+                  searchPlaceholder={tr('Typ oder Status filtern...', 'Filter type or status...')}
+                  onChange={(val) =>
                     setAdminTypeFilter(
-                      e.target.value as
+                      val as
                         | 'all'
                         | 'cert'
                         | 'keypair'
@@ -3280,19 +3284,21 @@ export function CertificatesView({
                         | 'shared'
                     )
                   }
-                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                >
-                  <option value="all">{tr('Alle Typen & Status', 'All Types & Statuses')}</option>
-                  <option value="cert">
-                    {tr('3-Dateien-Zertifikat (mit CA)', '3-File Certificate (with CA)')}
-                  </option>
-                  <option value="keypair">
-                    {tr('Schlüsselpaar (2 Dateien)', 'Keypair (2 Files)')}
-                  </option>
-                  <option value="expired">{tr('Abgelaufen', 'Expired')}</option>
-                  <option value="encrypted">{tr('Passwortgeschützt', 'Passphrase-protected')}</option>
-                  <option value="shared">{tr('Geteilt', 'Shared')}</option>
-                </select>
+                  options={[
+                    { value: 'all', label: tr('Alle Typen & Status', 'All Types & Statuses') },
+                    {
+                      value: 'cert',
+                      label: tr('3-Dateien-Zertifikat (mit CA)', '3-File Certificate (with CA)'),
+                    },
+                    {
+                      value: 'keypair',
+                      label: tr('Schlüsselpaar (2 Dateien)', 'Keypair (2 Files)'),
+                    },
+                    { value: 'expired', label: tr('Abgelaufen', 'Expired') },
+                    { value: 'encrypted', label: tr('Passwortgeschützt', 'Passphrase-protected') },
+                    { value: 'shared', label: tr('Geteilt', 'Shared') },
+                  ]}
+                />
               </div>
             </div>
 
@@ -4226,26 +4232,31 @@ export function CertificatesView({
                       >
                         {tr('Zertifizierungsstelle (CA) *', 'Certificate Authority (CA) *')}
                       </label>
-                      <select
+                      <SearchableSelect
                         id="sign-ca-select"
                         value={signCaId}
-                        onChange={(e) => {
-                          setSignCaId(e.target.value);
+                        ariaLabel={tr('Zertifizierungsstelle (CA)', 'Certificate Authority (CA)')}
+                        searchPlaceholder={tr('CA, Schlüsseltyp oder Fingerprint filtern...', 'Filter CA, key type, or fingerprint...')}
+                        onChange={(val) => {
+                          setSignCaId(val);
                           setSignCaPassphrase('');
                           setSignConfirmForeignCa(false);
                           setSignError(null);
                         }}
-                        className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      >
-                        {cas.map((ca) => (
-                          <option key={ca.id} value={ca.id}>
-                            {ca.name} ({ca.keyType})
-                            {ca.hasStoredPassphrase
-                              ? tr(' · Passwort hinterlegt', ' · Passphrase stored')
-                              : tr(' · Passwort erforderlich', ' · Passphrase required')}
-                          </option>
-                        ))}
-                      </select>
+                        options={cas.map((ca) => {
+                          const lockLabel = ca.hasStoredPassphrase
+                            ? tr('Passwort hinterlegt', 'Passphrase stored')
+                            : tr('Passwort erforderlich', 'Passphrase required');
+                          return {
+                            value: ca.id,
+                            label: ca.name,
+                            triggerLabel: `${ca.name} (${ca.keyType}) · ${lockLabel}`,
+                            meta: `${ca.keyType} · ${lockLabel}`,
+                            detail: ca.fingerprint,
+                            searchText: `${ca.description || ''} ${ca.keyType} ${ca.fingerprint}`,
+                          };
+                        })}
+                      />
                       {selectedCa && (
                         <p className="mt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
                           {selectedCa.fingerprint}
@@ -4453,21 +4464,23 @@ export function CertificatesView({
                         >
                           {tr('Gültigkeitsdauer (-V)', 'Validity Period (-V)')}
                         </label>
-                        <select
+                        <SearchableSelect
                           id="sign-validity-select"
                           value={signValidityPreset}
-                          onChange={(e) => setSignValidityPreset(e.target.value)}
-                          className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        >
-                          <option value="+8h">{tr('8 Stunden (+8h)', '8 Hours (+8h)')}</option>
-                          <option value="+24h">{tr('24 Stunden (+24h)', '24 Hours (+24h)')}</option>
-                          <option value="+7d">{tr('7 Tage (+7d)', '7 Days (+7d)')}</option>
-                          <option value="+30d">{tr('30 Tage (+30d)', '30 Days (+30d)')}</option>
-                          <option value="+90d">{tr('90 Tage (+90d)', '90 Days (+90d)')}</option>
-                          <option value="+52w">{tr('1 Jahr (+52w)', '1 Year (+52w)')}</option>
-                          <option value="forever">{tr('Unbegrenzt (forever)', 'Forever (no expiry)')}</option>
-                          <option value="custom">{tr('Benutzerdefiniert...', 'Custom...')}</option>
-                        </select>
+                          onChange={setSignValidityPreset}
+                          ariaLabel={tr('Gültigkeitsdauer (-V)', 'Validity Period (-V)')}
+                          searchPlaceholder={tr('Gültigkeit filtern...', 'Filter validity...')}
+                          options={[
+                            { value: '+8h', label: tr('8 Stunden (+8h)', '8 Hours (+8h)') },
+                            { value: '+24h', label: tr('24 Stunden (+24h)', '24 Hours (+24h)') },
+                            { value: '+7d', label: tr('7 Tage (+7d)', '7 Days (+7d)') },
+                            { value: '+30d', label: tr('30 Tage (+30d)', '30 Days (+30d)') },
+                            { value: '+90d', label: tr('90 Tage (+90d)', '90 Days (+90d)') },
+                            { value: '+52w', label: tr('1 Jahr (+52w)', '1 Year (+52w)') },
+                            { value: 'forever', label: tr('Unbegrenzt (forever)', 'Forever (no expiry)') },
+                            { value: 'custom', label: tr('Benutzerdefiniert...', 'Custom...') },
+                          ]}
+                        />
                         {signValidityPreset === 'custom' && (
                           <input
                             type="text"
@@ -4566,31 +4579,41 @@ export function CertificatesView({
                               >
                                 {tr('Erneuerungszeitpunkt:', 'Renewal lead time:')}
                               </label>
-                              <select
+                              <SearchableSelect
                                 id="sign-autorenew-lead"
-                                value={signAutoRenewBeforeSec}
-                                onChange={(e) => setSignAutoRenewBeforeSec(Number(e.target.value))}
-                                className="px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                              >
-                                <option value={0}>
-                                  {tr('Automatisch (20 % vor Ablauf)', 'Automatic (20% before expiry)')}
-                                </option>
-                                <option value={3600}>
-                                  {tr('1 Stunde vor Ablauf', '1 hour before expiry')}
-                                </option>
-                                <option value={21600}>
-                                  {tr('6 Stunden vor Ablauf', '6 hours before expiry')}
-                                </option>
-                                <option value={86400}>
-                                  {tr('24 Stunden vor Ablauf', '24 hours before expiry')}
-                                </option>
-                                <option value={259200}>
-                                  {tr('3 Tage vor Ablauf', '3 days before expiry')}
-                                </option>
-                                <option value={604800}>
-                                  {tr('7 Tage vor Ablauf', '7 days before expiry')}
-                                </option>
-                              </select>
+                                size="xs"
+                                className="w-full sm:w-56"
+                                value={String(signAutoRenewBeforeSec)}
+                                onChange={(val) => setSignAutoRenewBeforeSec(Number(val))}
+                                ariaLabel={tr('Erneuerungszeitpunkt', 'Renewal lead time')}
+                                searchPlaceholder={tr('Zeitraum filtern...', 'Filter lead time...')}
+                                options={[
+                                  {
+                                    value: '0',
+                                    label: tr('Automatisch (20 % vor Ablauf)', 'Automatic (20% before expiry)'),
+                                  },
+                                  {
+                                    value: '3600',
+                                    label: tr('1 Stunde vor Ablauf', '1 hour before expiry'),
+                                  },
+                                  {
+                                    value: '21600',
+                                    label: tr('6 Stunden vor Ablauf', '6 hours before expiry'),
+                                  },
+                                  {
+                                    value: '86400',
+                                    label: tr('24 Stunden vor Ablauf', '24 hours before expiry'),
+                                  },
+                                  {
+                                    value: '259200',
+                                    label: tr('3 Tage vor Ablauf', '3 days before expiry'),
+                                  },
+                                  {
+                                    value: '604800',
+                                    label: tr('7 Tage vor Ablauf', '7 days before expiry'),
+                                  },
+                                ]}
+                              />
                             </div>
                           )}
                         </div>
@@ -4791,25 +4814,30 @@ export function CertificatesView({
                       >
                         {tr('Zugewiesene Zertifizierungsstelle (CA)', 'Assigned Certificate Authority (CA)')}
                       </label>
-                      <select
+                      <SearchableSelect
                         id="self-sign-ca-select"
                         value={selfSignCaId}
-                        onChange={(e) => {
-                          setSelfSignCaId(e.target.value);
+                        ariaLabel={tr('Zugewiesene Zertifizierungsstelle (CA)', 'Assigned Certificate Authority (CA)')}
+                        searchPlaceholder={tr('CA, Schlüsseltyp oder Fingerprint filtern...', 'Filter CA, key type, or fingerprint...')}
+                        onChange={(val) => {
+                          setSelfSignCaId(val);
                           setSelfSignConfirmForeignCa(false);
                           setSelfSignError(null);
                         }}
-                        className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      >
-                        {assignedCas.map((ca) => (
-                          <option key={ca.id} value={ca.id}>
-                            {ca.name} ({ca.keyType})
-                            {ca.hasStoredPassphrase
-                              ? ''
-                              : tr(' · Passwort fehlt', ' · Passphrase missing')}
-                          </option>
-                        ))}
-                      </select>
+                        options={assignedCas.map((ca) => {
+                          const missingHint = ca.hasStoredPassphrase
+                            ? ''
+                            : tr('Passwort fehlt', 'Passphrase missing');
+                          return {
+                            value: ca.id,
+                            label: ca.name,
+                            triggerLabel: `${ca.name} (${ca.keyType})${missingHint ? ` · ${missingHint}` : ''}`,
+                            meta: [ca.keyType, missingHint].filter(Boolean).join(' · '),
+                            detail: ca.fingerprint,
+                            searchText: `${ca.description || ''} ${ca.keyType} ${ca.fingerprint}`,
+                          };
+                        })}
+                      />
                       {selectedCa && (
                         <p className="mt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
                           {selectedCa.fingerprint}

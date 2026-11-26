@@ -22,6 +22,7 @@ import { api } from '../api';
 import { translateCategory, useI18n } from '../i18n';
 import { ShareDialog, formatShareSummary } from './ShareDialog';
 import { BulkCommandsDialog, type BulkCommandsPayload } from './BulkSettingsDialogs';
+import { SearchableSelect } from './SearchableSelect';
 import {
   parseAndValidateWorkflow,
   type WorkflowStep,
@@ -659,18 +660,18 @@ export function CommandsAdminView({ currentUser, users, commands, onRefresh }: C
             <label htmlFor="cmd-cat" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               {tr('Kategorie', 'Category')}
             </label>
-            <select
+            <SearchableSelect
               id="cmd-cat"
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-            >
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {translateCategory(cat, locale)}
-                </option>
-              ))}
-            </select>
+              onChange={setCategory}
+              searchPlaceholder={tr('Kategorie filtern...', 'Filter category...')}
+              ariaLabel={tr('Kategorie', 'Category')}
+              options={CATEGORIES.map((cat) => ({
+                value: cat,
+                label: translateCategory(cat, locale),
+                searchText: cat,
+              }))}
+            />
           </div>
 
           <div className="lg:col-span-3">

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { translateCategory, useI18n } from '../i18n';
 import type { ShareableUser, SshCommand, UserServer } from '../types';
+import { SearchableSelect } from './SearchableSelect';
 
 type ShareBulkMode = 'unchanged' | 'private' | 'all' | 'selected';
 type TriState = 'unchanged' | 'on' | 'off';
@@ -839,19 +840,25 @@ export function BulkCommandsDialog({
               <label htmlFor="bulk-cmd-category" className="block text-xs font-semibold text-slate-900 dark:text-slate-100">
                 {tr('Befehlskategorie', 'Command Category')}
               </label>
-              <select
+              <SearchableSelect
                 id="bulk-cmd-category"
+                size="xs"
                 value={categoryValue}
-                onChange={(e) => setCategoryValue(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-              >
-                <option value="__unchanged__">{tr('— Unverändert lassen —', '— Keep unchanged —')}</option>
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {translateCategory(cat, locale)}
-                  </option>
-                ))}
-              </select>
+                onChange={setCategoryValue}
+                searchPlaceholder={tr('Kategorie filtern...', 'Filter category...')}
+                ariaLabel={tr('Befehlskategorie', 'Command Category')}
+                options={[
+                  {
+                    value: '__unchanged__',
+                    label: tr('— Unverändert lassen —', '— Keep unchanged —'),
+                  },
+                  ...categories.map((cat) => ({
+                    value: cat,
+                    label: translateCategory(cat, locale),
+                    searchText: cat,
+                  })),
+                ]}
+              />
             </div>
           )}
 
